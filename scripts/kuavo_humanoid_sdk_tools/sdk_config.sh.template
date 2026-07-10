@@ -1,0 +1,48 @@
+#!/bin/bash
+# sdk_config.sh.template - Kuavo Humanoid SDK 配置模板 (LeTools)
+# 
+# 📖 使用说明：
+# 此文件由 install_sdk.sh 自动生成或手动修改。
+# sdk_config.sh 已加入 .gitignore，不会被 git 跟踪。
+
+# ============================================
+# ROS 环境配置
+# ============================================
+
+# ROS devel 目录路径（相对于 LeTools 项目根目录）
+export SDK_ROS_DEVEL_PATH="infrastructure/ros_packages/devel/"
+
+# ROS installed 目录路径（相对于项目根目录）
+export SDK_ROS_INSTALLED_PATH="infrastructure/ros_packages/installed/lib/python3/dist-packages"
+
+# ============================================
+# Git 版本获取配置
+# ============================================
+
+# ⚠️  重要：版本获取策略
+# 💡 推荐设置："upstream" (从上游 submodule 获取，与代码来源一致)
+export SDK_VERSION_STRATEGY="upstream"
+
+# 如果以上策略都失败，使用的默认版本
+export SDK_DEFAULT_VERSION="0.0.0-dev"
+
+# ============================================
+# pip 配置
+# ============================================
+
+# 是否自动备份原 pip 源
+export SDK_BACKUP_PIP_SOURCE=true
+
+# pip 镜像源（根据网络环境选择）
+export SDK_PIP_MIRROR="https://pypi.tuna.tsinghua.edu.cn/simple/"
+
+# ============================================
+# 高级配置
+# ============================================
+
+# ROS 消息包名称（空格分隔）
+# 注意：安装时只复制基础包，motion_capture_ik 作为运行时节点存在
+export SDK_MSG_PACKAGES="kuavo_msgs ocs2_msgs"
+
+# 是否安装可选依赖: "" (无), "audio", "vision", "full"
+export SDK_EXTRAS=""

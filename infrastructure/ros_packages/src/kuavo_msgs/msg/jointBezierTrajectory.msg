@@ -1,0 +1,1 @@
+kuavo_msgs/bezierCurveCubicPoint[] bezier_curve_points

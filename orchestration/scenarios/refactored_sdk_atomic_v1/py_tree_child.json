@@ -1,0 +1,512 @@
+{
+  "demo_cmd_pose_base.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "demo_cmd_pose_base_seq",
+      "params": {
+        "memory": { "value": "True", "source": "CUSTOM", "data_type": "string" }
+      },
+      "childs": [
+        {
+          "name": "BasePoseLocalMove",
+          "label": "forward_0p5m",
+          "params": {
+            "x": { "value": "0.5", "source": "CUSTOM", "data_type": "float" },
+            "y": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "yaw": { "value": "0.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "BasePoseLocalMove",
+          "label": "backward_0p3m",
+          "params": {
+            "x": { "value": "-0.3", "source": "CUSTOM", "data_type": "float" },
+            "y": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "yaw": { "value": "0.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "BasePoseLocalMove",
+          "label": "left_0p3m",
+          "params": {
+            "x": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "y": { "value": "0.3", "source": "CUSTOM", "data_type": "float" },
+            "yaw": { "value": "0.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "BasePoseLocalMove",
+          "label": "right_0p3m",
+          "params": {
+            "x": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "y": { "value": "-0.3", "source": "CUSTOM", "data_type": "float" },
+            "yaw": { "value": "0.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "BasePoseLocalMove",
+          "label": "rotate_ccw_90deg",
+          "params": {
+            "x": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "y": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "yaw": { "value": "90.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "BasePoseLocalMove",
+          "label": "rotate_cw_90deg",
+          "params": {
+            "x": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "y": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "yaw": { "value": "-90.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "BasePoseLocalMove",
+          "label": "full_rotation_360deg",
+          "params": {
+            "x": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "y": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "yaw": { "value": "360.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "BasePoseLocalMove",
+          "label": "combined_x0p3_yaw45",
+          "params": {
+            "x": { "value": "0.3", "source": "CUSTOM", "data_type": "float" },
+            "y": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "yaw": { "value": "45.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        }
+      ],
+      "childBoard": []
+    }
+  },
+  "demo_leg_arm_parallel.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "demo_leg_arm_parallel_seq",
+      "params": {
+        "memory": { "value": "True", "source": "CUSTOM", "data_type": "string" }
+      },
+      "childs": [
+        {
+          "name": "Parallel",
+          "label": "phase1_parallel",
+          "params": {
+            "policy": { "value": "success_on_all", "source": "CUSTOM", "data_type": "string" }
+          },
+          "childs": [
+            {
+              "name": "Async",
+              "label": "leg_zero_async",
+              "params": { "tick_hz": { "value": "50.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [
+                {
+                  "name": "LegJointSdkMove",
+                  "label": "leg_zero_3s",
+                  "params": {
+                    "j0": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+                    "j1": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+                    "j2": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+                    "j3": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+                    "total_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" }
+                  },
+                  "childs": [],
+                  "childBoard": []
+                }
+              ],
+              "childBoard": []
+            },
+            {
+              "name": "Async",
+              "label": "arm_home_to_spread_async",
+              "params": { "tick_hz": { "value": "50.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [
+                {
+                  "name": "ArmJointTrajSdkMove",
+                  "label": "arm_home_to_spread_3s",
+                  "params": {
+                    "use_board_trajectory": { "value": "false", "source": "CUSTOM", "data_type": "string" },
+                    "total_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" },
+                    "joint_traj": {
+                      "value": [
+                        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        [-30.0, 20.0, 15.0, -45.0, 25.0, 10.0, -35.0, -30.0, -20.0, -15.0, -45.0, -25.0, -10.0, -35.0]
+                      ],
+                      "source": "CUSTOM",
+                      "data_type": "string"
+                    }
+                  },
+                  "childs": [],
+                  "childBoard": []
+                }
+              ],
+              "childBoard": []
+            }
+          ],
+          "childBoard": []
+        },
+        {
+          "name": "WaitSeconds",
+          "label": "hold_1s_1",
+          "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "Parallel",
+          "label": "phase2_parallel",
+          "params": {
+            "policy": { "value": "success_on_all", "source": "CUSTOM", "data_type": "string" }
+          },
+          "childs": [
+            {
+              "name": "Async",
+              "label": "leg_target_async",
+              "params": { "tick_hz": { "value": "50.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [
+                {
+                  "name": "LegJointSdkMove",
+                  "label": "leg_target_3s",
+                  "params": {
+                    "j0": { "value": "14.90", "source": "CUSTOM", "data_type": "float" },
+                    "j1": { "value": "-32.01", "source": "CUSTOM", "data_type": "float" },
+                    "j2": { "value": "18.03", "source": "CUSTOM", "data_type": "float" },
+                    "j3": { "value": "-45.0", "source": "CUSTOM", "data_type": "float" },
+                    "total_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" }
+                  },
+                  "childs": [],
+                  "childBoard": []
+                }
+              ],
+              "childBoard": []
+            },
+            {
+              "name": "Async",
+              "label": "arm_bend_to_home_async",
+              "params": { "tick_hz": { "value": "50.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [
+                {
+                  "name": "ArmJointTrajSdkMove",
+                  "label": "arm_bend_to_home_3s",
+                  "params": {
+                    "use_board_trajectory": { "value": "false", "source": "CUSTOM", "data_type": "string" },
+                    "total_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" },
+                    "joint_traj": {
+                      "value": [
+                        [-20.0, 30.0, -25.0, -20.0, 40.0, -15.0, 25.0, -20.0, -30.0, 25.0, -20.0, -40.0, 15.0, 25.0],
+                        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                      ],
+                      "source": "CUSTOM",
+                      "data_type": "string"
+                    }
+                  },
+                  "childs": [],
+                  "childBoard": []
+                }
+              ],
+              "childBoard": []
+            }
+          ],
+          "childBoard": []
+        },
+        {
+          "name": "Parallel",
+          "label": "phase1_parallel_repeat",
+          "params": {
+            "policy": { "value": "success_on_all", "source": "CUSTOM", "data_type": "string" }
+          },
+          "childs": [
+            {
+              "name": "Async",
+              "label": "leg_zero_async_r2",
+              "params": { "tick_hz": { "value": "50.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [
+                {
+                  "name": "LegJointSdkMove",
+                  "label": "leg_zero_3s_r2",
+                  "params": {
+                    "j0": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+                    "j1": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+                    "j2": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+                    "j3": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+                    "total_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" }
+                  },
+                  "childs": [],
+                  "childBoard": []
+                }
+              ],
+              "childBoard": []
+            },
+            {
+              "name": "Async",
+              "label": "arm_home_to_spread_async_r2",
+              "params": { "tick_hz": { "value": "50.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [
+                {
+                  "name": "ArmJointTrajSdkMove",
+                  "label": "arm_home_to_spread_3s_r2",
+                  "params": {
+                    "use_board_trajectory": { "value": "false", "source": "CUSTOM", "data_type": "string" },
+                    "total_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" },
+                    "joint_traj": {
+                      "value": [
+                        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        [-30.0, 20.0, 15.0, -45.0, 25.0, 10.0, -35.0, -30.0, -20.0, -15.0, -45.0, -25.0, -10.0, -35.0]
+                      ],
+                      "source": "CUSTOM",
+                      "data_type": "string"
+                    }
+                  },
+                  "childs": [],
+                  "childBoard": []
+                }
+              ],
+              "childBoard": []
+            }
+          ],
+          "childBoard": []
+        },
+        {
+          "name": "WaitSeconds",
+          "label": "hold_1s_2",
+          "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "Parallel",
+          "label": "phase2_parallel_repeat",
+          "params": {
+            "policy": { "value": "success_on_all", "source": "CUSTOM", "data_type": "string" }
+          },
+          "childs": [
+            {
+              "name": "Async",
+              "label": "leg_target_async_r2",
+              "params": { "tick_hz": { "value": "50.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [
+                {
+                  "name": "LegJointSdkMove",
+                  "label": "leg_target_3s_r2",
+                  "params": {
+                    "j0": { "value": "14.90", "source": "CUSTOM", "data_type": "float" },
+                    "j1": { "value": "-32.01", "source": "CUSTOM", "data_type": "float" },
+                    "j2": { "value": "18.03", "source": "CUSTOM", "data_type": "float" },
+                    "j3": { "value": "-45.0", "source": "CUSTOM", "data_type": "float" },
+                    "total_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" }
+                  },
+                  "childs": [],
+                  "childBoard": []
+                }
+              ],
+              "childBoard": []
+            },
+            {
+              "name": "Async",
+              "label": "arm_bend_to_home_async_r2",
+              "params": { "tick_hz": { "value": "50.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [
+                {
+                  "name": "ArmJointTrajSdkMove",
+                  "label": "arm_bend_to_home_3s_r2",
+                  "params": {
+                    "use_board_trajectory": { "value": "false", "source": "CUSTOM", "data_type": "string" },
+                    "total_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" },
+                    "joint_traj": {
+                      "value": [
+                        [-20.0, 30.0, -25.0, -20.0, 40.0, -15.0, 25.0, -20.0, -30.0, 25.0, -20.0, -40.0, 15.0, 25.0],
+                        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                      ],
+                      "source": "CUSTOM",
+                      "data_type": "string"
+                    }
+                  },
+                  "childs": [],
+                  "childBoard": []
+                }
+              ],
+              "childBoard": []
+            }
+          ],
+          "childBoard": []
+        },
+        {
+          "name": "TorsoResetSdkMove",
+          "label": "torso_reset_after_leg_arm",
+          "params": {},
+          "childs": [],
+          "childBoard": []
+        }
+      ],
+      "childBoard": []
+    }
+  },
+  "demo_head_control.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "demo_head_control_seq",
+      "params": {
+        "memory": { "value": "True", "source": "CUSTOM", "data_type": "string" }
+      },
+      "childs": [
+        {
+          "name": "HeadControlSdkMove",
+          "label": "center",
+          "params": {
+            "yaw_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "pitch_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "WaitSeconds",
+          "label": "wait_1s_0",
+          "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "HeadControlSdkMove",
+          "label": "look_left_30",
+          "params": {
+            "yaw_deg": { "value": "30.0", "source": "CUSTOM", "data_type": "float" },
+            "pitch_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "WaitSeconds",
+          "label": "wait_1s_1",
+          "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "HeadControlSdkMove",
+          "label": "look_right_30",
+          "params": {
+            "yaw_deg": { "value": "-30.0", "source": "CUSTOM", "data_type": "float" },
+            "pitch_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "WaitSeconds",
+          "label": "wait_1s_2",
+          "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "HeadControlSdkMove",
+          "label": "look_up_20",
+          "params": {
+            "yaw_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "pitch_deg": { "value": "20.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "WaitSeconds",
+          "label": "wait_1s_3",
+          "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "HeadControlSdkMove",
+          "label": "look_down_20",
+          "params": {
+            "yaw_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "pitch_deg": { "value": "-20.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "WaitSeconds",
+          "label": "wait_1s_4",
+          "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "HeadControlSdkMove",
+          "label": "scan_left",
+          "params": {
+            "yaw_deg": { "value": "30.0", "source": "CUSTOM", "data_type": "float" },
+            "pitch_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "WaitSeconds",
+          "label": "wait_1p5s_1",
+          "params": { "duration_sec": { "value": "1.5", "source": "CUSTOM", "data_type": "float" } },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "HeadControlSdkMove",
+          "label": "scan_right",
+          "params": {
+            "yaw_deg": { "value": "-30.0", "source": "CUSTOM", "data_type": "float" },
+            "pitch_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "WaitSeconds",
+          "label": "wait_1p5s_2",
+          "params": { "duration_sec": { "value": "1.5", "source": "CUSTOM", "data_type": "float" } },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "HeadControlSdkMove",
+          "label": "scan_center",
+          "params": {
+            "yaw_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "pitch_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "WaitSeconds",
+          "label": "wait_1p5s_3",
+          "params": { "duration_sec": { "value": "1.5", "source": "CUSTOM", "data_type": "float" } },
+          "childs": [],
+          "childBoard": []
+        }
+      ],
+      "childBoard": []
+    }
+  }
+}
+

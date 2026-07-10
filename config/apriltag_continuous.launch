@@ -1,0 +1,23 @@
+<launch>
+  <!-- LeTools 自有 AprilTag 连续检测 launch -->
+  <!-- settings_file 和 tags_file 由 perception_adapter.py 传入绝对路径 -->
+
+  <arg name="launch_prefix" default=""/>
+  <arg name="camera_name" default="/camera/color"/>
+  <arg name="image_topic" default="image_raw"/>
+  <arg name="queue_size" default="1"/>
+  <arg name="settings_file"/>
+  <arg name="tags_file"/>
+
+  <node pkg="apriltag_ros" type="apriltag_ros_continuous_node" name="apriltag_ros_continuous_node" clear_params="true" output="screen" launch-prefix="$(arg launch_prefix)">
+    <remap from="image_rect" to="$(arg camera_name)/$(arg image_topic)"/>
+    <remap from="camera_info" to="$(arg camera_name)/camera_info"/>
+
+    <param name="publish_tag_detections_image" type="bool" value="false"/>
+    <param name="queue_size" type="int" value="$(arg queue_size)"/>
+
+    <!-- 从 LeTools config/ 加载参数 -->
+    <rosparam command="load" file="$(arg settings_file)"/>
+    <rosparam command="load" file="$(arg tags_file)"/>
+  </node>
+</launch>

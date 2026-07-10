@@ -1,0 +1,4 @@
+[submodule "drivers/leju/kuavo_humanoid_sdk"]
+	path = drivers/leju/kuavo_humanoid_sdk
+	url = https://gitcode.com/OpenLET/kuavo-ros-opensource.git
+	branch = dev

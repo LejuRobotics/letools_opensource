@@ -1,0 +1,49 @@
+<launch>
+    <!-- 保留旧版本参数 适配yoloV8等案例 -->
+    <arg name = "use_orbbec" default = "true"/>
+    <param name="use_orbbec" value = "$(arg use_orbbec)"/>
+    <arg name = "all_enable" default = "false"/>
+    <arg name = "enable_wrist_camera" default = "false"/>
+    <arg name="with_wrist_camera" default="$(arg enable_wrist_camera)" />
+    
+    <!-- 启动 orbbec335L相机 -->
+    <include file="$(find orbbec_camera)/launch/gemini_330_series.launch" >
+        <arg name="camera_name"   value="camera" />
+        <arg name="serial_number" value="$(env HEAD_CAMERA_SERIAL_NO)" />
+        <arg name="color_width"   value="1280"/>
+        <arg name="color_height"  value="800"/>
+        <arg name="color_fps"     value="60" />
+        <arg name="depth_width"   value="1280"/>
+        <arg name="depth_height"  value="800"/>
+        <arg name="depth_fps"     value="30"/>
+    </include>
+
+    <include file="$(find orbbec_camera)/launch/gemini_330_series.launch" >
+        <arg name="camera_name"   value="waist_camera" />
+        <arg name="serial_number" value="$(env WAIST_CAMERA_SERIAL_NO)" />
+        <arg name="color_width"   value="1280"/>
+        <arg name="color_height"  value="800"/>
+        <arg name="color_fps"     value="60" />
+        <arg name="depth_width"   value="1280"/>
+        <arg name="depth_height"  value="800"/>
+        <arg name="depth_fps"     value="30"/>
+    </include>
+
+    <!-- 启动 手腕realsense相机 -->
+    <group if="$(arg with_wrist_camera)">
+      <include file="$(find realsense2_camera)/launch/rs_camera.launch" >
+        <arg name="camera" value="left_wrist_camera" />
+        <arg name="tf_prefix" value="left_wrist_camera" />
+        <arg name="serial_no" value="$(env LEFT_WRIST_CAMERA_SERIAL_NO)" />
+      </include>
+    </group>
+
+    <group if="$(arg with_wrist_camera)">
+      <include file="$(find realsense2_camera)/launch/rs_camera.launch" >
+        <arg name="camera" value="right_wrist_camera" />
+        <arg name="tf_prefix" value="right_wrist_camera" />
+        <arg name="serial_no" value="$(env RIGHT_WRIST_CAMERA_SERIAL_NO)" />
+      </include>
+    </group>
+
+</launch>

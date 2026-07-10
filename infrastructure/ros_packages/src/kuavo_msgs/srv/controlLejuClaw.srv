@@ -1,0 +1,30 @@
+
+# kuavo_msgs/endEffectorData:
+# string[] name  
+# float64[] position
+# float64[] velocity  
+# float64[] effort
+# 
+# ** For the Service Notes **
+# 
+# name     : 'left_claw' , 'right_claw'
+# position : 0 ~ 100, the percentage of the claw's opening angle
+#            0: closed, 100: open   
+# velocity : 0 ~ 100, if size is 0, will use default `50.0`.
+# effort   : torque/current, better 1A ~ 2A, if size is 0, will use default `1.0`.
+# 
+# ** Example **
+# Request:
+# data:
+#   - name: ['left_claw', 'right_claw']
+#     position: [20.0, 20.0]
+#     velocity: [50.0, 50.0]
+#     effort: [1.0, 1.0]
+#
+# Response:
+# success: True/False, call service success or not.
+# message: 'success'
+kuavo_msgs/endEffectorData data
+---
+bool success
+string message

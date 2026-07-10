@@ -1,0 +1,22 @@
+# This service returns a list of available gestures.
+# It is used to query the system for all gestures that can be recognized or performed.
+#
+# Request:
+# No input parameters are required.
+#
+# Response:
+# bool success                # Indicates whether the request was successful.
+# int32 gesture_count         # The number of gestures returned in the list.
+# string message              # A message indicating the result of the request.
+# kuavo_msgs/gestureInfo[] gesture_infos # A list of gesture information, each containing the name, alias, and description of a gesture.
+
+# Define the GestureInfo message
+# string gesture_name        # The name of the gesture.
+# string[] alias             # A list of aliases for the gesture.
+# string description         # A description of the gesture.
+
+---
+bool success
+int32 gesture_count
+string message
+kuavo_msgs/gestureInfo[] gesture_infos

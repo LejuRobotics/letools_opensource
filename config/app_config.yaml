@@ -1,0 +1,14 @@
+# Kuavo Studio 5W 轮臂统一应用配置（阶段 1）
+# 消费方：HardwareFactory、shared_hardware、编排/技能注入
+
+robot_type: leju_wheeled
+
+backend:
+  base_velocity: ros
+  timed_commands: sdk
+  end_effector: ros
+  default: ros
+
+camera:
+  use_orbbec: true
+  enable_wrist_camera: false

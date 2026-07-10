@@ -1,0 +1,588 @@
+[
+  {
+    "name": "TreeNode",
+    "label": "TreeNode",
+    "inputs": [],
+    "order": 0,
+    "drag": false,
+    "children": []
+  },
+  {
+    "name": "assembly",
+    "label": "assembly",
+    "inputs": [],
+    "order": 3,
+    "drag": false,
+    "children": [
+      {
+        "name": "choose",
+        "label": "choose",
+        "parentName": "assembly",
+        "inputs": [],
+        "order": 1,
+        "drag": false,
+        "children": [
+          {
+            "name": "Selector",
+            "label": "Selector",
+            "parentName": "choose",
+            "shape": "CUSTOM_OCTAGON",
+            "inputs": [
+              {
+                "key": "memory",
+                "label": "memory",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              }
+            ],
+            "order": 1,
+            "drag": true,
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "concurrency",
+        "label": "concurrency",
+        "parentName": "assembly",
+        "inputs": [],
+        "order": 2,
+        "drag": false,
+        "children": [
+          {
+            "name": "Parallel",
+            "label": "Parallel",
+            "parentName": "concurrency",
+            "shape": "CUSTOM_PARALLELOGRAM",
+            "inputs": [
+              {
+                "key": "policy",
+                "label": "policy",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              },
+              {
+                "key": "Selected-labels",
+                "label": "Selected-labels",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 2
+              }
+            ],
+            "order": 1,
+            "drag": true,
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "decorate",
+        "label": "decorate",
+        "parentName": "assembly",
+        "inputs": [],
+        "order": 4,
+        "drag": false,
+        "children": [
+          {
+            "name": "Condition",
+            "label": "Condition",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [
+              {
+                "key": "status",
+                "label": "status",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              }
+            ],
+            "order": 1,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "Count",
+            "label": "Count",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [],
+            "order": 2,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "Decorator",
+            "label": "Decorator",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [],
+            "order": 3,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "EternalGuard",
+            "label": "EternalGuard",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [
+              {
+                "key": "condition",
+                "label": "condition",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              },
+              {
+                "key": "blackboard_keys",
+                "label": "blackboard_keys",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 2
+              }
+            ],
+            "order": 4,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "FailureIsRunning",
+            "label": "FailureIsRunning",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [],
+            "order": 5,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "FailureIsSuccess",
+            "label": "FailureIsSuccess",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [],
+            "order": 6,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "ForEach",
+            "label": "ForEach",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [
+              {
+                "key": "source_key",
+                "label": "source_key",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              },
+              {
+                "key": "target_key",
+                "label": "target_key",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 2
+              }
+            ],
+            "order": 7,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "Inverter",
+            "label": "Inverter",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [],
+            "order": 8,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "OneShot",
+            "label": "OneShot",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [
+              {
+                "key": "policy",
+                "label": "policy",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              }
+            ],
+            "order": 9,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "PassThrough",
+            "label": "PassThrough",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [],
+            "order": 10,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "Repeat",
+            "label": "Repeat",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [
+              {
+                "key": "num_success",
+                "label": "num_success",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              }
+            ],
+            "order": 11,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "Retry",
+            "label": "Retry",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [
+              {
+                "key": "num_failures",
+                "label": "num_failures",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              }
+            ],
+            "order": 12,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "RunningIsFailure",
+            "label": "RunningIsFailure",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [],
+            "order": 13,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "RunningIsSuccess",
+            "label": "RunningIsSuccess",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [],
+            "order": 14,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "StatusToBlackboard",
+            "label": "StatusToBlackboard",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [
+              {
+                "key": "variable_name",
+                "label": "variable_name",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              }
+            ],
+            "order": 15,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "SuccessIsFailure",
+            "label": "SuccessIsFailure",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [],
+            "order": 16,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "SuccessIsRunning",
+            "label": "SuccessIsRunning",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [],
+            "order": 17,
+            "drag": true,
+            "children": []
+          },
+          {
+            "name": "Timeout",
+            "label": "Timeout",
+            "parentName": "decorate",
+            "shape": "CUSTOM_RECT",
+            "inputs": [
+              {
+                "key": "duration",
+                "label": "duration",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              }
+            ],
+            "order": 18,
+            "drag": true,
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "serial",
+        "label": "serial",
+        "parentName": "assembly",
+        "inputs": [],
+        "order": 3,
+        "drag": false,
+        "children": [
+          {
+            "name": "Sequence",
+            "label": "Sequence",
+            "parentName": "serial",
+            "shape": "CUSTOM_RECT",
+            "inputs": [
+              {
+                "key": "memory",
+                "label": "memory",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              }
+            ],
+            "order": 1,
+            "drag": true,
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "common",
+    "label": "common",
+    "inputs": [],
+    "order": 1,
+    "drag": false,
+    "children": [
+      {
+        "name": "base",
+        "label": "base",
+        "parentName": "common",
+        "inputs": [],
+        "order": 1,
+        "drag": false,
+        "children": [
+          {
+            "name": "root",
+            "label": "root",
+            "parentName": "base",
+            "shape": "CUSTOM_RECTCOMP",
+            "inputs": [],
+            "order": 1,
+            "drag": true,
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "custom",
+    "label": "custom",
+    "inputs": [],
+    "order": 4,
+    "drag": false,
+    "children": []
+  },
+  {
+    "name": "skill",
+    "label": "skill",
+    "inputs": [],
+    "order": 2,
+    "drag": false,
+    "children": [
+      {
+        "name": "studio_smoke",
+        "label": "studio_smoke",
+        "inputs": [],
+        "order": 2,
+        "drag": false,
+        "children": [
+          {
+            "name": "ChassisShortMove",
+            "label": "底盘短动",
+            "parentName": "studio_smoke",
+            "inputs": [
+              {
+                "key": "vx",
+                "label": "m/s",
+                "purpose": "CUSTOM",
+                "type": "float",
+                "order": 1
+              },
+              {
+                "key": "vy",
+                "label": "m/s",
+                "purpose": "CUSTOM",
+                "type": "float",
+                "order": 2
+              },
+              {
+                "key": "vyaw",
+                "label": "rad/s",
+                "purpose": "CUSTOM",
+                "type": "float",
+                "order": 3
+              },
+              {
+                "key": "duration_sec",
+                "label": "秒",
+                "purpose": "CUSTOM",
+                "type": "float",
+                "order": 4
+              }
+            ],
+            "order": 1,
+            "drag": true,
+            "initBoard": [],
+            "readBoard": [],
+            "writeBoard": [],
+            "children": []
+          },
+          {
+            "name": "WaitForEnter",
+            "label": "按Enter继续",
+            "parentName": "studio_smoke",
+            "inputs": [
+              {
+                "key": "message",
+                "label": "暂停时的提示信息",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              }
+            ],
+            "order": 2,
+            "drag": true,
+            "initBoard": [],
+            "readBoard": [],
+            "writeBoard": [],
+            "children": []
+          },
+          {
+            "name": "MoveArmBaseJointTrajectories",
+            "label": "手臂关节轨迹运动",
+            "parentName": "studio_smoke",
+            "inputs": [
+              {
+                "key": "use_board_trajectory",
+                "label": "true 时用黑板末帧走 arm_control",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              }
+            ],
+            "order": 3,
+            "drag": true,
+            "initBoard": [],
+            "readBoard": [
+              {
+                "key": "ArmJointTrajectories",
+                "remark": "times + q_frames（度）",
+                "type": "dict"
+              }
+            ],
+            "writeBoard": [],
+            "children": []
+          },
+          {
+            "name": "MoveHead",
+            "label": "控制头部移动",
+            "parentName": "studio_smoke",
+            "inputs": [
+              {
+                "key": "mode",
+                "label": "manual / from_board / smoke",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 1
+              },
+              {
+                "key": "yaw_rad",
+                "label": "smoke 模式 yaw（弧度）",
+                "purpose": "CUSTOM",
+                "type": "float",
+                "order": 2
+              },
+              {
+                "key": "pitch_rad",
+                "label": "smoke 模式 pitch（弧度）",
+                "purpose": "CUSTOM",
+                "type": "float",
+                "order": 3
+              },
+              {
+                "key": "count",
+                "label": "重复计数",
+                "purpose": "CUSTOM",
+                "type": "int",
+                "order": 4
+              },
+              {
+                "key": "head_event_timeout",
+                "label": "ms",
+                "purpose": "CUSTOM",
+                "type": "int",
+                "order": 5
+              },
+              {
+                "key": "head_search_yaws",
+                "label": "manual 模式",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 6
+              },
+              {
+                "key": "head_search_pitchs",
+                "label": "manual 模式",
+                "purpose": "CUSTOM",
+                "type": "string",
+                "order": 7
+              }
+            ],
+            "order": 4,
+            "drag": true,
+            "initBoard": [],
+            "readBoard": [
+              {
+                "key": "HeadMoveValues",
+                "remark": "from_board 模式",
+                "type": "list"
+              }
+            ],
+            "writeBoard": [],
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+]

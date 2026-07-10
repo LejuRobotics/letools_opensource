@@ -1,0 +1,6 @@
+kuavo_msgs/jointBezierTrajectory[] multi_joint_bezier_trajectory
+float64 start_frame_time
+float64 end_frame_time
+string[] joint_names
+---
+bool success

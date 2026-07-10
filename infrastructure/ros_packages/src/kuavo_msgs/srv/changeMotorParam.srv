@@ -1,0 +1,4 @@
+kuavo_msgs/motorParam[] data
+---
+bool success
+string message

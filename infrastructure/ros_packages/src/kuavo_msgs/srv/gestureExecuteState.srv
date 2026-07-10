@@ -1,0 +1,13 @@
+# This service checks the status of a task.
+# It is used to determine whether a task is currently executing and provides an additional message.
+
+# Request:
+# (No request fields for this service)
+
+# Response:
+# bool is_executing  # Indicates whether the task is currently executing.
+# string message     # A message providing additional information (e.g., status details or error messages).
+
+---
+bool is_executing
+string message

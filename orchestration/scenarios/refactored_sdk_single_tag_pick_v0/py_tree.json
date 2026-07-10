@@ -1,0 +1,91 @@
+{
+  "tree": {
+    "name": "Sequence",
+    "label": "single_tag_pick_v0",
+    "params": {"memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}},
+    "childs": [
+      {
+        "name": "Parallel",
+        "label": "head_search_parallel",
+        "params": {"policy": {"value": "success_on_one", "source": "CUSTOM", "data_type": "string"}},
+        "childs": [
+          {"name": "NodeHeadSequence", "label": "head_seq", "params": {
+            "head_search_yaws":   {"value": "${head_search_yaws}",   "source": "INPUT", "data_type": "list"},
+            "head_search_pitchs": {"value": "${head_search_pitchs}", "source": "INPUT", "data_type": "list"},
+            "scan_timeout":       {"value": "${tag_scan_timeout}",   "source": "INPUT", "data_type": "float"}
+          }, "childs": [], "childBoard": []},
+          {"name": "NodePercep", "label": "percep_tag", "params": {
+            "tag_ids": {"value": "${tag_ids}", "source": "INPUT", "data_type": "list"}
+          }, "childs": [], "childBoard": []},
+          {"name": "NodeWaitForBlackboard", "label": "wait_for_tag", "params": {
+            "tag_id":                   {"value": "${pick_tag_id}",              "source": "INPUT", "data_type": "int"},
+            "stand_in_tag_pos":         {"value": "${stand_in_tag_pos}",        "source": "INPUT", "data_type": "list"},
+            "stand_in_tag_euler":       {"value": "${stand_in_tag_euler}",      "source": "INPUT", "data_type": "list"},
+            "use_virtual_tag":          {"value": "${use_virtual_tag}",         "source": "INPUT", "data_type": "bool"},
+            "real_tag_timeout_sec":     {"value": "${real_tag_timeout_sec}",    "source": "INPUT", "data_type": "float"},
+            "virtual_tag_pose_in_odom": {"value": "${virtual_tag_pose_in_odom}","source": "INPUT", "data_type": "list"}
+          }, "childs": [], "childBoard": []}
+        ],
+        "childBoard": []
+      },
+      {"name": "demo_single_tag_walk_and_pick.json", "label": "walk_and_pick", "params": {
+        "pick_tag_id":       {"value": "${pick_tag_id}",       "source": "INPUT", "data_type": "int"},
+        "stand_in_tag_pos":  {"value": "${stand_in_tag_pos}",  "source": "INPUT", "data_type": "list"},
+        "stand_in_tag_euler":{"value": "${stand_in_tag_euler}","source": "INPUT", "data_type": "list"},
+        "chassis_walk_mode": {"value": "${chassis_walk_mode}", "source": "INPUT", "data_type": "string"},
+        "arm_control_type":  {"value": "${arm_control_type}",  "source": "INPUT", "data_type": "string"},
+        "box_width":         {"value": "${box_width}",         "source": "INPUT", "data_type": "float"},
+        "box_behind_tag":    {"value": "${box_behind_tag}",    "source": "INPUT", "data_type": "float"},
+        "box_beneath_tag":   {"value": "${box_beneath_tag}",   "source": "INPUT", "data_type": "float"},
+        "box_left_tag":      {"value": "${box_left_tag}",      "source": "INPUT", "data_type": "float"},
+        "end_effector_side": {"value": "${end_effector_side}", "source": "INPUT", "data_type": "string"},
+        "gripper_position":  {"value": "${gripper_position}",  "source": "INPUT", "data_type": "int"},
+        "gripper_effort":    {"value": "${gripper_effort}",    "source": "INPUT", "data_type": "float"},
+        "hand_pitch_degree": {"value": "${hand_pitch_degree}", "source": "INPUT", "data_type": "float"}
+      }, "childs": [], "childBoard": []},
+      {"name": "demo_single_tag_lift.json", "label": "lift", "params": {
+        "pick_tag_id":       {"value": "${pick_tag_id}",       "source": "INPUT", "data_type": "int"},
+        "arm_control_type":  {"value": "${arm_control_type}",  "source": "INPUT", "data_type": "string"},
+        "box_width":         {"value": "${box_width}",         "source": "INPUT", "data_type": "float"},
+        "box_behind_tag":    {"value": "${box_behind_tag}",    "source": "INPUT", "data_type": "float"},
+        "box_beneath_tag":   {"value": "${box_beneath_tag}",   "source": "INPUT", "data_type": "float"},
+        "box_left_tag":      {"value": "${box_left_tag}",      "source": "INPUT", "data_type": "float"},
+        "hand_pitch_degree": {"value": "${hand_pitch_degree}", "source": "INPUT", "data_type": "float"},
+        "z_lift":            {"value": "${z_lift}",            "source": "INPUT", "data_type": "float"}
+      }, "childs": [], "childBoard": []},
+      {"name": "WaitSeconds", "label": "wait_arm_done", "params": {
+        "duration_sec": {"value": "4.0", "source": "CUSTOM", "data_type": "float"}
+      }, "childs": [], "childBoard": []},
+      {"name": "demo_single_tag_back_and_reset.json", "label": "back_and_reset", "params": {
+        "chassis_walk_mode": {"value": "${chassis_walk_mode}", "source": "INPUT", "data_type": "string"}
+      }, "childs": [], "childBoard": []}
+    ],
+    "childBoard": []
+  },
+  "interface": {
+    "inputs": [
+      {"internal_name": "pick_tag_id",       "external_key": "pick_tag_id",       "type": "int"},
+      {"internal_name": "tag_ids",           "external_key": "tag_ids",           "type": "list"},
+      {"internal_name": "head_search_yaws",  "external_key": "head_search_yaws",  "type": "list"},
+      {"internal_name": "head_search_pitchs","external_key": "head_search_pitchs","type": "list"},
+      {"internal_name": "tag_scan_timeout",  "external_key": "tag_scan_timeout",  "type": "float"},
+      {"internal_name": "stand_in_tag_pos",  "external_key": "stand_in_tag_pos",  "type": "list"},
+      {"internal_name": "stand_in_tag_euler","external_key": "stand_in_tag_euler","type": "list"},
+      {"internal_name": "chassis_walk_mode", "external_key": "chassis_walk_mode", "type": "string"},
+      {"internal_name": "arm_control_type",  "external_key": "arm_control_type",  "type": "string"},
+      {"internal_name": "box_width",         "external_key": "box_width",         "type": "float"},
+      {"internal_name": "box_behind_tag",    "external_key": "box_behind_tag",    "type": "float"},
+      {"internal_name": "box_beneath_tag",   "external_key": "box_beneath_tag",   "type": "float"},
+      {"internal_name": "box_left_tag",      "external_key": "box_left_tag",      "type": "float"},
+      {"internal_name": "end_effector_side", "external_key": "end_effector_side", "type": "string"},
+      {"internal_name": "gripper_position",  "external_key": "gripper_position",  "type": "int"},
+      {"internal_name": "gripper_effort",    "external_key": "gripper_effort",    "type": "float"},
+      {"internal_name": "z_lift",            "external_key": "z_lift",            "type": "float"},
+      {"internal_name": "hand_pitch_degree", "external_key": "hand_pitch_degree", "type": "float"},
+      {"internal_name": "use_virtual_tag",          "external_key": "use_virtual_tag",          "type": "bool"},
+      {"internal_name": "real_tag_timeout_sec",     "external_key": "real_tag_timeout_sec",     "type": "float"},
+      {"internal_name": "virtual_tag_pose_in_odom", "external_key": "virtual_tag_pose_in_odom", "type": "list"}
+    ],
+    "outputs": [], "custom": [], "process": []
+  }
+}

@@ -1,0 +1,19 @@
+<launch>
+  <!-- 启动 robot_state_publisher 发布机器人的Link坐标和TF转换关系，里面请记住一定要包含相机real_camera_Link和base_link的 link关系和joint关系 -->
+  <!-- Set the robot_description parameter to the path of the URDF file -->
+  <param name="robot_description" textfile="$(find ar_control)/model/Kuavo_with_Camera/urdf/Kuavo_with_Camera.urdf"/>
+
+  <!-- Start robot_state_publisher node -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" respawn="false" output="screen"/>
+
+
+  <!-- real_camera_link坐标系对齐，您需要正确设置URDF文件中的joint元素。考虑到RealSense相机通常采用右手坐标系（X轴向右，Y轴向下，Z轴远离相机），
+       而ROS中常用的机器人坐标系（X轴向前，Y轴向左，Z轴向上），需要通过旋转来对齐这两个坐标系。 -->
+  <!-- 发布RealSense光学框架对于相机框架的静态坐标转换关系 -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_to_optical_frame" args="0 0 0 -1.5707 0 -1.5707 real_camera_link camera_color_optical_frame" />
+
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_to_real_frame" args="0 0 0 0 0 0 real_camera_link camera_link" />
+  
+  <!-- 启动 ARControlNode -->
+  <node pkg="ar_control" type="ar_control_node.py" name="ar_control_node" output="screen" respawn="true" respawn_delay="5" />
+</launch>

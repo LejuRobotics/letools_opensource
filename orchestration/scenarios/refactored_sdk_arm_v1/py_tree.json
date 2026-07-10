@@ -1,0 +1,61 @@
+{
+  "tree": {
+    "name": "Sequence",
+    "label": "refactored_sdk_arm_v1_seq",
+    "params": {
+      "memory": { "value": "True", "source": "CUSTOM", "data_type": "string" }
+    },
+    "childs": [
+      {
+        "name": "WaitForEnter",
+        "label": "wait_enter",
+        "params": {
+          "message": {
+            "value": "refactored_sdk_arm_v1: 按 Enter 开始（归位→末端局部→末端世界→关节轨迹→归位）",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "ArmResetSdkMove",
+        "label": "arm_reset_initial",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "demo_arm_ee_local.json",
+        "label": "demo_arm_ee_local",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "demo_arm_ee_world.json",
+        "label": "demo_arm_ee_world",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "demo_arm_joint.json",
+        "label": "demo_arm_joint",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "ArmResetSdkMove",
+        "label": "arm_reset_final",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      }
+    ],
+    "childBoard": []
+  },
+  "interface": { "inputs": [], "outputs": [], "custom": [], "process": [] }
+}

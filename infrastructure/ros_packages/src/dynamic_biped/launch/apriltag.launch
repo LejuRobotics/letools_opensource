@@ -1,0 +1,29 @@
+<launch>
+    <arg name="launch_camera" default="true" />
+    <arg name="head_camera_type" value="rs_camera" /> <!-- orbbec_camera, rs_camera,...-->
+
+    <!-- 启动相机相关节点 -->
+    <group if="$(arg launch_camera)">
+    <include file="$(find kuavo_camera)/launch/cameras.launch">
+        <arg name="has_head" value="true" />
+        <arg name="head_camera_type" value="$(arg head_camera_type)" />
+        <arg name="has_left_wrist" value="false" />
+        <arg name="has_right_wrist" value="false" />
+        <arg name="rviz" value="false" />
+        </include>
+    </group>
+
+    <!-- tf2_ros 静态转换 发布urdf里面的head_camera 和 相机坐标系下的camera_link 进行对齐 -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="camera_to_real_frame" args="0 0 0 0 0 0 camera head_camera_link" />
+    <node pkg="tf2_ros" type="static_transform_publisher" name="base_link_to_torso" args="0 0 0 0 0 0 base_link torso" />
+
+    <!-- 启动 apriltag_ros continuous_detection -->
+    <include file="$(find apriltag_ros)/launch/continuous_detection.launch">
+      <arg name="camera_name" value="/head_camera/color" />
+      <arg name="image_topic" value="image_raw" />
+    </include>
+
+    <!-- 启动 ARControlNode -->
+    <node pkg="ar_control" type="ar_control_node.py" name="ar_control_node" args="--target_frame base_link --source_frame head_camera_color_optical_frame" output="screen" />
+
+</launch>

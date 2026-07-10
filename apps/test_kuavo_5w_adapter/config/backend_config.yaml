@@ -1,0 +1,28 @@
+# Kuavo 5-W 硬件后端配置
+
+# 选择后端类型
+# 可选值: "ros" (ROS直连), "sdk" (SDK封装)
+backend: "ros"
+
+# ROS后端配置
+ros:
+  # 服务调用超时时间（秒）
+  service_timeout: 5.0
+  
+  # 话题缓冲区大小
+  topic_buffer_size: 10
+  
+  # 是否启用状态反馈
+  enable_state_feedback: true
+
+# SDK后端配置
+sdk:
+  # SDK日志级别
+  # 可选值: "DEBUG", "INFO", "WARNING", "ERROR"
+  log_level: "INFO"
+  
+  # SDK初始化超时时间（秒）
+  init_timeout: 2.0
+  
+  # 是否启用PyTrees行为树调试
+  enable_pytrees_debug: false

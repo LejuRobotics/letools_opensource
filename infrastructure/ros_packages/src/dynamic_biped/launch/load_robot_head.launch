@@ -1,0 +1,24 @@
+<launch>
+    <!-- 定义启动参数 -->
+    <arg name = "use_orbbec" default = "false"/>
+    <arg name = "all_enable" default = "true"/>
+    <arg name = "enable_wrist_camera" default = "false"/>
+    <param name="use_orbbec" value = "$(arg use_orbbec)"/>
+    <!-- 启动相机全部功能 -->
+    <arg name="which_enable" if="$(arg all_enable) " default="robot_enable"/>
+    <!-- 仅启动相机 -->
+    <arg name="which_enable" unless="$(arg all_enable)" default="only_enable"/>
+    
+    <!-- Orbbec相机 -->
+    <group if="$(arg use_orbbec)">
+        <include file="$(find dynamic_biped)/launch/orbbec_sensor_$(arg which_enable).launch" >
+            <arg name = "with_wrist_camera" value = "$(arg enable_wrist_camera)"/>
+        </include>
+    </group>
+
+    <!-- D435相机 -->
+    <group unless="$(arg use_orbbec)">
+        <include file="$(find dynamic_biped)/launch/sensor_$(arg which_enable).launch" >
+        </include>
+    </group>   
+</launch>

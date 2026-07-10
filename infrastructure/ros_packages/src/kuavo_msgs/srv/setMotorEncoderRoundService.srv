@@ -1,0 +1,9 @@
+# 设置电机编码器圈数，用于单编码器版本的校准
+# 传入参数
+int32 motor_id     # 电机 ID
+int32 direction    # 方向，1 表示顺时针+1圈，-1 表示逆时针-1圈
+bool save_offset   # 是否保存偏移量到文件
+---
+# 返回结果
+bool success       # 成功与否
+string message     # 返回信息

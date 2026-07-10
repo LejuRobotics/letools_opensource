@@ -1,0 +1,137 @@
+# Python 编译文件
+# *.so
+.Python
+*.egg-info/
+.eggs/
+
+# Python 缓存
+
+# ROS 构建产物
+build/
+devel/
+install/
+logs/
+.catkin_tools/
+.ccache
+
+# 递归匹配任意子目录下的 ROS 构建产物
+**/build/
+**/devel/
+**/install/
+**/.catkin_tools/
+
+# IDE
+.vscode/
+.idea/
+
+# 日志
+*.log
+*.csv
+
+# Node.js
+node_modules/
+
+# 文档构建
+.docusaurus/
+new-docs
+
+# 缓存
+.cache/
+
+# 临时文件
+tmp_ik/
+tmp_ws/
+
+# 模型文件
+*.pt
+
+# 二进制文件
+# *.so
+*.bag
+*.bag*
+
+# 配置文件
+**/ws_config/
+**/docker/
+
+# 调试文件
+**/debug_ik/
+**/*_debug.py
+**/*.rej
+
+# 格式化工具
+.clang-format
+
+# 搜索索引
+**/*.code-search
+
+# 补丁文件
+**/*.patch
+
+# 开发文档
+**/*.devmd
+
+# 临时副本
+**/*copy*.*
+
+# EC 日志
+EC_log/
+
+# 第三方库
+src/Livox-SDK2
+
+# Aider
+.aider*
+
+# Claude
+.claude/
+CLAUDE.md
+
+# 构建配置
+compile_commands.json
+
+# 光标文件
+.cursor
+**/cursor/
+
+
+# SDK 自动生成的消息文件
+drivers/leju/kuavo_humanoid_sdk/kuavo_humanoid_sdk/msg/*
+drivers/leju/kuavo_humanoid_sdk/kuavo_humanoid_sdk/msg/kuavo_msgs/*
+
+# Local configuration (DO NOT COMMIT)
+sdk_config.sh
+
+# Python cache
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+log/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# codegraph
+.codegraph/
+# docs
+docs/modules/
+docs/superpowers/
+docs/test_feedback/
+apps/_migration_analysis/
+.superpowers/
+.remember/
+.headroom/
+.serena/
+ci_scripts/
+.git.backup/
+
+# local debug scratch dir (carlos)
+.carlos/

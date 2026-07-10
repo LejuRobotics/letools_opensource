@@ -1,0 +1,7 @@
+<launch>
+    <node pkg="yolo_button_object_detection" type="yolo_button_segment_ros.py"     name="yolo_button_detection_node" output="screen" respawn="true" respawn_delay="5" />
+    <node pkg="yolo_button_object_detection" type="yolo_button_transform_torso.py" name="yolo_button_transform_torso_node" output="screen" respawn="true" respawn_delay="5" />
+
+    <node pkg="yolo_valve_object_detection" type="yolo_valve_segment_ros.py"      name="yolo_valve_detection_node" output="screen" respawn="true" respawn_delay="5" />
+    <node pkg="yolo_valve_object_detection" type="yolo_valve_transform_torso.py"  name="yolo_valve_transform_torso_node" output="screen" respawn="true" respawn_delay="5" />
+</launch>

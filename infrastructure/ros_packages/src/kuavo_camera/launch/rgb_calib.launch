@@ -1,0 +1,160 @@
+<launch>
+  <!--
+    头显(Orbbec) + 双腕(RealSense) + 腕部 RGB 内参覆盖；可选棋盘辨识 / GUI。
+    默认 run_intrinsics_calibration:=false：仅相机与 overlay（yaml 存在则发标定内参）。
+    辨识写盘后 overlay 自动重载，无需重启。参数见 rgb_calib.py。
+    启动：roslaunch kuavo_camera rgb_calib.launch
+  -->
+  <arg name="run_intrinsics_calibration" default="true"
+       doc="true：协调器或 cameracalibrator（默认）；false：仅相机+内参覆盖" />
+  <arg name="use_coordinator" default="true" />
+  <arg name="wait_for_image" default="true"
+       doc="话题模式：先等到 image_topic 有首帧再采图（避免 RealSense 未就绪）" />
+  <arg name="wait_image_timeout_sec" default="60"
+       doc="等首帧的最长时间（秒）" />
+  <arg name="pre_capture_delay_sec" default="1.0"
+       doc="首帧到达后再延时该秒再开始采图（曝光稳定）" />
+  <arg name="calibration_done_service" default=""
+       doc="辨识成功后循环调用的对端 std_srvs/Trigger，空则不调" />
+  <arg name="use_service_flow" default="false"
+       doc="true：Trigger 服务链，见 rgb_calib.py" />
+  <arg name="joint_motion_service" default="" />
+  <arg name="homing_service" default="" />
+
+  <!-- rgb_calib.launch is intended for *intrinsics calibration sessions*.
+       Keep the default footprint minimal to reduce USB/CPU interference. -->
+  <arg name="has_head" default="true" />
+  <arg name="has_left_wrist" default="true" />
+  <arg name="has_right_wrist" default="true" />
+  <arg name="left_wrist_camera_sn" default="$(env LEFT_WRIST_CAMERA_SERIAL_NO)" />
+  <arg name="right_wrist_camera_sn" default="$(env RIGHT_WRIST_CAMERA_SERIAL_NO)" />
+  <arg name="rviz" default="false" />
+
+  <!-- Which camera to calibrate (used by coordinator / cameracalibrator). -->
+  <arg name="camera_name" default="left_wrist_camera" />
+  <arg name="image_topic" default="/$(arg camera_name)/color/image_raw" />
+  <arg name="camera_info_topic" default="/$(arg camera_name)/color/camera_info" />
+  <arg name="pattern_size" default="8x11" />
+  <arg name="square_size" default="0.03" />
+  <arg name="extra_args" default="" />
+  <arg name="calibration_tar" default="/tmp/calibrationdata.tar.gz" />
+  <arg name="event_topic" default="/rgb_calib/phase" />
+  <arg name="control_topic" default="/rgb_calib/control"
+       doc="下位机顺序控制 std_msgs/String：SELECT|cam / MOTION_DONE|cam / SESSION_DONE 或直接发 cam 名" />
+  <arg name="board_cols" default="11" />
+  <arg name="board_rows" default="8" />
+  <arg name="min_samples" default="20" />
+
+  <group if="$(arg has_head)">
+    <include file="$(find orbbec_camera)/launch/gemini_330_series.launch">
+      <arg name="camera_name" value="head_camera" />
+      <arg name="color_fps" value="60" />
+      <arg name="color_width" value="1280" />
+      <arg name="color_height" value="720" />
+    </include>
+  </group>
+
+  <group if="$(arg has_left_wrist)">
+    <group>
+      <remap from="color/camera_info" to="color/camera_info_vendor" />
+      <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+        <arg name="camera" value="left_wrist_camera" />
+        <arg name="tf_prefix" value="left_wrist_camera" />
+        <arg name="serial_no" value="$(arg left_wrist_camera_sn)" />
+      </include>
+    </group>
+  </group>
+
+  <group if="$(arg has_right_wrist)">
+    <group>
+      <remap from="color/camera_info" to="color/camera_info_vendor" />
+      <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+        <arg name="camera" value="right_wrist_camera" />
+        <arg name="tf_prefix" value="right_wrist_camera" />
+        <arg name="serial_no" value="$(arg right_wrist_camera_sn)" />
+      </include>
+    </group>
+  </group>
+
+  <group if="$(arg has_left_wrist)">
+    <node pkg="kuavo_camera" type="rgb_calib.py" name="left_wrist_rgb_caminfo_overlay"
+          output="screen">
+      <param name="vendor_topic" value="/left_wrist_camera/color/camera_info_vendor" />
+      <param name="output_topic" value="/left_wrist_camera/color/camera_info" />
+      <param name="calibration_file"
+             value="$(find kuavo_camera)/config/left_wrist_camera_rgb_calib.yaml" />
+    </node>
+  </group>
+
+  <group if="$(arg has_right_wrist)">
+    <node pkg="kuavo_camera" type="rgb_calib.py" name="right_wrist_rgb_caminfo_overlay"
+          output="screen">
+      <param name="vendor_topic" value="/right_wrist_camera/color/camera_info_vendor" />
+      <param name="output_topic" value="/right_wrist_camera/color/camera_info" />
+      <param name="calibration_file"
+             value="$(find kuavo_camera)/config/right_wrist_camera_rgb_calib.yaml" />
+    </node>
+  </group>
+
+  <group if="$(arg rviz)">
+    <arg name="rvizconfig" default="$(find kuavo_camera)/rviz/camera.rviz" />
+    <node pkg="rviz" type="rviz" name="rviz" args="-d $(arg rvizconfig)" output="screen" />
+  </group>
+
+  <group if="$(arg run_intrinsics_calibration)">
+    <group unless="$(arg use_coordinator)">
+      <node pkg="kuavo_camera" type="rgb_calib.py" name="rgb_calib_tar_watcher"
+            output="screen">
+        <param name="mode" value="tar_watch" />
+        <param name="tar_path" value="$(arg calibration_tar)" />
+        <param name="output_yaml" value="$(find kuavo_camera)/config/$(arg camera_name)_rgb_calib.yaml" />
+        <param name="camera_name" value="$(arg camera_name)" />
+      </node>
+      <node pkg="camera_calibration" type="cameracalibrator.py" name="cameracalibrator_rgb"
+            output="screen" required="false"
+            args="--size $(arg pattern_size) --square $(arg square_size) $(arg extra_args)">
+        <remap from="image" to="$(arg image_topic)" />
+        <remap from="camera" to="$(arg camera_info_topic)" />
+      </node>
+    </group>
+
+    <group if="$(arg use_coordinator)">
+      <node pkg="kuavo_camera" type="rgb_calib.py" name="rgb_calib_coordinator"
+            output="screen" required="true">
+        <param name="mode" value="coordinate" />
+        <param name="parallel_capture" value="true" />
+        <param name="event_topic" value="$(arg event_topic)" />
+        <param name="control_topic" value="$(arg control_topic)" />
+        <param name="image_topic" value="/$(arg camera_name)/color/image_raw" />
+        <param name="output_yaml" value="$(find kuavo_camera)/config/$(arg camera_name)_rgb_calib.yaml" />
+        <param name="camera_name" value="$(arg camera_name)" />
+        <!-- NOTE: rosparam does not expand $(find ...) unless subst_value is true -->
+        <rosparam param="targets" subst_value="true">
+          head_camera:
+            image_topic: /head_camera/color/image_raw
+            output_yaml: $(find kuavo_camera)/config/head_camera_rgb_calib.yaml
+          left_wrist_camera:
+            image_topic: /left_wrist_camera/color/image_raw
+            output_yaml: $(find kuavo_camera)/config/left_wrist_camera_rgb_calib.yaml
+          right_wrist_camera:
+            image_topic: /right_wrist_camera/color/image_raw
+            output_yaml: $(find kuavo_camera)/config/right_wrist_camera_rgb_calib.yaml
+        </rosparam>
+        <param name="board_cols" value="$(arg board_cols)" />
+        <param name="board_rows" value="$(arg board_rows)" />
+        <param name="square_size" value="$(arg square_size)" />
+        <param name="min_samples" value="$(arg min_samples)" />
+        <param name="max_capture_sec" value="600" />
+        <param name="wait_for_image" value="$(arg wait_for_image)" />
+        <param name="wait_image_timeout_sec" value="$(arg wait_image_timeout_sec)" />
+        <param name="pre_capture_delay_sec" value="$(arg pre_capture_delay_sec)" />
+        <param name="calibration_done_service" value="$(arg calibration_done_service)" />
+        <param name="use_service_flow" value="$(arg use_service_flow)" />
+        <param name="joint_motion_service" value="$(arg joint_motion_service)" />
+        <param name="homing_service" value="$(arg homing_service)" />
+        <param name="shutdown_on_session_done" value="true" />
+        <param name="shutdown_delay_sec" value="0.5" />
+      </node>
+    </group>
+  </group>
+</launch>

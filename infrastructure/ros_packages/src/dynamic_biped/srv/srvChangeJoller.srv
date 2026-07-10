@@ -1,0 +1,4 @@
+int32 l_pos
+int32 r_pos
+---
+bool result

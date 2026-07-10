@@ -1,0 +1,98 @@
+{
+  "demo_single_tag_walk_and_pick.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "walk_and_pick_seq",
+      "params": {"memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}},
+      "childs": [
+        {"name": "NodeComputePickGoal", "label": "compute_pick_goal", "params": {
+          "tag_id":            {"value": "${pick_tag_id}",       "source": "INPUT", "data_type": "int"},
+          "stand_in_tag_pos":  {"value": "${stand_in_tag_pos}",  "source": "INPUT", "data_type": "list"},
+          "stand_in_tag_euler":{"value": "${stand_in_tag_euler}","source": "INPUT", "data_type": "list"}
+        }, "childs": [], "childBoard": []},
+        {"name": "NodeWheelWalk", "label": "walk_to_pick", "params": {
+          "walk_mode": {"value": "${chassis_walk_mode}", "source": "INPUT", "data_type": "string"}
+        }, "childs": [], "childBoard": []},
+        {"name": "NodeTagToArmGoal", "label": "tag_to_arm_pick", "params": {
+          "tag_id":             {"value": "${pick_tag_id}",       "source": "INPUT", "data_type": "int"},
+          "control_type":       {"value": "${arm_control_type}",  "source": "INPUT", "data_type": "string"},
+          "keypoints_source":   {"value": "pick",                  "source": "CUSTOM", "data_type": "string"},
+          "box_width":          {"value": "${box_width}",         "source": "INPUT", "data_type": "float"},
+          "box_behind_tag":     {"value": "${box_behind_tag}",    "source": "INPUT", "data_type": "float"},
+          "box_beneath_tag":    {"value": "${box_beneath_tag}",   "source": "INPUT", "data_type": "float"},
+          "box_left_tag":       {"value": "${box_left_tag}",      "source": "INPUT", "data_type": "float"},
+          "hand_pitch_degree":  {"value": "${hand_pitch_degree}", "source": "INPUT", "data_type": "float"}
+        }, "childs": [], "childBoard": []},
+        {"name": "NodeWheelArm", "label": "arm_pick_move", "params": {
+          "control_type": {"value": "${arm_control_type}", "source": "INPUT", "data_type": "string"}
+        }, "childs": [], "childBoard": []},
+        {"name": "EndEffectorClose", "label": "close_gripper", "params": {
+          "side":     {"value": "${end_effector_side}", "source": "INPUT", "data_type": "string"},
+          "position": {"value": "${gripper_position}",  "source": "INPUT", "data_type": "int"},
+          "effort":   {"value": "${gripper_effort}",    "source": "INPUT", "data_type": "float"}
+        }, "childs": [], "childBoard": []}
+      ],
+      "childBoard": []
+    }
+  },
+  "demo_single_tag_lift.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "lift_seq",
+      "params": {"memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}},
+      "childs": [
+        {"name": "NodeTagToArmGoal", "label": "tag_to_arm_lift", "params": {
+          "tag_id":             {"value": "${pick_tag_id}",      "source": "INPUT", "data_type": "int"},
+          "control_type":       {"value": "${arm_control_type}", "source": "INPUT", "data_type": "string"},
+          "keypoints_source":   {"value": "lift",                 "source": "CUSTOM", "data_type": "string"},
+          "box_width":          {"value": "${box_width}",        "source": "INPUT", "data_type": "float"},
+          "box_behind_tag":     {"value": "${box_behind_tag}",   "source": "INPUT", "data_type": "float"},
+          "box_beneath_tag":    {"value": "${box_beneath_tag}",  "source": "INPUT", "data_type": "float"},
+          "box_left_tag":       {"value": "${box_left_tag}",     "source": "INPUT", "data_type": "float"},
+          "hand_pitch_degree":  {"value": "${hand_pitch_degree}","source": "INPUT", "data_type": "float"},
+          "z_lift":             {"value": "${z_lift}",           "source": "INPUT", "data_type": "float"}
+        }, "childs": [], "childBoard": []},
+        {"name": "NodeWheelArm", "label": "arm_lift_move", "params": {
+          "control_type": {"value": "${arm_control_type}", "source": "INPUT", "data_type": "string"}
+        }, "childs": [], "childBoard": []}
+      ],
+      "childBoard": []
+    }
+  },
+  "demo_single_tag_back_and_reset.json": {
+    "tree": {
+      "name": "Parallel",
+      "label": "back_and_reset_parallel",
+      "params": {"policy": {"value": "success_on_all", "source": "CUSTOM", "data_type": "string"}},
+      "childs": [
+        {
+          "name": "Sequence",
+          "label": "chassis_back_seq",
+          "params": {"memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}},
+          "childs": [
+            {"name": "SetBackWalkGoal", "label": "set_back_walk_goal", "params": {}, "childs": [], "childBoard": []},
+            {"name": "NodeWheelWalk", "label": "chassis_walk_back", "params": {
+              "walk_mode": {"value": "${chassis_walk_mode}", "source": "INPUT", "data_type": "string"}
+            }, "childs": [], "childBoard": []}
+          ],
+          "childBoard": []
+        },
+        {
+          "name": "Sequence",
+          "label": "head_arm_torso_reset_seq",
+          "params": {"memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}},
+          "childs": [
+            {"name": "HeadControlSdkMove", "label": "head_zero", "params": {
+              "yaw_deg":   {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
+              "pitch_deg": {"value": "0.0", "source": "CUSTOM", "data_type": "float"}
+            }, "childs": [], "childBoard": []},
+            {"name": "ArmResetSdkMove", "label": "arm_reset", "params": {}, "childs": [], "childBoard": []},
+            {"name": "TorsoResetSdkMove", "label": "torso_reset", "params": {}, "childs": [], "childBoard": []}
+          ],
+          "childBoard": []
+        }
+      ],
+      "childBoard": []
+    }
+  }
+}

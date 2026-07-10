@@ -1,0 +1,5 @@
+int32 control_mode # 0: control 6dof, 1: control height+yaw+pitch, 2: control control height+pitch 
+---
+bool result
+int32 mode
+string message

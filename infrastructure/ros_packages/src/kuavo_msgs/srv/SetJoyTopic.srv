@@ -1,0 +1,4 @@
+string topic_name    # 新的Joy话题名称
+---
+bool success         # 是否成功切换话题
+string message      # 详细信息 

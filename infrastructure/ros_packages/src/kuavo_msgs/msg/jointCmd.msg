@@ -1,0 +1,9 @@
+std_msgs/Header header
+float64[] joint_q  
+float64[] joint_v  
+float64[] tau  
+float64[] tau_max
+float64[] tau_ratio  
+float64[] joint_kp  
+float64[] joint_kd
+int32[] control_modes  

@@ -1,0 +1,55 @@
+{
+    "inputs": [],
+    "custom": [],
+    "process": [
+        {
+            "key": "Common_BoxLength",
+            "remark": "箱子长度(米)",
+            "type": "float",
+            "value": "0.35",
+            "defaultValue": "0.35"
+        },
+        {
+            "key": "Common_BoxWidth",
+            "remark": "箱子宽度(米)",
+            "type": "float",
+            "value": "0.3",
+            "defaultValue": "0.3"
+        },
+        {
+            "key": "Common_BoxHeight",
+            "remark": "箱子高度(米)",
+            "type": "float",
+            "value": "0.22",
+            "defaultValue": "0.22"
+        },
+        {
+            "key": "Common_robot_type",
+            "remark": "机器人类型（如 'kuavo_lb'），影响导航模式选择",
+            "type": "string",
+            "value": "kuavo_lb",
+            "defaultValue": "kuavo_lb"
+        },
+        {
+            "key": "Arm_AngleThreshold",
+            "remark": "角度到达阈值（弧度）",
+            "type": "float",
+            "value": "0.5",
+            "defaultValue": "0.5"
+        },
+        {
+            "key": "Arm_ArmEventTimeout",
+            "remark": "手臂移动事件超时时间（秒）",
+            "type": "int",
+            "value": "30",
+            "defaultValue": "30"
+        },
+        {
+            "key": "Arm_PoseThreshold",
+            "remark": "位置到达阈值（米）",
+            "type": "float",
+            "value": "0.14",
+            "defaultValue": "0.14"
+        }
+    ]
+}

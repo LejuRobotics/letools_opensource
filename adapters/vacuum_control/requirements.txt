@@ -1,0 +1,6 @@
+# 真空控制系统依赖
+# 安装命令: pip install -r requirements.txt
+
+pymodbus>=3.0.0
+minimalmodbus>=2.0.0
+pyserial>=3.5

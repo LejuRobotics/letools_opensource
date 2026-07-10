@@ -1,0 +1,7 @@
+# config/yolo.yaml
+  # - 0   # 类别ID，0  - person
+  # - 39  # 类别ID，39 - bottle
+  # - 66  # 类别ID，66 - keyboard
+  # - 64  # 类别id，64 - mouse 鼠标
+interested_classes:
+  - 39  # 类别ID，39 - bottle

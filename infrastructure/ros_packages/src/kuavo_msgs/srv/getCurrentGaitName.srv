@@ -1,0 +1,8 @@
+# Request: Empty message, no fields needed
+
+# Response:
+# success: Whether the service call was successful
+# gait_name: Name of the current gait being executed
+---
+bool success
+string gait_name

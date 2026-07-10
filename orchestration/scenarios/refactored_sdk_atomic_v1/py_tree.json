@@ -1,0 +1,55 @@
+{
+  "tree": {
+    "name": "Sequence",
+    "label": "refactored_sdk_atomic_v1_seq",
+    "params": {
+      "memory": { "value": "True", "source": "CUSTOM", "data_type": "string" }
+    },
+    "childs": [
+      {
+        "name": "WaitForEnter",
+        "label": "wait_enter",
+        "params": {
+          "message": {
+            "value": "refactored_sdk_atomic_v1: 按 Enter 开始（底盘→腿→臂→头）",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "demo_cmd_pose_base.json",
+        "label": "demo_cmd_pose_base",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "demo_leg_arm_parallel.json",
+        "label": "demo_leg_arm_parallel",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "demo_head_control.json",
+        "label": "demo_head_control",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "ArmResetSdkMove",
+        "label": "arm_reset_initial",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      }
+    ],
+    "childBoard": []
+  },
+  "interface": { "inputs": [], "outputs": [], "custom": [], "process": [] }
+}
+

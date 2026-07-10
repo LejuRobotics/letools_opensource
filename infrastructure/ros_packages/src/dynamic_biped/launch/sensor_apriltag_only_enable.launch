@@ -1,0 +1,29 @@
+<!-- sensor_apriltag_only_enable.launch -->
+<launch>
+    <!-- Launch realsense2_camera for head camera -->
+    <include file="$(find realsense2_camera)/launch/rs_camera.launch" >
+        <arg name="color_width"   value="640"/>
+        <arg name="color_height"  value="480"/>
+        <arg name="color_fps"     value="30"/>
+        <arg name="depth_width"   value="848"/>
+        <arg name="depth_height"  value="480"/>
+        <arg name="depth_fps"     value="30"/>
+        <arg name="enable_infra"        default="false"/>
+        <arg name="enable_infra1"       default="false"/>
+        <arg name="enable_infra2"       default="false"/>
+        <arg name="enable_sync"   value="true"/>
+        <arg name="align_depth"   value="true"/>
+        <arg name="enable_pointcloud"   value="false"/>
+    </include>
+    <!-- tf2_ros 静态转换 发布urdf里面的head_camera 和 相机坐标系下的camera_link 进行对齐 -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="camera_to_real_frame" args="0 0 0 0 0 0 camera camera_link" />
+    <node pkg="tf2_ros" type="static_transform_publisher" name="base_link_to_torso" args="0 0 0 0 0 0 base_link torso" />
+    <!-- 启动 apriltag_ros continuous_detection -->
+    <include file="$(find apriltag_ros)/launch/continuous_detection.launch">
+      <arg name="camera_name" value="/camera/color" />
+      <arg name="image_topic" value="image_raw" />
+    </include>
+    <!-- 启动 ARControlNode -->
+    <node pkg="ar_control" type="ar_control_node.py" name="ar_control_node" output="screen" respawn="true" respawn_delay="5" />
+</launch>
+

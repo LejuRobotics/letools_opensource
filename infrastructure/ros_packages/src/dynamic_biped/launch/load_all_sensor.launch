@@ -1,0 +1,67 @@
+<!-- sensor_robot_enable.launch -->
+<launch>
+    <arg name="rviz" default="false" />
+    <arg name="play_music" default="true" />
+    <arg name="record_audio" default="true" />
+    <arg name="led" default="false" />
+    <arg name="apriltag" default="true" />
+    <arg name="yolo" default="false" />
+    <arg name="camera" default="true" />
+    <!-- camera 参数 -->
+    <arg name="has_head" default="true" if="$(arg camera)" />
+    <arg name="has_left_wrist" default="false" if="$(arg camera)" />
+    <arg name="has_right_wrist" default="false" if="$(arg camera)" />
+    <arg name="left_wrist_camera_sn" default="" if="$(arg camera)" />
+    <arg name="right_wrist_camera_sn" default="" if="$(arg camera)" />
+    <arg name="head_camera_type" default="rs_camera" if="$(arg camera)" /> <!-- orbbec_camera, rs_camera,...-->
+
+    <!-- 启动相机相关节点 -->
+    <group if="$(arg camera)">
+        <include file="$(find kuavo_camera)/launch/cameras.launch">
+            <arg name="has_head" value="$(arg has_head)" />
+            <arg name="has_left_wrist" value="$(arg has_left_wrist)" />
+            <arg name="has_right_wrist" value="$(arg has_right_wrist)" />
+            <arg name="left_wrist_camera_sn" value="$(arg left_wrist_camera_sn)" />
+            <arg name="right_wrist_camera_sn" value="$(arg right_wrist_camera_sn)" />
+            <arg name="head_camera_type" value="$(arg head_camera_type)" />
+            <arg name="rviz" value="$(arg rviz)" />
+        </include>
+    </group>
+
+    <!-- 启动yolov5相关节点 -->
+    <group if="$(arg yolo)">
+        <!-- 启动yolov5 目标检测 及 分割节点 -->
+        <node pkg="kuavo_vision_object" type="realsense_yolo_segment_ros.py" name="realsense_yolo_segment_node" output="screen">
+        </node>
+
+        <!-- 启动yolov5 目标转换功能 -->
+        <node pkg="kuavo_vision_object" type="realsense_yolo_transform_torso.py" name="realsense_yolo_transform_torso_node" output="screen">
+        </node>
+
+        <!-- 启动yolov5 点云分割节点 -->
+        <node pkg="kuavo_yolo_point2d" type="point_cloud_mask_node.py" name="point_cloud_mask_node" output="screen">
+        </node>
+    </group>
+
+    <!-- 启动apriltag相关节点 -->
+    <group if="$(arg apriltag)">
+        <include file="$(find dynamic_biped)/launch/apriltag.launch" >
+            <arg name="launch_camera" value="$(eval not camera)" /> <!-- 相机已经启动，则不需要再启动 -->
+        </include>
+    </group>
+
+    <!-- 启动 播放音乐服务 -->
+    <group if="$(arg play_music)">
+        <include file="$(find kuavo_audio_player)/launch/play_music.launch" />
+    </group>
+
+    <!-- 启动 录制音频服务 -->
+    <group if="$(arg record_audio)">
+        <include file="$(find kuavo_audio_recorder)/launch/record_audio.launch" />
+    </group>
+
+    <!-- 启动 LED 控制服务 -->
+    <group if="$(arg led)">
+        <include file="$(find kuavo_led_controller)/launch/set_led_mode.launch"/>
+    </group>
+</launch>

@@ -1,0 +1,84 @@
+{
+    "tree": {
+        "name": "Sequence",
+        "label": "arm_control_demo",
+        "params": {
+            "memory": {
+                "value": "True",
+                "source": "CUSTOM",
+                "data_type": "string"
+            }
+        },
+        "childs": [
+            {
+                "name": "set_fake_tag",
+                "label": "set_fake_tag",
+                "params": {},
+                "childs": [],
+                "childBoard": []
+            },
+            {
+                "name": "NodeTagToArmGoal",
+                "label": "tag_to_arm_goal",
+                "params": {
+                    "tag_id": {
+                        "value": "0",
+                        "source": "CUSTOM",
+                        "data_type": "int"
+                    },
+                    "control_type": {
+                        "value": "joint",
+                        "source": "CUSTOM",
+                        "data_type": "string"
+                    },
+                    "enable_joint_mirroring": {
+                        "value": "True",
+                        "source": "CUSTOM",
+                        "data_type": "bool"
+                    },
+                    "enable_high_position_accuracy": {
+                        "value": "False",
+                        "source": "CUSTOM",
+                        "data_type": "bool"
+                    },
+                    "traj_point_num": {
+                        "value": "100",
+                        "source": "CUSTOM",
+                        "data_type": "int"
+                    }
+                },
+                "childs": [],
+                "childBoard": []
+            },
+            {
+                "name": "NodeWheelArm",
+                "label": "move_arm_demo",
+                "params": {
+                    "control_type": {
+                        "value": "joint",
+                        "source": "CUSTOM",
+                        "data_type": "string"
+                    },
+                    "direct_to_wbc": {
+                        "value": "False",
+                        "source": "CUSTOM",
+                        "data_type": "bool"
+                    },
+                    "total_time": {
+                        "value": "3.0",
+                        "source": "CUSTOM",
+                        "data_type": "float"
+                    },
+                    "back_default": {
+                        "value": "False",
+                        "source": "CUSTOM",
+                        "data_type": "bool"
+                    }
+                },
+                "childs": [],
+                "childBoard": []
+            }
+        ],
+        "childBoard": []
+    }
+}

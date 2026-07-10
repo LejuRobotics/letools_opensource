@@ -1,0 +1,26 @@
+# 后端配置文件
+# 用于 test_kuavo_5w_refactored 测试套件
+
+# ROS 配置
+ros:
+  node_name: "test_kuavo_5w_refactored"
+  anonymous: true
+
+# 硬件配置
+hardware:
+  type: "leju_wheeled"
+  
+# SDK 管理器配置
+sdk_manager:
+  timed_cmd:
+    enabled: true
+  arm_sdk:
+    enabled: true
+  low_level:
+    enabled: true
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"

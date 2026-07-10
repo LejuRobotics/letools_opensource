@@ -1,0 +1,272 @@
+{
+  "demo_jibot_nav.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "demo_jibot_nav_seq",
+      "params": {
+        "memory": { "value": "True", "source": "CUSTOM", "data_type": "string" }
+      },
+      "childs": [
+        {
+          "name": "BaseMoveRelativeJibotMove",
+          "label": "backward_0_2m",
+          "params": {
+            "x": { "value": "0.2", "source": "CUSTOM", "data_type": "float" },
+            "y": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+            "theta": { "value": "0.0", "source": "CUSTOM", "data_type": "float" }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "WaitSeconds",
+          "label": "wait_backward",
+          "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "Sequence",
+          "label": "nav_point_1_seq",
+          "params": { "memory": { "value": "True", "source": "CUSTOM", "data_type": "string" } },
+          "childs": [
+            {
+              "name": "Parallel",
+              "label": "parallel_nav_arm_head_leg_1",
+              "params": {
+                "policy": { "value": "success_on_all", "source": "CUSTOM", "data_type": "string" }
+              },
+              "childs": [
+                {
+                  "name": "BaseMoveToTargetJibotMove",
+                  "label": "nav_point_1",
+                  "params": {
+                    "x": { "value": "-0.846", "source": "CUSTOM", "data_type": "float" },
+                    "y": { "value": "0.131", "source": "CUSTOM", "data_type": "float" },
+                    "theta": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+                    "theta_unit": { "value": "deg", "source": "CUSTOM", "data_type": "string" },
+                    "task_id_key": { "value": "current_task_id", "source": "CUSTOM", "data_type": "string" }
+                  },
+                  "childs": [],
+                  "childBoard": []
+                },
+                {
+                  "name": "ArmJointTrajSdkMove",
+                  "label": "arm_action_1",
+                  "params": {
+                    "use_board_trajectory": { "value": "false", "source": "CUSTOM", "data_type": "string" },
+                    "total_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" },
+                    "joint_traj": {
+                      "value": [
+                        [ -20.0, 30.0, -25.0, -20.0, 40.0, -15.0, 25.0,  -20.0, -30.0, 25.0, -20.0, -40.0, 15.0, 25.0 ],
+                        [-60.69, 15, 0, -120.1, 30.0, 0.13, 0.92, -60.69, -15, 0, -120.03, 30, -0.09, 0.79]
+                      ],
+                      "source": "CUSTOM",
+                      "data_type": "string"
+                    }
+                  },
+                  "childs": [],
+                  "childBoard": []
+                },
+                {
+                  "name": "HeadControlSdkMove",
+                  "label": "head_down_1",
+                  "params": {
+                    "yaw_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+                    "pitch_deg": { "value": "20.0", "source": "CUSTOM", "data_type": "float" }
+                  },
+                  "childs": [],
+                  "childBoard": []
+                },
+                {
+                  "name": "LegJointSdkMove",
+                  "label": "torso_set1_1",
+                  "params": {
+                    "j0": { "value": "55", "source": "CUSTOM", "data_type": "float" },
+                    "j1": { "value": "-100", "source": "CUSTOM", "data_type": "float" },
+                    "j2": { "value": "55", "source": "CUSTOM", "data_type": "float" },
+                    "j3": { "value": "0", "source": "CUSTOM", "data_type": "float" },
+                    "total_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" }
+                  },
+                  "childs": [],
+                  "childBoard": []
+                }
+              ],
+              "childBoard": []
+            },
+            {
+              "name": "CheckArrivedJibotMove",
+              "label": "check_arrived_1",
+              "params": {
+                "task_id_key": { "value": "current_task_id", "source": "CUSTOM", "data_type": "string" },
+                "blocking": { "value": "True", "source": "CUSTOM", "data_type": "bool" },
+                "timeout": { "value": "60.0", "source": "CUSTOM", "data_type": "float" }
+              },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "WaitSeconds",
+              "label": "wait_torso1_1",
+              "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "ArmEeTimedCmdMove",
+              "label": "timed_grasp",
+              "params": {
+                "left_waypoints": {
+                  "value": [
+                    [1.0, 0.1, 1.6, 0.0, -90.0, 0.0],
+                    [1.0, 0.1, 1.52, 0.0, -90.0, 0.0]
+                  ],
+                  "source": "CUSTOM", "data_type": "json"
+                },
+                "right_waypoints": {
+                  "value": [
+                    [1.0, -0.1, 1.6, 0.0, -90.0, 0.0],
+                    [1.0, -0.1, 1.52, 0.0, -90.0, 0.0]
+                  ],
+                  "source": "CUSTOM", "data_type": "json"
+                },
+                "desire_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" },
+                "frame": { "value": "local", "source": "CUSTOM", "data_type": "string" }
+              },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "WaitSeconds",
+              "label": "wait_timed_grasp",
+              "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "VacuumControlMove",
+              "label": "vacuum_suck",
+              "params": {
+                "action": { "value": "suck", "source": "CUSTOM", "data_type": "string" }
+              },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "WaitSeconds",
+              "label": "wait_vacuum_suck",
+              "params": { "duration_sec": { "value": "0.5", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "LegJointSdkMove",
+              "label": "torso_set2_1",
+              "params": {
+                "j0": { "value": "55", "source": "CUSTOM", "data_type": "float" },
+                "j1": { "value": "-110", "source": "CUSTOM", "data_type": "float" },
+                "j2": { "value": "40", "source": "CUSTOM", "data_type": "float" },
+                "j3": { "value": "0", "source": "CUSTOM", "data_type": "float" },
+                "total_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" }
+              },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "WaitSeconds",
+              "label": "wait_torso2_1",
+              "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "LegJointSdkMove",
+              "label": "torso_set3_1",
+              "params": {
+                "j0": { "value": "25", "source": "CUSTOM", "data_type": "float" },
+                "j1": { "value": "-35", "source": "CUSTOM", "data_type": "float" },
+                "j2": { "value": "4", "source": "CUSTOM", "data_type": "float" },
+                "j3": { "value": "0", "source": "CUSTOM", "data_type": "float" },
+                "total_time": { "value": "3.0", "source": "CUSTOM", "data_type": "float" }
+              },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "WaitSeconds",
+              "label": "wait_torso3_1",
+              "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "HeadControlSdkMove",
+              "label": "head_back_1",
+              "params": {
+                "yaw_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+                "pitch_deg": { "value": "0.0", "source": "CUSTOM", "data_type": "float" }
+              },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "WaitSeconds",
+              "label": "wait_head_back_1",
+              "params": { "duration_sec": { "value": "1.0", "source": "CUSTOM", "data_type": "float" } },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "BaseMoveToTargetJibotMove",
+              "label": "return_to_init_1",
+              "params": {
+                "x": { "value": "-0.823", "source": "CUSTOM", "data_type": "float" },
+                "y": { "value": "-0.96", "source": "CUSTOM", "data_type": "float" },
+                "theta": { "value": "-89.0", "source": "CUSTOM", "data_type": "float" },
+                "theta_unit": { "value": "deg", "source": "CUSTOM", "data_type": "string" },
+                "task_id_key": { "value": "current_task_id", "source": "CUSTOM", "data_type": "string" }
+              },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "CheckArrivedJibotMove",
+              "label": "check_return_1",
+              "params": {
+                "task_id_key": { "value": "current_task_id", "source": "CUSTOM", "data_type": "string" },
+                "blocking": { "value": "True", "source": "CUSTOM", "data_type": "bool" },
+                "timeout": { "value": "60.0", "source": "CUSTOM", "data_type": "float" }
+              },
+              "childs": [],
+              "childBoard": []
+            },
+            {
+              "name": "VacuumControlMove",
+              "label": "vacuum_release",
+              "params": {
+                "action": { "value": "release", "source": "CUSTOM", "data_type": "string" }
+              },
+              "childs": [],
+              "childBoard": []
+            }
+          ],
+          "childBoard": []
+        },
+        {
+          "name": "WaitForEnter",
+          "label": "wait_finish",
+          "params": {
+            "message": {
+              "value": "导航完成！按Enter退出",
+              "source": "CUSTOM",
+              "data_type": "string"
+            }
+          },
+          "childs": [],
+          "childBoard": []
+        }
+      ],
+      "childBoard": []
+    }
+  }
+}

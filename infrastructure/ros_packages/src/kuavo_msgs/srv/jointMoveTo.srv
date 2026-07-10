@@ -1,0 +1,6 @@
+float64[] goal_position
+float64 speed
+float64 dt
+---
+bool success
+string message

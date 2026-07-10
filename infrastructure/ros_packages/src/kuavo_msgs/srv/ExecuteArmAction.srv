@@ -1,0 +1,4 @@
+string action_name  # 要执行的动作名称，例如 "welcome"
+---
+bool success         # 执行是否成功
+string message       # 返回的消息

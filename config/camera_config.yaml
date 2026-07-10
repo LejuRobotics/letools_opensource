@@ -1,0 +1,36 @@
+# 相机配置（扁平结构，直接对应 CameraAdapter 接口）
+
+camera:
+  # 头部相机
+  has_head: true
+  head_camera_type: "orbbec_camera"    # orbbec_camera / realsense2_camera
+
+  # 相机分辨率（0 表示使用驱动默认值）
+  color_width: 1280
+  color_height: 720
+  color_fps: 30
+  depth_width: 640
+  depth_height: 400
+  depth_fps: 30
+
+  # 手腕相机
+  enable_wrist_camera: false
+  has_left_wrist: true
+  left_wrist_camera_sn: "409122272623"
+  has_right_wrist: true
+  right_wrist_camera_sn: "409122274640"
+
+  # RGB 校准叠加（默认关闭）
+  use_wrist_rgb_caminfo_overlay: false
+
+  # AprilTag 检测
+  launch_apriltag: true
+  # AprilTag 参数文件位于 config/apriltag_settings.yaml 和 config/apriltag_tags.yaml
+  # tag_family: 'tag36h11'
+  # tag id/size 在 apriltag_tags.yaml 的 standalone_tags 列表中定义
+  # R11 评审 #8 升级:tag topic 可配置;默认 /robot_tag_info(向后兼容)
+  #   本案例(refactored_sdk_single_tag_pick_v0)使用 ODOM 系 → /robot_tag_info_odom
+  apriltag_topic: /robot_tag_info
+
+  # RViz
+  rviz: false

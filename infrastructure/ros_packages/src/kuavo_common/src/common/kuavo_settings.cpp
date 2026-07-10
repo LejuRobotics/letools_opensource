@@ -1,0 +1,380 @@
+#include "kuavo_common/common/kuavo_settings.h"
+#include "kuavo_common/common/utils.h"
+#include <fstream>
+
+namespace HighlyDynamic
+{
+    struct motor_config
+    {
+        uint32_t encoder_range;
+        double max_current;
+        double c2t_coeff;
+        MotorDriveType driver;
+    };
+    void KuavoSettings::printInfo()
+    {
+        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>> KuavoSettings INFO <<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
+    }
+    void KuavoSettings::loadKuavoSettings(JSONConfigReader &robot_config)
+    {
+        loadModelSettings(robot_config);
+        loadRunningSettings(robot_config);
+        loadHardwareSettings(robot_config);
+        loadFilterSettings(robot_config);
+        loadPidParams(robot_config);
+        loadPredefinedArmPose(robot_config);
+    }
+    void KuavoSettings::loadPidParams(JSONConfigReader &robot_config)
+    {
+        pid_params.pos.kp = robot_config.getValue<Eigen::VectorXd>("pos_kp");
+        pid_params.pos.ki = robot_config.getValue<Eigen::VectorXd>("pos_ki");
+        pid_params.pos.kd = robot_config.getValue<Eigen::VectorXd>("pos_kd");
+
+        pid_params.pos_sim.ki = robot_config.getValue<Eigen::VectorXd>("pos_ki_sim");
+        pid_params.pos_sim.kp = robot_config.getValue<Eigen::VectorXd>("pos_kp_sim");
+        pid_params.pos_sim.kd = robot_config.getValue<Eigen::VectorXd>("pos_kd_sim");
+
+        pid_params.arm.kp = robot_config.getValue<Eigen::VectorXd>("arm_kp");
+        pid_params.arm.ki = robot_config.getValue<Eigen::VectorXd>("arm_ki");
+        pid_params.arm.kd = robot_config.getValue<Eigen::VectorXd>("arm_kd");
+
+        pid_params.pbc.kp = robot_config.getValue<Eigen::VectorXd>("pbc_kp");
+        pid_params.pbc.ki = Eigen::VectorXd::Zero(pid_params.pbc.kp.size());
+        pid_params.pbc.kd = robot_config.getValue<Eigen::VectorXd>("pbc_kd");
+    }
+
+    void KuavoSettings::loadPredefinedArmPose(JSONConfigReader &robot_config)
+    {
+        predefined_arm_pose.init_arm_pos = robot_config.getValue<Eigen::VectorXd>("init_arm_pos");
+        predefined_arm_pose.walk_arm_pose = robot_config.getValue<Eigen::VectorXd>("walk_arm_pose");
+        predefined_arm_pose.calibration_safe_pose = robot_config.getValue<Eigen::VectorXd>("calibration_safe_pose");
+        predefined_arm_pose.arm_calibration_limits = robot_config.getValue<Eigen::VectorXd>("arm_calibration_limits");
+        predefined_arm_pose.arm_calibration_directions = robot_config.getValue<Eigen::VectorXd>("arm_calibration_directions");
+        predefined_arm_pose.arm_calibration_velocity = robot_config.getValue<double>("arm_calibration_velocity");
+        predefined_arm_pose.arm_calibration_timeout = robot_config.getValue<double>("arm_calibration_timeout");
+        predefined_arm_pose.arm_calibration_position_variance_time = robot_config.getValue<double>("arm_calibration_position_variance_time");
+        predefined_arm_pose.arm_calibration_position_variance_threshold = robot_config.getValue<double>("arm_calibration_position_variance_threshold");
+        predefined_arm_pose.arm_poses.push_back(robot_config.getValue<Eigen::VectorXd>("arm_pose0"));
+        predefined_arm_pose.arm_poses.push_back(robot_config.getValue<Eigen::VectorXd>("arm_pose1"));
+        
+        // 读取腿部校准参数（如果存在）
+        if (robot_config["leg_calibration_safe_pose"].is_array())
+        {
+            predefined_arm_pose.leg_calibration_safe_pose = robot_config.getValue<Eigen::VectorXd>("leg_calibration_safe_pose");
+            predefined_arm_pose.leg_calibration_limits = robot_config.getValue<Eigen::VectorXd>("leg_calibration_limits");
+            predefined_arm_pose.leg_calibration_directions = robot_config.getValue<Eigen::VectorXd>("leg_calibration_directions");
+        }
+        else
+        {
+            // 如果不存在，初始化为空向量
+            predefined_arm_pose.leg_calibration_safe_pose = Eigen::VectorXd();
+            predefined_arm_pose.leg_calibration_limits = Eigen::VectorXd();
+            predefined_arm_pose.leg_calibration_directions = Eigen::VectorXd();
+        }
+    }
+
+    void KuavoSettings::loadModelSettings(JSONConfigReader &robot_config)
+    {
+        std::string path_prefix = kuavo_assets_path + "/models/";
+        model_settings.model_path = path_prefix + robot_config.getValue<std::string>("model_path");
+        model_settings.model_with_arm_path = path_prefix + robot_config.getValue<std::string>("model_with_arm_path");
+        model_settings.left_leg_urdf = path_prefix + robot_config.getValue<std::string>("Lleg_urdf");
+        model_settings.right_leg_urdf = path_prefix + robot_config.getValue<std::string>("Rleg_urdf");
+        model_settings.left_arm_urdf = path_prefix + robot_config.getValue<std::string>("Larm_urdf");
+        model_settings.right_arm_urdf = path_prefix + robot_config.getValue<std::string>("Rarm_urdf");
+        model_settings.arm_urdf = path_prefix + robot_config.getValue<std::string>("arm_urdf");
+
+        model_settings.ankle_motor_offset_degree = robot_config.getValue<Eigen::VectorXd>("ankle_motor_offset_degree");
+        model_settings.arm_ankle_motor_offset_degree = robot_config.getValue<Eigen::VectorXd>("arm_ankle_motor_offset_degree");
+        model_settings.NUM_JOINT = robot_config.getValue<uint8_t>("NUM_JOINT");
+        model_settings.NUM_ARM_JOINT = robot_config.getValue<uint8_t>("NUM_ARM_JOINT");
+        model_settings.NUM_HEAD_JOINT = robot_config.getValue<uint8_t>("NUM_HEAD_JOINT");
+        model_settings.NUM_WAIST_JOINT = robot_config.getValue<uint8_t>("NUM_WAIST_JOINT");
+        model_settings.is_parallel_arm = robot_config.getValue<bool>("isParallelArm");
+
+        model_settings.end_frames_name = robot_config.getValue<std::vector<std::string>>("end_frames_name");
+        model_settings.contact_frames_name = robot_config.getValue<std::vector<std::string>>("contact_frames_name");
+        model_settings.left_foot_ankle_link_joint_frames = robot_config.getValue<std::vector<std::string>>("left_foot_ankle_link_joint_frames");
+        model_settings.right_foot_ankle_link_joint_frames = robot_config.getValue<std::vector<std::string>>("right_foot_ankle_link_joint_frames");
+        model_settings.left_arm_ankle_link_joint_frames = robot_config.getValue<std::vector<std::string>>("left_arm_ankle_link_joint_frames");
+        model_settings.right_arm_ankle_link_joint_frames = robot_config.getValue<std::vector<std::string>>("right_arm_ankle_link_joint_frames");
+    }
+
+    void KuavoSettings::loadRunningSettings(JSONConfigReader &robot_config)
+    {
+        running_settings.torso_pitch = robot_config.getValue<double>("torsoP");
+        running_settings.torso_yaw = robot_config.getValue<double>("torsoY");
+        running_settings.step_height = robot_config.getValue<double>("StepH");
+        running_settings.com_z = robot_config.getValue<double>("com_z");
+        running_settings.com_z_jump = robot_config.getValue<double>("com_z_jump");
+        running_settings.step_with = robot_config.getValue<double>("StepWith");
+        running_settings.step_duration = robot_config.getValue<double>("StepDuration");
+        running_settings.velocity_limit = robot_config.getValue<Eigen::VectorXd>("VelocityLimit");
+        running_settings.cmd_vel_step = robot_config.getValue<Eigen::VectorXd>("cmd_vel_step");
+        running_settings.walk_stablizer_count = robot_config.getValue<uint8_t>("walk_stablizer_count");
+        running_settings.walk_stablizer_threshold = robot_config.getValue<double>("walk_stablizer_threshold");
+        running_settings.v_takeoff = robot_config.getValue<double>("V_takeoff");
+        running_settings.swing_arm = robot_config.getValue<bool>("swing_arm");
+        running_settings.only_half_up_body = robot_config.getValue<bool>("only_half_up_body");
+        running_settings.joint_kp = robot_config.getValue<std::vector<int32_t>>("joint_kp");
+        running_settings.joint_kd = robot_config.getValue<std::vector<int32_t>>("joint_kd");
+        running_settings.ruiwo_kp = robot_config.getValue<std::vector<double>>("ruiwo_kp");
+        running_settings.ruiwo_kd = robot_config.getValue<std::vector<double>>("ruiwo_kd");
+        running_settings.use_vr_arm_kpkd = robot_config.getValue<bool>("useVrArmKpKd");
+        running_settings.vr_joint_kp = robot_config.getValue<std::vector<int32_t>>("vr_joint_kp");
+        running_settings.vr_joint_kd = robot_config.getValue<std::vector<int32_t>>("vr_joint_kd");
+        running_settings.vr_ruiwo_kp = robot_config.getValue<std::vector<double>>("vr_ruiwo_kp");
+        running_settings.vr_ruiwo_kd = robot_config.getValue<std::vector<double>>("vr_ruiwo_kd");
+    }
+
+    std::string HardwareSettings::getEcmasterType(RobotVersion rb_version) {
+
+        std::string filePath = getUserHomeDirectory() + "/.config/lejuconfig/EcMasterType.ini";
+        std::ifstream file(filePath);
+        std::string ecMasterType;
+
+        if (!file.is_open()) {
+            std::cerr << "\033[33mwarning: " << filePath << " 文件不存在, 未指定EcMasterType, 使用默认值 'elmo' 驱动器类型\033[0m" << std::endl;
+            
+            // For Roban robots (version 1X), use "leju" as default
+            if (rb_version.major() > 1 && rb_version.major() < 2) {
+                std::cerr << "\033[33mRoban robot detected (version " << std::to_string(rb_version.major()) << "), using 'leju' as default driver type\033[0m" << std::endl;
+                return "youda1";
+            }
+
+            return "elmo";  
+        }
+
+        getline(file, ecMasterType);
+        file.close();
+
+        if (ecMasterType != "elmo" && ecMasterType != "youda" && ecMasterType != "lunbi1" && ecMasterType != "youda3" && ecMasterType != "youda" && ecMasterType != "leju") {
+            std::cerr << "\033[33mwarning: ecmaster_type :" << ecMasterType 
+                  << " error, 使用默认值 'elmo' 驱动器类型\033[0m" << std::endl;
+            return "elmo"; 
+        }
+
+        return ecMasterType;
+    }
+    std::string HardwareSettings::getIMUType(RobotVersion rb_version) {
+
+        std::string filePath = getUserHomeDirectory() + "/.config/lejuconfig/ImuType.ini";
+        std::ifstream file(filePath);
+        std::string imuType;
+
+        if (!file.is_open()) {
+            std::cerr << "\033[33mwarning: " << filePath << " 文件不存在, 未指定imuType, 使用默认值 'xsens' IMU类型\033[0m" << std::endl;
+            return "xsens";  
+        }
+
+        getline(file, imuType);
+        file.close();
+
+        if (imuType != "xsens" && imuType != "hipnuc") {
+            std::cerr << "\033[33mwarning: ecmaster_type :" << imuType 
+                  << " error, 使用默认值 'xsens' IMU类型\033[0m" << std::endl;
+            return "xsens"; 
+        }
+
+        return imuType;
+    }
+
+    CanbusWiringType HardwareSettings::getCanbusWiringType(RobotVersion rb_version) {
+
+        std::string filePath = getUserHomeDirectory() + "/.config/lejuconfig/CanbusWiringType.ini";
+        std::ifstream file(filePath);
+        std::string wiringType;
+
+        if (!file.is_open()) {
+            std::cerr << "\033[33mwarning: " << filePath << " 文件不存在, 未指定canbus接线方式, 使用默认值 'single_bus'\033[0m" << std::endl;
+            return CanbusWiringType::UNKNOWN;
+        }
+
+        getline(file, wiringType);
+        file.close();
+
+        if (wiringType != "single_bus" && wiringType != "dual_bus") {
+            std::cerr << "\033[33mwarning: canbus_wiring_type :" << wiringType
+                  << " error, 使用默认值 'single_bus'\033[0m" << std::endl;
+            return CanbusWiringType::SINGLE_BUS;
+        }
+
+        return wiringType == "single_bus" ? CanbusWiringType::SINGLE_BUS : CanbusWiringType::DUAL_BUS;
+    }
+
+    HandProtocolType HardwareSettings::getHandProtocolType() {
+
+        std::string filePath = getUserHomeDirectory() + "/.config/lejuconfig/HandProtocolType.ini";
+        std::ifstream file(filePath);
+        std::string handProtocolType;
+
+        if (!file.is_open()) {
+            std::cerr << "\033[33mwarning: " << filePath << " 文件不存在, 未指定手部协议类型, 使用默认值 'proto_buf'\033[0m" << std::endl;
+            return HandProtocolType::PROTO_BUF;
+        }
+
+        getline(file, handProtocolType);
+        file.close();
+
+        if (handProtocolType != "proto_buf" && handProtocolType != "proto_can") {
+            std::cerr << "\033[33mwarning: hand_protocol_type :" << handProtocolType
+                  << " error, 使用默认值 'proto_buf'\033[0m" << std::endl;
+            return HandProtocolType::PROTO_BUF;
+        }
+
+        return handProtocolType == "proto_buf" ? HandProtocolType::PROTO_BUF : HandProtocolType::PROTO_CAN;
+    }
+
+    void KuavoSettings::loadHardwareSettings(JSONConfigReader &robot_config)
+    {
+        std::map<std::string, motor_config>
+            motor_name_map = {
+                {"PA100", {BIT_17_10, PA100_MC, PA100_C2T, EC_MASTER}},
+                {"PA81", {BIT_17_10, PA81_MC, PA81_C2T, EC_MASTER}},
+                {"AK10_9", {BIT_17_9, AK10_9_MC, AK10_9_C2T, EC_MASTER}},
+                {"CK", {BIT_17_36, CK_MC, CK_C2T, EC_MASTER}},
+                {"dynamixel", {BIT_17_36, CK_MC, CK_C2T, DYNAMIXEL}},
+                {"realman", {BIT_17_36, CK_MC, CK_C2T, REALMAN}},
+                {"ruiwo", {BIT_17_36, CK_MC, CK_C2T, RUIWO}},
+                {"ruiwoPA81", {BIT_17_25, CK_MC, PA81_C2T, RUIWO}},
+                {"ruiwoPA72", {BIT_17_36, CK_MC, PA72_C2T, RUIWO}},
+                {"ruiwoPA60", {BIT_17_36, CK_MC, PA60_C2T, RUIWO}},
+                {"ruiwoPA43", {BIT_17_10, CK_MC, PA43_C2T, RUIWO}},
+                {"ruiwoPA4310_25", {BIT_17_25, CK_MC, PA4310_25_C2T, RUIWO}},
+                {"ruiwoPA4310_25_New", {BIT_17_25, CK_MC, PA4310_25_C2T, RUIWO}},
+                {"ruiwoPA4315_36", {BIT_17_36, CK_MC, PA4315_36_C2T, RUIWO}},
+                {"ruiwoPA60_16", {BIT_17_16, CK_MC, PA60_16_C2T, RUIWO}},
+                {"PA100_18", {BIT_17_18, PA100_MC, PA100_18_C2T, EC_MASTER}},
+                {"PA100_20", {BIT_17_20, PA100_MC, PA100_20_C2T, EC_MASTER}},
+                {"PA115", {BIT_17_120, PA115_MC, PA115_C2T, EC_MASTER}},
+                {"PA4310_25", {BIT_17_25, PA4310_25_MC, PA4310_25_C2T, EC_MASTER}},
+                {"PA60", {BIT_17_36, PA100_MC, PA60_C2T, EC_MASTER}},
+                {"PA72_36", {BIT_17_36, PA72_36_MC, PA72_36_C2T, EC_MASTER}},
+                {"PA72_36_L", {BIT_17_36, PA72_36_MC, PA72_36_C2T, EC_MASTER}},
+                {"PA72_36_R", {BIT_17_36, PA72_36_MC, PA72_36_C2T, EC_MASTER}},
+                {"PA76_25", {BIT_17_25, PA76_25_MC, PA76_25_C2T, EC_MASTER}},
+                {"PA76_18", {BIT_17_18, PA76_18_MC, PA76_18_C2T, EC_MASTER}},
+                {"PA81_18_25", {BIT_17_25, PA81_18_25_MC, PA81_18_25_C2T, EC_MASTER}},
+                {"PA105_18", {BIT_17_18, PA105_18_MC, PA105_18_C2T, EC_MASTER}},
+                {"PA105_18_DS", {BIT_17_18, PA105_18_DS_MC, PA105_18_DS_C2T, EC_MASTER}},
+                {"PA81_25", {BIT_17_251, PA81_25_MC, PA81_25_C2T, EC_MASTER}},
+                {"PA4315_36", {BIT_17_36, PA4315_36_MC, PA4315_36_C2T, EC_MASTER}}};
+        hardware_settings.num_joints = robot_config.getValue<uint8_t>("NUM_JOINT");
+        hardware_settings.num_arm_joints = robot_config.getValue<uint8_t>("NUM_ARM_JOINT");
+        hardware_settings.num_head_joints = robot_config.getValue<uint8_t>("NUM_HEAD_JOINT");
+        hardware_settings.num_waist_joints = robot_config.getValue<uint8_t>("NUM_WAIST_JOINT");
+        hardware_settings.imu_invert = robot_config.getValue<bool>("imu_invert");
+        hardware_settings.imu_in_torso = robot_config.getValue<Eigen::VectorXd>("imu_in_torso");
+        hardware_settings.peak_timeWin = robot_config.getValue<double>("peak_protection");
+        hardware_settings.speed_timeWin = robot_config.getValue<double>("speed_protection");
+        hardware_settings.lock_rotor_timeWin = robot_config.getValue<double>("locked_rotor_protection");
+
+        hardware_settings.robot_module = robot_config.getValue<std::string>("ROBOT_MODULE");
+
+        hardware_settings.resizeMotor(hardware_settings.num_joints);
+        motor_c2t_settings.resizeMotor(hardware_settings.num_joints);
+        std::vector<std::string> MOTORS_TYPE = robot_config.getValue<std::vector<std::string>>("MOTORS_TYPE");
+        std::vector<double> min_limits = robot_config.getValue<std::vector<double>>("min_joint_position_limits");
+        std::vector<double> max_limits = robot_config.getValue<std::vector<double>>("max_joint_position_limits");
+        std::vector<double> vel_limits = robot_config.getValue<std::vector<double>>("joint_velocity_limits");
+        std::vector<double> peak_vel_limits = robot_config.getValue<std::vector<double>>("joint_peak_velocity_limits");
+        std::vector<double> lock_rotor_limits = robot_config.getValue<std::vector<double>>("joint_torque_limits");
+        std::vector<double> peak_torque_limits = robot_config.getValue<std::vector<double>>("joint_peak_torque_limits");
+
+
+        auto endsWith = [](std::string& s, const std::string& suffix) -> bool {
+            if (suffix.size() > s.size()) return false;
+            return std::equal(suffix.rbegin(), suffix.rend(), s.rbegin());
+        };
+        
+        auto removeSuffix = [](std::string& s, const std::string& suffix) -> std::string& {
+            if (s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                s.erase(s.size() - suffix.size());
+            }
+            return s;
+        };
+
+        for (uint8_t i = 0; i < hardware_settings.num_joints; i++)
+        {
+            // mark motor exist or disable!
+            std::string motor_type_name = MOTORS_TYPE[i];
+
+            hardware_settings.motors_exist[i] = true;
+            hardware_settings.motors_disable[i] = false;
+            if (endsWith(motor_type_name, "_none")) {
+                hardware_settings.motors_exist[i] = false;
+                motor_type_name = removeSuffix(motor_type_name, "_none");
+            }
+            else if (endsWith(motor_type_name, "_disable")) {
+                hardware_settings.motors_exist[i] = true;
+                hardware_settings.motors_disable[i] = true;
+                motor_type_name = removeSuffix(motor_type_name, "_disable");
+            }
+
+            // check motor type
+            if (motor_name_map.find(motor_type_name) == motor_name_map.end()) {
+                std::cerr << "\033[31m\nERROR: `" << motor_type_name << "` motor type not found, \nPlease check config file:`src/kuavo_assets/config/kuavo_v$ROBOT_VERSION/kuavo.json`\n\033[0m" << std::endl;
+                exit(-1);
+            }
+
+            motor_config motor = motor_name_map[motor_type_name];
+            motor_c2t_settings.c2t_cul[i] = robot_config.getNestedStdVector("MOTOR_C2T", motor_type_name, "c2t_cul");
+            motor_c2t_settings.c2t_coeff[i] = robot_config.getNestedStdVector("MOTOR_C2T", motor_type_name, "c2t_coeff");
+            hardware_settings.joint_ids[i] = i + 1;
+            hardware_settings.motors_type[i] = motor_type_name;
+            hardware_settings.driver[i] = motor.driver;
+            hardware_settings.encoder_range[i] = motor.encoder_range;
+            hardware_settings.max_current[i] = motor.max_current;
+            hardware_settings.c2t_coeff_default[i] = motor.c2t_coeff;
+            hardware_settings.c2t_coeff[i] = motor_c2t_settings.c2t_coeff[i];
+            hardware_settings.c2t_cul[i] = motor_c2t_settings.c2t_cul[i];
+            hardware_settings.min_joint_position_limits[i] = min_limits[i];
+            hardware_settings.max_joint_position_limits[i] = max_limits[i];
+            hardware_settings.joint_velocity_limits[i] = vel_limits[i];
+            hardware_settings.joint_peak_velocity_limits[i] = peak_vel_limits[i];
+            hardware_settings.joint_lock_rotor_limits[i] = lock_rotor_limits[i];
+             hardware_settings.joint_peak_limits[i] = peak_torque_limits[i];
+        }
+
+        hardware_settings.joint_limit_torque_ratio = robot_config.getValueOrDefault<double>("joint_limit_torque_ratio", 1.0);
+
+        std::vector<std::string> end_effector_type = robot_config.getValue<std::vector<std::string>>("EndEffectorType");
+        std::map<std::string, EndEffectorType> end_effector_type_map = {{"none", EndEffectorType::none},
+                                                                        {"jodell", EndEffectorType::jodell},
+                                                                        {"qiangnao", EndEffectorType::qiangnao},
+                                                                        {"lejuclaw", EndEffectorType::lejuclaw},
+                                                                        {"qiangnao_touch", EndEffectorType::qiangnao_touch},
+                                                                        {"revo2", EndEffectorType::revo2},
+                                                                        {"linker_hand", EndEffectorType::linker_hand},
+                                                                        {"qibeng", EndEffectorType::qibeng}};
+        for (auto &name : end_effector_type)
+        {
+            // std::cout << "EndEffectorType: " << name << std::endl;
+            hardware_settings.end_effector_type.push_back(end_effector_type_map[name]);
+        }
+    }
+    void KuavoSettings::loadFilterSettings(JSONConfigReader &robot_config)
+    {
+        filter_settings.base_Q = robot_config.getValue<Eigen::VectorXd>("base_Q");
+        filter_settings.base_R = robot_config.getValue<Eigen::VectorXd>("base_R");
+        filter_settings.com_Q = robot_config.getValue<Eigen::VectorXd>("com_Q");
+        filter_settings.com_R = robot_config.getValue<Eigen::VectorXd>("com_R");
+        auto joint_vel_Q = robot_config.getValue<Eigen::VectorXd>("joint_vel_Q");
+        filter_settings.joint_vel_Q.resize(joint_vel_Q.size() * 2);
+        filter_settings.joint_vel_Q << joint_vel_Q, joint_vel_Q;
+
+        auto joint_vel_R = robot_config.getValue<Eigen::VectorXd>("joint_vel_R");
+        filter_settings.joint_vel_R.resize(joint_vel_R.size() * 2);
+        filter_settings.joint_vel_R << joint_vel_R, joint_vel_R;
+        auto joint_pos_Q = robot_config.getValue<Eigen::VectorXd>("joint_pos_Q");
+        filter_settings.joint_pos_Q.resize(joint_pos_Q.size() * 2);
+        filter_settings.joint_pos_Q << joint_pos_Q, joint_pos_Q;
+        auto joint_pos_R = robot_config.getValue<Eigen::VectorXd>("joint_pos_R");
+        filter_settings.joint_pos_R.resize(joint_pos_R.size() * 2);
+        filter_settings.joint_pos_R << joint_pos_R, joint_pos_R;
+
+        filter_settings.l_joint_defor_K = robot_config.getValue<double>("l_joint_defor_K");
+        filter_settings.r_joint_defor_K = robot_config.getValue<double>("r_joint_defor_K");
+    }
+
+}

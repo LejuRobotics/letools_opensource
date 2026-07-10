@@ -1,0 +1,27 @@
+name: "smt_tray_pick_and_place"
+description: "从 SMT 托盘抓取元件并放置到指定位置"
+
+steps:
+  - skill: move_to_pose
+    params:
+      target_pose: [0.5, 0.0, 0.9, 0, 0, 0, 1] # x, y, z, qx, qy, qz, qw
+      speed_factor: 0.5
+      timeout: 10.0
+
+  - skill: pick
+    params:
+      object_label: "resistor"
+      approach_offset: 0.1
+      use_vision: true
+      timeout: 15.0
+
+  - skill: move_to_pose
+    params:
+      target_pose: [0.2, 0.3, 0.9, 0, 0, 0, 1]
+      speed_factor: 0.3
+      timeout: 10.0
+
+  - skill: place
+    params:
+      release_height: 0.05
+      timeout: 5.0

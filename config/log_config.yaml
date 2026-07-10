@@ -1,0 +1,30 @@
+# Kuavo Studio 日志配置文件
+# 所有运行脚本都会使用此配置
+
+logging:
+  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  
+  # 日志格式: simple, detailed, json
+  # - simple: [时间] [级别] 模块: 消息
+  # - detailed: [时间] [TRACE:xxx] [级别] 模块: 消息 (推荐)
+  # - json: JSON 格式，便于机器解析
+  format: "detailed"
+  
+  # 日志目录路径（相对于项目根目录或绝对路径）
+  log_dir: "log"
+  
+  # 单个日志文件最大字节数 (10MB = 10 * 1024 * 1024)
+  max_bytes: 10485760
+  
+  # 保留的备份文件数量
+  backup_count: 5
+  
+  # 是否输出到控制台
+  console_output: true
+  
+  # 是否输出到文件
+  file_output: true
+  
+  # 错误日志单独记录（ERROR 及以上级别）
+  error_log_enabled: true

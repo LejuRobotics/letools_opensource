@@ -1,0 +1,14 @@
+# This service executes a specified gesture.
+# It is used to trigger a gesture by providing its name and the side of the hand(s) to use.
+#
+# Request:
+# kuavo_msgs/gestureTask[] gestures # An array of gestures to execute, each with a name and hand side
+#
+# Response:
+# bool success         # Indicates whether the gesture execution was successful.
+# string message       # A message providing additional information (e.g., error details if the gesture failed).
+
+kuavo_msgs/gestureTask[] gestures
+---
+bool success
+string message

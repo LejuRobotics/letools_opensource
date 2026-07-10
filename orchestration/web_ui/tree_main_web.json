@@ -1,0 +1,512 @@
+{
+  "root": {
+    "cells": "node",
+    "data": {
+      "fetchData": {
+        "label": "root",
+        "shape": "CUSTOM_RECTCOMP",
+        "data": {},
+        "key": "root",
+        "parentSource": [
+          {
+            "key": "common",
+            "title": "common",
+            "level": 0
+          },
+          {
+            "key": "base",
+            "title": "base",
+            "level": 1
+          },
+          {
+            "key": "root",
+            "title": "root",
+            "level": 2
+          }
+        ],
+        "isFillAll": true,
+        "inputs": []
+      },
+      "handleData": {
+        "description": "studio_smoke_seq",
+        "name": "root",
+        "inparams": {
+          "memory": {
+            "value": "True",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        }
+      }
+    },
+    "id": "ecd8fbed-9218-42dd-bf81-1f64064ba609",
+    "label": "studio_smoke_seq",
+    "position": {
+      "x": 500,
+      "y": 500
+    },
+    "shape": "CUSTOM_RECTCOMP",
+    "size": {
+      "width": 148,
+      "height": 107
+    }
+  },
+  "nodes": [
+    {
+      "cells": "node",
+      "data": {
+        "fetchData": {
+          "label": "root",
+          "shape": "CUSTOM_RECTCOMP",
+          "data": {},
+          "key": "root",
+          "parentSource": [
+            {
+              "key": "common",
+              "title": "common",
+              "level": 0
+            },
+            {
+              "key": "base",
+              "title": "base",
+              "level": 1
+            },
+            {
+              "key": "root",
+              "title": "root",
+              "level": 2
+            }
+          ],
+          "isFillAll": true,
+          "inputs": []
+        },
+        "handleData": {
+          "description": "studio_smoke_seq",
+          "name": "root",
+          "inparams": {
+            "memory": {
+              "value": "True",
+              "source": "CUSTOM",
+              "data_type": "string"
+            }
+          }
+        }
+      },
+      "id": "ecd8fbed-9218-42dd-bf81-1f64064ba609",
+      "label": "studio_smoke_seq",
+      "position": {
+        "x": 500,
+        "y": 500
+      },
+      "shape": "CUSTOM_RECTCOMP",
+      "size": {
+        "width": 148,
+        "height": 107
+      }
+    },
+    {
+      "cells": "node",
+      "data": {
+        "fetchData": {
+          "label": "WaitForEnter",
+          "shape": "CUSTOM_RECTCOMP",
+          "data": {},
+          "key": "WaitForEnter",
+          "parentSource": [
+            {
+              "key": "skill",
+              "title": "skill",
+              "level": 0
+            },
+            {
+              "key": "studio_smoke",
+              "title": "studio_smoke",
+              "level": 1
+            },
+            {
+              "key": "WaitForEnter",
+              "title": "按Enter继续",
+              "level": 2
+            }
+          ],
+          "isFillAll": true,
+          "inputs": [
+            {
+              "key": "message",
+              "label": "暂停时的提示信息",
+              "purpose": "CUSTOM",
+              "type": "string",
+              "order": 1
+            }
+          ]
+        },
+        "handleData": {
+          "description": "wait_enter",
+          "name": "WaitForEnter",
+          "inparams": {
+            "message": {
+              "value": "studio_smoke_v1: 按 Enter 开始冒烟",
+              "source": "CUSTOM",
+              "data_type": "string"
+            }
+          }
+        }
+      },
+      "id": "0ac5b6c8-1f79-4400-ba06-9609d782c144",
+      "label": "wait_enter",
+      "position": {
+        "x": 200.0,
+        "y": 650
+      },
+      "shape": "CUSTOM_RECTCOMP",
+      "size": {
+        "width": 148,
+        "height": 107
+      }
+    },
+    {
+      "cells": "node",
+      "data": {
+        "fetchData": {
+          "label": "ChassisShortMove",
+          "shape": "CUSTOM_RECTCOMP",
+          "data": {},
+          "key": "ChassisShortMove",
+          "parentSource": [
+            {
+              "key": "skill",
+              "title": "skill",
+              "level": 0
+            },
+            {
+              "key": "studio_smoke",
+              "title": "studio_smoke",
+              "level": 1
+            },
+            {
+              "key": "ChassisShortMove",
+              "title": "底盘短动",
+              "level": 2
+            }
+          ],
+          "isFillAll": true,
+          "inputs": [
+            {
+              "key": "vx",
+              "label": "m/s",
+              "purpose": "CUSTOM",
+              "type": "float",
+              "order": 1
+            },
+            {
+              "key": "vy",
+              "label": "m/s",
+              "purpose": "CUSTOM",
+              "type": "float",
+              "order": 2
+            },
+            {
+              "key": "vyaw",
+              "label": "rad/s",
+              "purpose": "CUSTOM",
+              "type": "float",
+              "order": 3
+            },
+            {
+              "key": "duration_sec",
+              "label": "秒",
+              "purpose": "CUSTOM",
+              "type": "float",
+              "order": 4
+            }
+          ]
+        },
+        "handleData": {
+          "description": "chassis_short",
+          "name": "ChassisShortMove",
+          "inparams": {
+            "vx": {
+              "value": "0.15",
+              "source": "CUSTOM",
+              "data_type": "float"
+            },
+            "vy": {
+              "value": "0.0",
+              "source": "CUSTOM",
+              "data_type": "float"
+            },
+            "vyaw": {
+              "value": "0.0",
+              "source": "CUSTOM",
+              "data_type": "float"
+            },
+            "duration_sec": {
+              "value": "2.0",
+              "source": "CUSTOM",
+              "data_type": "float"
+            }
+          }
+        }
+      },
+      "id": "987d54d8-bdc3-4f45-b68c-4f4b27ab7a0b",
+      "label": "chassis_short",
+      "position": {
+        "x": 400.0,
+        "y": 650
+      },
+      "shape": "CUSTOM_RECTCOMP",
+      "size": {
+        "width": 148,
+        "height": 107
+      }
+    },
+    {
+      "cells": "node",
+      "data": {
+        "fetchData": {
+          "label": "MoveHead",
+          "shape": "CUSTOM_RECTCOMP",
+          "data": {},
+          "key": "MoveHead",
+          "parentSource": [
+            {
+              "key": "skill",
+              "title": "skill",
+              "level": 0
+            },
+            {
+              "key": "studio_smoke",
+              "title": "studio_smoke",
+              "level": 1
+            },
+            {
+              "key": "MoveHead",
+              "title": "控制头部移动",
+              "level": 2
+            }
+          ],
+          "isFillAll": true,
+          "inputs": [
+            {
+              "key": "mode",
+              "label": "manual / from_board / smoke",
+              "purpose": "CUSTOM",
+              "type": "string",
+              "order": 1
+            },
+            {
+              "key": "yaw_rad",
+              "label": "smoke 模式 yaw（弧度）",
+              "purpose": "CUSTOM",
+              "type": "float",
+              "order": 2
+            },
+            {
+              "key": "pitch_rad",
+              "label": "smoke 模式 pitch（弧度）",
+              "purpose": "CUSTOM",
+              "type": "float",
+              "order": 3
+            },
+            {
+              "key": "count",
+              "label": "重复计数",
+              "purpose": "CUSTOM",
+              "type": "int",
+              "order": 4
+            },
+            {
+              "key": "head_event_timeout",
+              "label": "ms",
+              "purpose": "CUSTOM",
+              "type": "int",
+              "order": 5
+            },
+            {
+              "key": "head_search_yaws",
+              "label": "manual 模式",
+              "purpose": "CUSTOM",
+              "type": "string",
+              "order": 6
+            },
+            {
+              "key": "head_search_pitchs",
+              "label": "manual 模式",
+              "purpose": "CUSTOM",
+              "type": "string",
+              "order": 7
+            }
+          ]
+        },
+        "handleData": {
+          "description": "move_head_smoke",
+          "name": "MoveHead",
+          "inparams": {
+            "mode": {
+              "value": "smoke",
+              "source": "CUSTOM",
+              "data_type": "string"
+            },
+            "yaw_rad": {
+              "value": "0.2",
+              "source": "CUSTOM",
+              "data_type": "float"
+            },
+            "pitch_rad": {
+              "value": "0.1",
+              "source": "CUSTOM",
+              "data_type": "float"
+            }
+          }
+        }
+      },
+      "id": "71e90b17-15bb-4140-9883-0b11c7731db5",
+      "label": "move_head_smoke",
+      "position": {
+        "x": 600.0,
+        "y": 650
+      },
+      "shape": "CUSTOM_RECTCOMP",
+      "size": {
+        "width": 148,
+        "height": 107
+      }
+    },
+    {
+      "cells": "node",
+      "data": {
+        "fetchData": {
+          "label": "MoveArmBaseJointTrajectories",
+          "shape": "CUSTOM_RECTCOMP",
+          "data": {},
+          "key": "MoveArmBaseJointTrajectories",
+          "parentSource": [
+            {
+              "key": "skill",
+              "title": "skill",
+              "level": 0
+            },
+            {
+              "key": "studio_smoke",
+              "title": "studio_smoke",
+              "level": 1
+            },
+            {
+              "key": "MoveArmBaseJointTrajectories",
+              "title": "手臂关节轨迹运动",
+              "level": 2
+            }
+          ],
+          "isFillAll": true,
+          "inputs": [
+            {
+              "key": "use_board_trajectory",
+              "label": "true 时用黑板末帧走 arm_control",
+              "purpose": "CUSTOM",
+              "type": "string",
+              "order": 1
+            }
+          ]
+        },
+        "handleData": {
+          "description": "arm_smoke",
+          "name": "MoveArmBaseJointTrajectories",
+          "inparams": {
+            "use_board_trajectory": {
+              "value": "true",
+              "source": "CUSTOM",
+              "data_type": "string"
+            }
+          }
+        }
+      },
+      "id": "57628bb3-afde-4511-a9ba-d25b2d06d8ee",
+      "label": "arm_smoke",
+      "position": {
+        "x": 800.0,
+        "y": 650
+      },
+      "shape": "CUSTOM_RECTCOMP",
+      "size": {
+        "width": 148,
+        "height": 107
+      }
+    }
+  ],
+  "edges": [
+    {
+      "cells": "edge",
+      "data": {},
+      "id": "479b17c4-794b-480f-9fe1-cf86db01833e",
+      "label": null,
+      "source": {
+        "cell": "ecd8fbed-9218-42dd-bf81-1f64064ba609",
+        "port": "bottom"
+      },
+      "target": {
+        "cell": "0ac5b6c8-1f79-4400-ba06-9609d782c144",
+        "port": "top"
+      },
+      "tools": {
+        "items": []
+      }
+    },
+    {
+      "cells": "edge",
+      "data": {},
+      "id": "74e03eef-d52f-4b1f-bd4f-a11607e8a3cf",
+      "label": null,
+      "source": {
+        "cell": "ecd8fbed-9218-42dd-bf81-1f64064ba609",
+        "port": "bottom"
+      },
+      "target": {
+        "cell": "987d54d8-bdc3-4f45-b68c-4f4b27ab7a0b",
+        "port": "top"
+      },
+      "tools": {
+        "items": []
+      }
+    },
+    {
+      "cells": "edge",
+      "data": {},
+      "id": "aff8e9f2-dcce-4f2d-83fd-1e0d50f06c89",
+      "label": null,
+      "source": {
+        "cell": "ecd8fbed-9218-42dd-bf81-1f64064ba609",
+        "port": "bottom"
+      },
+      "target": {
+        "cell": "71e90b17-15bb-4140-9883-0b11c7731db5",
+        "port": "top"
+      },
+      "tools": {
+        "items": []
+      }
+    },
+    {
+      "cells": "edge",
+      "data": {},
+      "id": "81b40ca8-d4ef-4e0d-a4b5-0895d7730d8c",
+      "label": null,
+      "source": {
+        "cell": "ecd8fbed-9218-42dd-bf81-1f64064ba609",
+        "port": "bottom"
+      },
+      "target": {
+        "cell": "57628bb3-afde-4511-a9ba-d25b2d06d8ee",
+        "port": "top"
+      },
+      "tools": {
+        "items": []
+      }
+    }
+  ],
+  "interface": {
+    "inputs": [],
+    "outputs": [],
+    "custom": [],
+    "process": []
+  }
+}

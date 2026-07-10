@@ -1,0 +1,52 @@
+# 手臂轨迹任务行为树配置
+name: arm_trajectory_task
+version: 1.0.0
+description: 执行手臂轨迹控制任务
+
+# 行为树结构
+tree:
+  type: Sequence
+  children:
+    - type: Action
+      name: initialize_hardware
+      params:
+        hardware_type: leju_wheeled
+    - type: Action
+      name: execute_arm_trajectory
+      params:
+        skill_name: arm_trajectory
+        joint_names:
+          - joint1
+          - joint2
+          - joint3
+          - joint4
+          - joint5
+          - joint6
+          - joint7
+          - joint8
+          - joint9
+          - joint10
+          - joint11
+          - joint12
+          - joint13
+          - joint14
+        time_points:
+          - 0.0
+          - 4.0
+          - 8.0
+          - 12.0
+        joint_angles_list:
+          # 时间点 0.0s - 初始位置
+          - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+          # 时间点 4.0s - 展开手臂
+          - [-30.0, 20.0, 15.0, -45.0, 25.0, 10.0, -35.0, -30.0, -20.0, -15.0, -45.0, -25.0, -10.0, -35.0]
+          # 时间点 8.0s - 弯曲手臂
+          - [-20.0, 30.0, -25.0, -20.0, 40.0, -15.0, 25.0, -20.0, -30.0, 25.0, -20.0, -40.0, 15.0, 25.0]
+          # 时间点 12.0s - 回到初始位置
+          - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        quick_mode: 2
+        use_hardware_trajectory: false
+    - type: Action
+      name: shutdown_hardware
+      params:
+        hardware_type: leju_wheeled

@@ -1,0 +1,34 @@
+# Bit masks for enabling individual touch sensors on the robotic hand
+# Each sensor can be enabled by setting the corresponding bit in the mask
+
+# Examples: 0b00000011 enables thumb and index sensors, 0b00000000 disables all sensors
+#  ``` 
+#    mask_value = THUMB_SENSOR | INDEX_SENSOR
+#    req = enableHandTouchSensorRequest()
+#    req.mask = mask_value
+#  ``` 
+
+# Thumb finger touch sensor (bit 0)
+uint8 THUMB_SENSOR = 1
+
+# Index finger touch sensor (bit 1)
+uint8 INDEX_SENSOR = 2
+
+# Middle finger touch sensor (bit 2)
+uint8 MIDDLE_SENSOR = 4
+
+# Ring finger touch sensor (bit 3)
+uint8 RING_SENSOR = 8
+
+# Pinky finger touch sensor (bit 4)
+uint8 PINKY_SENSOR = 16
+
+# Bitmask indicating which sensors to enable
+# Multiple sensors can be enabled by combining masks with bitwise OR
+uint8 mask
+---
+# Whether the operation was successful
+bool success
+
+# Additional status or error message
+string message

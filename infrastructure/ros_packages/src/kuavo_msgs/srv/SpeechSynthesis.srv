@@ -1,0 +1,6 @@
+# 请求部分
+string data
+float32 volume
+---
+# 响应部分
+bool success   

@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+
+<launch>
+
+    <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch"/>
+
+    <node pkg="kuavo_tf2_web_republisher" type="kuavo_tf2_web_republisher" name="kuavo_tf2_web_republisher" />
+    
+
+</launch>

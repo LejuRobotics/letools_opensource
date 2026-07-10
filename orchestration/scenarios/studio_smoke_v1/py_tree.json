@@ -1,0 +1,59 @@
+{
+  "tree": {
+    "name": "Sequence",
+    "label": "studio_smoke_seq",
+    "params": {
+      "memory": { "value": "True", "source": "CUSTOM", "data_type": "string" }
+    },
+    "childs": [
+      {
+        "name": "WaitForEnter",
+        "label": "wait_enter",
+        "params": {
+          "message": {
+            "value": "studio_smoke_v1: 按 Enter 开始（底盘→腿→臂）",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "ChassisShortMove",
+        "label": "chassis_short",
+        "params": {
+          "vx": { "value": "0.3", "source": "CUSTOM", "data_type": "float" },
+          "vy": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+          "vyaw": { "value": "0.0", "source": "CUSTOM", "data_type": "float" },
+          "duration_sec": { "value": "3.0", "source": "CUSTOM", "data_type": "float" }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "LegShortMove",
+        "label": "leg_short",
+        "params": {
+          "j0": { "value": "14.90", "source": "CUSTOM", "data_type": "float" },
+          "j1": { "value": "-32.01", "source": "CUSTOM", "data_type": "float" },
+          "j2": { "value": "18.03", "source": "CUSTOM", "data_type": "float" },
+          "j3": { "value": "30.0", "source": "CUSTOM", "data_type": "float" }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "MoveArmBaseJointTrajectories",
+        "label": "arm_smoke",
+        "params": {
+          "use_board_trajectory": { "value": "true", "source": "CUSTOM", "data_type": "string" }
+        },
+        "childs": [],
+        "childBoard": []
+      }
+    ],
+    "childBoard": []
+  },
+  "interface": { "inputs": [], "outputs": [], "custom": [], "process": [] }
+}

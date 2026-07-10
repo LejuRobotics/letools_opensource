@@ -1,0 +1,22 @@
+<launch>
+    <!-- 声明确认 input_image 参数 -->
+    <arg name="input_image" default="/camera/color/image_raw" />
+
+    <!-- 加载参数 -->
+    <rosparam command="load" file="$(find detection_yolo_v8)/config/params.yaml" />
+    
+    <!-- tf2_ros 静态转换 机器人坐标系下的camera_base 和 相机urdf里面的camera_link 进行对齐 -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="camera_to_real_frame" args="0.02292 0 0 0 0 0 camera_base camera_link" />
+
+    <!-- 启动YOLOv8检测节点 -->
+    <node name="yolov8_detector" pkg="detection_yolo_v8" type="yolo_v8_detector.py" output="screen">
+        <remap from="input_image" to="$(arg input_image)" />
+        <param name="input_image" value="$(arg input_image)" />
+        <env name="OMP_NUM_THREADS" value="1"/>
+        <env name="LD_PRELOAD" value="/usr/lib/aarch64-linux-gnu/libgomp.so.1"/>
+    </node>
+
+    <!-- 启动YOLOv8 Transform 节点 -->
+    <node name="yolov8_transform" pkg="detection_yolo_v8" type="yolo_v8_transform.py" output="screen">
+    </node>    
+</launch>

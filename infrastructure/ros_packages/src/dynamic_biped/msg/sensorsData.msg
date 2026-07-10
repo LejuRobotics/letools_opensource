@@ -1,0 +1,5 @@
+std_msgs/Header header
+time sensor_time
+dynamic_biped/jointData joint_data
+dynamic_biped/imuData imu_data
+dynamic_biped/endEffectorData end_effector_data

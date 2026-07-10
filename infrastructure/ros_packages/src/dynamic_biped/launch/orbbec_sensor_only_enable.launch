@@ -1,0 +1,28 @@
+<launch>
+    
+    <arg name="with_wrist_camera" default="false" />
+
+    <!-- 启动 orbbec335L相机 -->
+    <include file="$(find orbbec_camera)/launch/gemini_330_series.launch" >
+        <arg name="camera_name" value="camera" />
+        <arg name="color_fps" value="60" />
+    </include>
+
+    <!-- 启动 手腕realsense相机 -->
+    <group if="$(arg with_wrist_camera)">
+      <include file="$(find realsense2_camera)/launch/rs_camera.launch" >
+        <arg name="camera" value="left_wrist_camera" />
+        <arg name="tf_prefix" value="left_wrist_camera" />
+        <arg name="serial_no" value="$(env LEFT_WRIST_CAMERA_SERIAL_NO)" />
+      </include>
+    </group>
+
+    <group if="$(arg with_wrist_camera)">
+      <include file="$(find realsense2_camera)/launch/rs_camera.launch" >
+        <arg name="camera" value="right_wrist_camera" />
+        <arg name="tf_prefix" value="right_wrist_camera" />
+        <arg name="serial_no" value="$(env RIGHT_WRIST_CAMERA_SERIAL_NO)" />
+      </include>
+    </group>
+
+</launch>

@@ -1,0 +1,5 @@
+uint8 masterID
+string stateReq
+string subState
+---
+int16 stateRes

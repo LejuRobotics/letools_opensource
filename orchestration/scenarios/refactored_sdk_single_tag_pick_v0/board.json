@@ -1,0 +1,23 @@
+{
+  "pick_tag_id": 1,
+  "tag_ids": [1],
+  "stand_in_tag_pos": [0.0, 0.0, 0.0],
+  "stand_in_tag_euler": [0.0, 0.0, 0.0],
+  "box_width": 0.35,
+  "box_behind_tag": 0.0,
+  "box_beneath_tag": 0.0,
+  "box_left_tag": 0.0,
+  "head_search_yaws": [12, 0, -12, 0],
+  "head_search_pitchs": [-15, 0, 15, 0],
+  "tag_scan_timeout": 30.0,
+  "chassis_walk_mode": "cmd_pos_world",
+  "arm_control_type": "eef",
+  "end_effector_side": "both",
+  "gripper_position": 100,
+  "gripper_effort": 1.0,
+  "z_lift": 0.2,
+  "hand_pitch_degree": 0.0,
+  "use_virtual_tag": false,
+  "real_tag_timeout_sec": 30.0,
+  "virtual_tag_pose_in_odom": [1.0, 0.0, 1.1, 0.0, 0.0, 0.0]
+}

@@ -1,0 +1,19 @@
+name: "arm_control_test"
+description: "手臂控制测试任务"
+parameters:
+  tag_id: 0
+  fake_tag_pos: [0.50, 0.0, 0.75]
+  fake_tag_euler: [90, 0, -90]
+  control_type: "joint"
+  total_time: 3.0
+tree:
+  name: "Sequence"
+  label: "arm_demo"
+  memory: true
+  children:
+    - name: "SetFakeTag"
+      label: "set_fake_tag"
+    - name: "TagToArmGoal"
+      label: "tag_to_arm_goal"
+    - name: "MoveArm"
+      label: "move_arm_demo"

@@ -1,0 +1,43 @@
+<launch>
+    <!-- LeTools 自有相机启动文件 -->
+    <!-- 分辨率等参数由 camera_adapter.py 从 camera_config.yaml 读取后传入 -->
+
+    <arg name="color_width" default="1280"/>
+    <arg name="color_height" default="720"/>
+    <arg name="color_fps" default="30"/>
+    <arg name="depth_width" default="640"/>
+    <arg name="depth_height" default="400"/>
+    <arg name="depth_fps" default="30"/>
+
+    <arg name="with_wrist_camera" default="false"/>
+
+    <!-- 启动 orbbec 头部相机 -->
+    <include file="$(find orbbec_camera)/launch/gemini_330_series.launch">
+        <arg name="camera_name" value="camera"/>
+        <arg name="color_width" value="$(arg color_width)"/>
+        <arg name="color_height" value="$(arg color_height)"/>
+        <arg name="color_fps" value="$(arg color_fps)"/>
+        <arg name="depth_width" value="$(arg depth_width)"/>
+        <arg name="depth_height" value="$(arg depth_height)"/>
+        <arg name="depth_fps" value="$(arg depth_fps)"/>
+        <arg name="enable_colored_point_cloud" value="true"/>
+        <arg name="ordered_pc" value="true"/>
+    </include>
+
+    <!-- 启动 手腕 realsense 相机 -->
+    <group if="$(arg with_wrist_camera)">
+      <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+        <arg name="camera" value="left_wrist_camera"/>
+        <arg name="tf_prefix" value="left_wrist_camera"/>
+        <arg name="serial_no" value="$(env LEFT_WRIST_CAMERA_SERIAL_NO)"/>
+      </include>
+    </group>
+
+    <group if="$(arg with_wrist_camera)">
+      <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+        <arg name="camera" value="right_wrist_camera"/>
+        <arg name="tf_prefix" value="right_wrist_camera"/>
+        <arg name="serial_no" value="$(env RIGHT_WRIST_CAMERA_SERIAL_NO)"/>
+      </include>
+    </group>
+</launch>

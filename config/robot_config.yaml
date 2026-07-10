@@ -1,0 +1,6 @@
+robot:
+  name: "leju_bipedal"
+  urdf_path: "drivers/leju/urdf/robot.urdf"
+  joint_limits:
+    joint1: [-3.14, 3.14]
+    joint2: [-2.09, 2.09]

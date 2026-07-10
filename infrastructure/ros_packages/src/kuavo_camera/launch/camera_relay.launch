@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- 输入话题参数，可以在启动时指定 -->
+    <arg name="input_topic" default="/camera/color/image_raw" />
+    <arg name="input_depth_topic" default="/camera/depth/image_rect_raw" />
+    
+    <!-- 输出话题，固定为 /leju_camera/color/image_raw -->
+    <arg name="output_topic" default="/leju_camera/color/image_raw" />
+    
+    <!-- 使用 topic_tools 的 relay 节点进行话题转发 -->
+    <node name="camera_image_relay" pkg="topic_tools" type="relay" 
+          args="$(arg input_topic) $(arg output_topic)" 
+          output="screen">
+    </node>
+    
+    <!-- 可选：同时转发 camera_info 话题 -->
+    <arg name="relay_camera_info" default="false" />
+    <group if="$(arg relay_camera_info)">
+        <node name="camera_info_relay" pkg="topic_tools" type="relay" 
+              args="/camera/color/camera_info /leju_camera/color/camera_info" 
+              output="screen">
+        </node>
+    </group>
+    
+    <!-- 可选：同时转发 depth 话题 -->
+    <arg name="relay_depth" default="true" />
+    <group if="$(arg relay_depth)">
+        <node name="camera_depth_relay" pkg="topic_tools" type="relay" 
+              args="/camera/depth/image_rect_raw /leju_camera/depth/image_rect_raw" 
+              output="screen">
+        </node>
+        <node name="depth_info_relay" pkg="topic_tools" type="relay" 
+              args="/camera/depth/camera_info /leju_camera/depth/camera_info" 
+              output="screen">
+        </node>
+    </group>
+
+</launch>
+

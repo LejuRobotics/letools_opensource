@@ -1,0 +1,108 @@
+{
+    "arm_pick_sequence.json": {
+        "tree": {
+            "name": "Sequence",
+            "label": "arm_pick_seq",
+            "params": {
+                "memory": {
+                    "value": "True",
+                    "source": "CUSTOM"
+                }
+            },
+            "childs": [
+                {
+                    "name": "PrepareArmForGrasp",
+                    "label": "prepare_arm_for_grasp",
+                    "params": {
+                        "arm_control_mode": {
+                            "value": "fixed_base",
+                            "source": "CUSTOM"
+                        }
+                    },
+                    "childs": [],
+                    "childBoard": []
+                },
+                {
+                    "name": "NodeTagToArmGoal",
+                    "label": "calc_arm_goal",
+                    "params": {
+                        "tag_id": {
+                            "value": "0",
+                            "source": "CUSTOM"
+                        },
+                        "control_type": {
+                            "value": "joint",
+                            "source": "CUSTOM"
+                        }
+                    },
+                    "childs": [],
+                    "childBoard": []
+                },
+                {
+                    "name": "NodeWheelArm",
+                    "label": "move_to_goal",
+                    "params": {
+                        "control_type": {
+                            "value": "joint",
+                            "source": "CUSTOM"
+                        },
+                        "total_time": {
+                            "value": "3.0",
+                            "source": "CUSTOM"
+                        }
+                    },
+                    "childs": [],
+                    "childBoard": []
+                }
+            ],
+            "childBoard": []
+        }
+    },
+    "arm_place_sequence.json": {
+        "tree": {
+            "name": "Sequence",
+            "label": "arm_place_seq",
+            "params": {
+                "memory": {
+                    "value": "True",
+                    "source": "CUSTOM"
+                }
+            },
+            "childs": [
+                {
+                    "name": "NodeTagToArmGoal",
+                    "label": "calc_place_goal",
+                    "params": {
+                        "tag_id": {
+                            "value": "1",
+                            "source": "CUSTOM"
+                        },
+                        "control_type": {
+                            "value": "joint",
+                            "source": "CUSTOM"
+                        }
+                    },
+                    "childs": [],
+                    "childBoard": []
+                },
+                {
+                    "name": "NodeWheelArm",
+                    "label": "move_to_place",
+                    "params": {
+                        "control_type": {
+                            "value": "joint",
+                            "source": "CUSTOM"
+                        },
+                        "total_time": {
+                            "value": "3.0",
+                            "source": "CUSTOM"
+                        }
+                    },
+                    "childs": [],
+                    "childBoard": []
+                }
+            ],
+            "childBoard": []
+        }
+    }
+}

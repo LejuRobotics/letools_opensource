@@ -1,0 +1,10 @@
+<launch>
+
+    <node pkg="kuavo_vision_object" type="realsense_yolo_segment_ros.py" name="yolo_detection_node" output="screen" respawn="true" respawn_delay="5" />
+    
+    <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="camera_to_real_frame" args="0 0 0 0 0 0 torso_camera head_camera_link" /> -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="camera_to_real_frame" args="0 0 0 0 0 0 head_camera head_camera_link" />
+
+    <node pkg="kuavo_vision_object" type="realsense_yolo_transform_torso.py" name="yolo_tf_torso_node" output="screen" respawn="true" respawn_delay="5" />
+
+</launch>

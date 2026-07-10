@@ -1,0 +1,26 @@
+# YOLOv8模型路径
+model_path: "models/yolov8n.pt"
+
+# 置信度阈值
+conf_threshold: 0.05
+
+# 目标检测类别 (COCO数据集中的瓶子,杯子,橙子等)
+target_class: 
+- "bottle"
+# - "cup"
+# - "banana"
+# - "apple"
+- "orange"
+# - "carrot"
+
+# 输入图像话题
+input_image: "/camera/color/image_raw"
+
+# 高度参数(单位: 米)
+height_table: 0.740
+height_bottle: 0.22
+# height_cup: 0.16
+height_banana: 0.04
+height_apple: 0.071
+height_orange: 0.071
+height_carrot: 0.04

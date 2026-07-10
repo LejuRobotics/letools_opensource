@@ -1,0 +1,27 @@
+# This service sets the force level for the Dexhand.
+# It is used to control the force applied by the Dexhand.
+#
+# Request:
+# int8 SMALL = 0          # Small force level.
+# int8 NORMAL = 1         # Normal force level.
+# int8 FULL = 2           # Full force level.
+# int8 force_level        # The desired force level to set.
+#
+# Response:
+# bool success            # Indicates whether the request was successful.
+# string message          # A message indicating the result of the request.
+
+int8 SMALL = 0
+int8 NORMAL = 1
+int8 FULL = 2
+
+int8 LEFT_HAND=0
+int8 RIGHT_HAND=1
+int8 BOTH_HANDS=2
+
+int8 force_level
+int8 hand_side
+---
+bool success
+string message
+int8[] force_level
