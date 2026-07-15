@@ -68,27 +68,39 @@ drivers + infrastructure 底层 SDK / ROS / 相机 / 消息包
 ***
 
 ## 🛠️ 安装
+详细部署安装步骤请参考[user_guides.md](docs/user_guides.md) 
 
 **1. 编译 ROS 工作空间**
 
 ```bash
-cd ~/LeTools/infrastructure/ros_packages
+cd ~/letools_opensource/infrastructure/ros_packages
 source /opt/ros/noetic/setup.bash
 catkin build
 source devel/setup.bash
 ```
 
-> 如果暂时不需要 RealSense 相机，且 `realsense2_camera` 编译失败，可以先跳过：
+> 如果暂时不需要 RealSense 相机，且视觉相关模块编译失败，可以先跳过：
 >
 > ```bash
-> catkin config --skiplist realsense2_camera kuavo_camera kuavo_tf2_web_republisher
+> catkin config --skiplist \
+    detection_yolo_v8 \
+    ar_control \
+    kuavo_vision_object \
+    kuavo_yolo_point2d \
+    yolo_box_object_detection \
+    yolo_button_object_detection \
+    yolo_valve_object_detection \
+    orbbec_camera \
+    realsense2_camera \
+    kuavo_camera\
+    kuavo_tf2_web_republisher
 > catkin build
 > ```
 
 **2. 安装 SDK**
 
 ```bash
-cd ~/LeTools
+cd ~/letools_opensource
 chmod +x scripts/install_sdk.sh
 ./scripts/install_sdk.sh
 ```
@@ -98,16 +110,6 @@ SDK 安装成功后验证：
 ```bash
 python3 -c 'from kuavo_humanoid_sdk import KuavoRobot; print("SDK Ready!")'
 ```
-
-> 📘 **每个终端建议加载以下环境：**
->
-> ```bash
-> cd ~/LeTools
-> source /opt/ros/noetic/setup.bash
-> source infrastructure/ros_packages/devel/setup.bash
-> export PYTHONPATH=$(pwd):$PYTHONPATH
-> export ROBOT_VERSION=62
-> ```
 
 <details>
 <summary>📖 ROS 工作空间说明</summary>
@@ -800,6 +802,28 @@ rm -rf .git/modules/drivers/leju/kuavo_humanoid_sdk
 </details>
 
 ***
+
+## 💬 支持与反馈
+
+我们鼓励反馈问题，使之可被搜索、归档，也方便后来者复用。
+
+### 📝 提交渠道
+
+| 角色 | 提交方式 |
+|:---|:---|
+| 🧑‍💻 **外部用户** | 前往 [GitCode Issues](https://gitcode.com/OpenLET/letools_opensource/issues) 使用 Issue 模板填写完整信息 |
+| 🏢 **乐聚员工** | 通过飞书的LeTools问题反馈表单提交 |
+
+> 📋 **员工提交必填字段：** 问题提出人 · 问题类型 · LeTools 版本/环境 · 具体内容等
+
+### 🔄 处理流程
+
+| 阶段 | 说明 |
+|:---|:---|
+| 📝 **提交问题** | 通过上述对应渠道提交，附上完整信息 |
+| 👤 **管理员分配** | 管理员在 **1 个工作日内** 评估优先级、指定责任人并设定时间节点 |
+| 🔧 **处理与反馈** | 责任人在「工作进度/受理意见」中更新处理进展 |
+| ✅ **解决归档** | 完成后填写「交付意见」并标记「是否解决」 |
 
 ## 📄 许可证
 

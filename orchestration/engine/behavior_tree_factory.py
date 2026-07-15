@@ -126,7 +126,7 @@ class BehaviorTreeFactory:
         tree_dir: str = None,
         enable_parallel_loading: bool = True,
         subtree_json_path: str = None,
-        action_group_filter: Optional[set] = None,   # 新增参数
+        action_group_filter: Optional[set] = None,
     ):
         # === LeTools orchestration 根目录 ===
         _engine_dir = os.path.dirname(os.path.abspath(__file__))
@@ -152,7 +152,8 @@ class BehaviorTreeFactory:
         self.enable_parallel_loading = enable_parallel_loading
         self._executor = None
         self._node_index_lock = threading.Lock()  # 防止并行构建时索引竞争
-        self.action_group_filter = action_group_filter   # 新增动作组过滤器
+        # 动作组过滤器：指定只保留哪些动作组（如 {1, 3, 5}），None 表示不过滤
+        self.action_group_filter = action_group_filter
         
         # [UPDATED] 子树配置路径：
         # - 若显式传入 subtree_json_path：使用它（用于场景级配置）
@@ -762,7 +763,7 @@ class BehaviorTreeFactory:
             # 单阶段：主树 params 直接替换 tree 中的 ${var}
             self._apply_macro_substitution(tree_config, subtree_macro_map)
 
-        # ===== 新增：动作组过滤 =====
+        # 动作组过滤：在递归构建之前移除未选中的动作组
         self._filter_action_groups(tree_config)
 
         # 递归构建子树
@@ -777,7 +778,6 @@ class BehaviorTreeFactory:
         
         return subtree_root
 
-    # ==================== 新增：动作组过滤 ====================
     def _filter_action_groups(self, tree_config: Dict[str, Any]) -> None:
         """
         根据动作组过滤器，从子树根节点的 childs 列表中移除未选中的动作组。
@@ -872,11 +872,14 @@ class BehaviorTreeFactory:
                     raw_val = value.get("value", "")
                     parsed_params[key] = raw_val
                 elif source == "READ_BOARD":
-                    # 从全局黑板读取，支持 board_key 字段以使用不同的黑板键
-                    board_key = value.get("board_key", key)   # 修改点：支持board_key
+                    # 从全局黑板读取
+                    # 支持 board_key 字段：当参数名与黑板键不同时，用 board_key 指定黑板键
+                    board_key = value.get("board_key", key)
                     self.global_blackboard.register_key(key=board_key, access=py_trees.common.Access.READ)
                     if self.global_blackboard.exists(board_key):
                         parsed_params[key] = self.global_blackboard.get(board_key)
+                        # 额外存储 board_key，供节点运行时从黑板重新读取（动态注入）
+                        parsed_params[f"{key}__board_key"] = board_key
                     else:
                         # 可选：处理缺失的键或使用默认值
                         pass
@@ -953,7 +956,7 @@ class BehaviorTreeFactory:
         "PassThrough", "Count",
         # studio 自定义装饰器（由本工厂特殊处理）
         "Async",
-        "RunIfIndex",   # 新增
+        "RunIfIndex",
     })
 
     def _is_py_trees_decorator(self, node_name: str) -> bool:
@@ -1002,7 +1005,6 @@ class BehaviorTreeFactory:
                         tick_hz = 50.0
                 return Async(name=label, child=child_node, tick_hz=tick_hz)
 
-            # ===== 新增：RunIfIndex 装饰器 =====
             if node_name == "RunIfIndex":
                 # 自定义：按索引门控装饰器（仅当黑板 nav_point_index 匹配时执行子节点）
                 from orchestration.nodes.run_if_index import RunIfIndex

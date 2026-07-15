@@ -139,13 +139,13 @@ pip3 install numpy scipy pytrees
 ```
 
 ## 2.4 下载工具链项目
-
-从 GitLab 下载工具链项目（dev 分支）：
+乐聚员工可通过 GitLab 下载工具链项目（letools）（dev 分支）
+外部客户可通过开源社区下载工具链项目（letools_opensource）：git clone https://gitcode.com/OpenLET/letools_opensource.git
 
 ```bash
 cd ~
-git clone --recursive <仓库地址> LeTools
-cd LeTools
+git clone https://gitcode.com/OpenLET/letools_opensource.git
+cd letools_opensource
 ```
 
 
@@ -172,26 +172,38 @@ pip3 install --upgrade "numpy>=1.19.5,<1.27.0"
 在项目根目录运行以下命令，编译 ROS workspace 中的包：
 
 ```bash
-cd ~/LeTools/infrastructure/ros_packages
+cd ~/letools_opensource/infrastructure/ros_packages
 catkin build
 source devel/setup.bash
 ```
 
-> 如果暂时不需要 RealSense 相机，且 `realsense2_camera` 编译失败，可以先跳过：
+> 运行仿真暂时不需要相机模块，且视觉相关的包编译失败，可以先跳过：
 >
 > ```bash
-> catkin config --skiplist realsense2_camera kuavo_camera kuavo_tf2_web_republisher
+> cd ~/letools_opensource/infrastructure/ros_packages
+> catkin config --skiplist \
+>    detection_yolo_v8 \
+>    ar_control \
+>    kuavo_vision_object \
+>    kuavo_yolo_point2d \
+>    yolo_box_object_detection \
+>    yolo_button_object_detection \
+>    yolo_valve_object_detection \
+>    orbbec_camera \
+>    realsense2_camera \
+>    kuavo_camera\
+>    kuavo_tf2_web_republisher
 > catkin build
 > ```
 
 编译成功后，`devel/setup.bash` 会生成。**每个终端都需要 source 它**（见 3.4 节）。
 
-## 3.2 安装 Kuavo SDK
+## 3.2 安装  SDK
 
 在项目根目录运行以下命令，脚本将自动完成 Submodule 初始化、分支切换、配置生成及 SDK 安装：
 
 ```bash
-cd ~/LeTools
+cd ~/letools_opensource
 # 若是拉取过 SDK 子模块，但未初始化，则需清理残留的 submodule 数据
 rm -rf drivers/leju/kuavo_humanoid_sdk
 # 若是没有拉取过SDK子模块，则运行安装脚本初始化
@@ -323,7 +335,7 @@ roslaunch humanoid_controllers load_kuavo_real_wheel.launch
 
 ```bash
 # 首先编译工作空间
-cd ~/LeTools/infrastructure/ros_packages
+cd ~/letools_opensource/infrastructure/ros_packages
 catkin build  # 或者使用该目录写好的 build.sh
 # 摄像头相关编译不通过可以不用管，不影响我们后续操作
 source devel/setup.bash
@@ -356,10 +368,10 @@ source devel/setup.bash
 
 ```bash
 # 首先 source 一下环境变量
-cd ~/LeTools/infrastructure/ros_packages
+cd ~/letools_opensource/infrastructure/ros_packages
 source devel/setup.bash
 # 这里记得用系统环境所在的 py 环境也就是 ros 所在，有虚拟环境记得做选择
-cd ~/LeTools/apps/test_kuavo_5w_sdk_adapter/sdk/01_head
+cd ~/letools_opensource/apps/test_kuavo_5w_sdk_adapter/sdk/01_head
 python3 test_head_control.py
 ```
 
@@ -376,9 +388,9 @@ python3 test_head_control.py
 ## 4.1 动头部
 
 ```bash
-cd ~/LeTools/infrastructure/ros_packages
+cd ~/letools_opensource/infrastructure/ros_packages
 source devel/setup.bash
-cd ~/LeTools/apps/test_kuavo_5w_sdk_adapter/sdk/01_head
+cd ~/letools_opensource/apps/test_kuavo_5w_sdk_adapter/sdk/01_head
 python3 test_head_control.py
 ```
 
@@ -398,7 +410,7 @@ python3 test_head_control.py
 ## 4.2 动手臂
 
 ```bash
-cd ~/LeTools/apps/test_kuavo_5w_adapter/03_arm_control
+cd ~/letools_opensource/apps/test_kuavo_5w_adapter/03_arm_control
 python3 test_arm_ee_joint.py
 ```
 
@@ -415,7 +427,7 @@ python3 test_arm_ee_joint.py
 ## 4.3 动底盘
 
 ```bash
-cd ~/LeTools/apps/test_kuavo_5w_adapter/01_base_control
+cd ~/letools_opensource/apps/test_kuavo_5w_adapter/01_base_control
 python3 test_cmd_pose_base.py
 ```
 
@@ -437,7 +449,7 @@ python3 test_cmd_pose_base.py
 ## 4.4 动躯干
 
 ```bash
-cd ~/LeTools/apps/test_kuavo_5w_adapter/02_lower_body
+cd ~/letools_opensource/apps/test_kuavo_5w_adapter/02_lower_body
 python3 test_torso_pose.py
 ```
 
@@ -466,7 +478,7 @@ python3 test_torso_pose.py
 时序指令（TimedCmd）通过 `/mobile_manipulator_timed_single_cmd` 服务下发**带期望执行时间**的单条指令，由控制器内部的 Ruckig 规划器在速度/加速度/急动度限制下算出时间最优轨迹。相比标准接口的"发完即走"，它能拿到控制器返回的 `actualTime`（实际执行时间），适合需要精确计时的定点运动。
 
 ```bash
-cd ~/LeTools/apps/test_kuavo_5w_adapter/04_timed_commands
+cd ~/letools_opensource/apps/test_kuavo_5w_adapter/04_timed_commands
 python3 test_cmd_pose_sequence.py
 ```
 
@@ -511,7 +523,7 @@ result = self.hardware.send_timed_torso_pose(
 逆运动学（IK）把"末端期望位姿"反解成"关节角度"，并预先检查目标是否可达。
 
 ```bash
-cd ~/LeTools/apps/test_kuavo_5w_adapter/04_timed_commands
+cd ~/letools_opensource/apps/test_kuavo_5w_adapter/04_timed_commands
 python3 test_ik_accessibility.py
 ```
 
@@ -539,7 +551,7 @@ result = hardware.check_ik_accessibility(
 Ruckig 的速度/加速度/急动度限制可以按规划器单独配置，影响所有后续时序指令的运动性能。
 
 ```bash
-cd ~/LeTools/apps/test_kuavo_5w_adapter/04_timed_commands
+cd ~/letools_opensource/apps/test_kuavo_5w_adapter/04_timed_commands
 python3 test_ruckig_params.py
 ```
 
@@ -751,7 +763,7 @@ SDKControlMixin.send_leg_joint_sdk()
 运行场景（先离线验证再真机）：
 
 ```bash
-cd ~/LeTools
+cd ~/letools_opensource
 # 离线验证（无需 ROS）
 python3 apps/test_upper_init/run_behavior_tree_json.py \
   --scenario orchestration/scenarios/refactored_sdk_atomic_v1 --dry-run --tick-once
@@ -853,3 +865,25 @@ rm -rf .git/modules/drivers/leju/kuavo_humanoid_sdk
 | **标准接口** | `send_base_pose`, `control_head`, `arm_reset` | ROS 话题/服务或封装后的 SDK | 普通应用、Skill、行为树 |
 | **SDK 直调** | `*_sdk`，如 `control_head_sdk` | Core SDK Manager → `kuavo_humanoid_sdk` | 高频控制、SDK 示例、底层验证 |
 | **TimedCmd** | `*_timed`, `send_timed_*` | TimedCmdManager → ROS 服务 | 带时间规划、多规划器、Ruckig、离线轨迹 |
+
+## 💬 支持与反馈
+
+我们鼓励反馈问题，使之可被搜索、归档，也方便后来者复用。
+
+### 📝 提交渠道
+
+| 角色 | 提交方式 |
+|:---|:---|
+| 🧑‍💻 **外部用户** | 前往 [GitCode Issues](https://gitcode.com/OpenLET/letools_opensource/issues) 使用 Issue 模板填写完整信息 |
+| 🏢 **乐聚员工** | 通过飞书的LeTools问题反馈表单提交 |
+
+> 📋 **员工提交必填字段：** 问题提出人 · 问题类型 · LeTools 版本/环境 · 具体内容等
+
+### 🔄 处理流程
+
+| 阶段 | 说明 |
+|:---|:---|
+| 📝 **提交问题** | 通过上述对应渠道提交，附上完整信息 |
+| 👤 **管理员分配** | 管理员在 **1 个工作日内** 评估优先级、指定责任人并设定时间节点 |
+| 🔧 **处理与反馈** | 责任人在「工作进度/受理意见」中更新处理进展 |
+| ✅ **解决归档** | 完成后填写「交付意见」并标记「是否解决」 |

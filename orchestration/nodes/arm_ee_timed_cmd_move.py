@@ -12,6 +12,7 @@ desireTime 让 C++ Ruckig 规划器在指定时间内平滑规划轨迹，
 import json
 import os
 
+import py_trees
 from py_trees.common import Status
 
 from orchestration.nodes.base_node import BaseAction
@@ -76,8 +77,15 @@ class ArmEeTimedCmdMove(BaseAction):
         self._dry_done = False
         self._skill = None
 
-        left_wps = self._resolve_waypoints("left_waypoints")
-        right_wps = self._resolve_waypoints("right_waypoints")
+        # 优先从黑板运行时读取（支持动态注入）
+        left_wps = self._resolve_waypoints_from_board("left_waypoints")
+        right_wps = self._resolve_waypoints_from_board("right_waypoints")
+
+        # 回退到构建时冻结的静态值
+        if left_wps is None:
+            left_wps = self._resolve_waypoints("left_waypoints")
+        if right_wps is None:
+            right_wps = self._resolve_waypoints("right_waypoints")
 
         if left_wps is None or right_wps is None:
             self.feedback_message = "arm_ee_timed_cmd: missing left_waypoints or right_waypoints"
@@ -116,6 +124,10 @@ class ArmEeTimedCmdMove(BaseAction):
 
     def _resolve_waypoints(self, key: str):
         raw = self.params.get(key, None)
+        return self._resolve_waypoints_value(raw)
+
+    def _resolve_waypoints_value(self, raw):
+        """解析 waypoints 原始值，支持 list / JSON string。"""
         if raw is None:
             return None
         if isinstance(raw, list):
@@ -133,3 +145,21 @@ class ArmEeTimedCmdMove(BaseAction):
             except Exception:
                 pass
         return None
+
+    def _resolve_waypoints_from_board(self, key: str):
+        """运行时从黑板读取 waypoints（优先于静态值）。
+
+        key: 'left_waypoints' 或 'right_waypoints'
+        查找 params 中工厂自动注入的 {key}__board_key，从黑板读取最新值。
+        """
+        board_key = str(self.params.get(f"{key}__board_key", "")).strip()
+        if not board_key:
+            return None
+        try:
+            self.global_blackboard.register_key(
+                key=board_key, access=py_trees.common.Access.READ
+            )
+            raw = self.global_blackboard.get(board_key)
+        except Exception:
+            return None
+        return self._resolve_waypoints_value(raw)

@@ -96,8 +96,8 @@ roslaunch humanoid_controllers load_kuavo_mujoco_sim.launch  # 启动控制器�
 ### 🛠️ 2. 工具链部署与跑通
 
 #### 📦 2.1 SDK 部署
-
-从 GitLab 下载工具链项目（dev 分支）：https://www.lejuhub.com/highlydynamic/LeTools.git
+乐聚员工可通过 GitLab 下载工具链项目（letools）（dev 分支）
+外部用户可通过开源社区下载工具链项目（letools_opensource）：git clone https://gitcode.com/OpenLET/letools_opensource.git
 
 ##### 🔧 2.1.1 前置准备
 
@@ -112,17 +112,35 @@ pip3 install --upgrade "numpy>=1.19.5,<1.27.0"
 在项目根目录运行以下命令，编译 ROS workspace 中的包：
 
 ```bash
-cd ~/LeTools/infrastructure/ros_packages
+cd ~/letools_opensource/infrastructure/ros_packages
+catkin build
+source devel/setup.bash
+```
+如果在部署仿真环境的话，报视觉模块编译失败，则需跳过相关包，再重新编译
+```bash
+cd ~/letools_opensource/infrastructure/ros_packages
+catkin config --skiplist \
+    detection_yolo_v8 \
+    ar_control \
+    kuavo_vision_object \
+    kuavo_yolo_point2d \
+    yolo_box_object_detection \
+    yolo_button_object_detection \
+    yolo_valve_object_detection \
+    orbbec_camera \
+    realsense2_camera \
+    kuavo_camera\
+    kuavo_tf2_web_republisher
 catkin build
 source devel/setup.bash
 ```
 
 ##### ⚡ 2.1.3 一键安装（推荐）
 
-在项目根目录运行以下命令，脚本将自动完成 Submodule 初始化、分支切换、配置生成及 SDK 安装：
+新开一个终端，在项目根目录运行以下命令，脚本将自动完成 Submodule 初始化、分支切换、配置生成及 SDK 安装：
 
 ```bash
-cd ~/LeTools
+cd ~/letools_opensource
 # 若是拉取过 SDK 子模块，但未初始化，则需清理残留的 submodule 数据
 rm -rf drivers/leju/kuavo_humanoid_sdk
 # 若是没有拉取过SDK子模块，则运行安装脚本初始化
@@ -144,9 +162,7 @@ python3 -c 'from kuavo_humanoid_sdk import KuavoRobot; print("SDK Ready!")'
 
 ```bash
 # 首先编译工作空间
-cd LeTools/infrastructure/ros_packages
-catkin build  # 或者使用该目录写好的 build.sh
-# 摄像头相关编译不通过可以不用管，不影响后续操作
+cd letools_opensource/infrastructure/ros_packages
 source devel/setup.bash
 # 这里记得用系统环境所在的 py 环境也就是 ros 所在，有虚拟环境记得做选择
 ./start_tf_republisher.sh
@@ -158,7 +174,7 @@ source devel/setup.bash
 
 #### 🚀 2.3 运行示例程序
 
-`LeTools/apps` 目录下有以下文件夹，里面的示例脚本一般都是可以的：
+`letools_opensource/apps` 目录下有以下文件夹，里面的示例脚本一般都是可以的：
 
 - `test_kuavo_5w_adapter`
 - `test_kuavo_5w_sdk_adapter`
@@ -204,12 +220,11 @@ python3 test_head_control.py
 #### 📦 1.1 部署
 
 ```bash
-# 这里我们选择 control/dev 或 opensource/dev 都可
-git clone https://www.lejuhub.com/highlydynamic/kuavo-ros-control.git  # 或
-git clone https://gitcode.com/OpenLET/kuavo-ros-opensource
+# 这里我们选择下载kuavo-ros-opensource
+git clone https://gitcode.com/OpenLET/kuavo-ros-opensource.git
 
 # 编译运行
-cd kuavo-ros-control  # 仓库目录
+cd kuavo-ros-opensource  # 仓库目录
 catkin config -DCMAKE_ASM_COMPILER=/usr/bin/as -DCMAKE_BUILD_TYPE=Release  # Important!
 source installed/setup.bash  # 加载一些已经安装的ROS包依赖环境，包括硬件包等
 catkin build humanoid_controllers
@@ -257,7 +272,7 @@ chmod +x install.sh
 #### ▶️ 1.3 运行
 
 ```bash
-cd kuavo-ros-control
+cd kuavo-ros-opensource
 sudo su
 source devel/setup.bash
 roslaunch humanoid_controllers load_kuavo_real_wheel.launch
@@ -277,7 +292,7 @@ roslaunch humanoid_controllers load_kuavo_real_wheel.launch
 
 ```bash
 # 新开一个终端，运行 tf
-cd kuavo-ros-control
+cd kuavo-ros-opensource
 sudo su
 source devel/setup.bash
 rosrun kuavo_tf2_web_republisher kuavo_tf2_web_republisher
@@ -287,7 +302,7 @@ rosrun kuavo_tf2_web_republisher kuavo_tf2_web_republisher
 
 ```bash
 # 新开一个终端，运行脚本
-cd kuavo-ros-control
+cd kuavo-ros-opensource
 sudo su
 source devel/setup.bash
 cd /src/kuavo_humanoid_sdk/kuavo_humanoid_sdk/kuavo_strategy_pytree/pick_place_box/
@@ -301,3 +316,26 @@ python3 case_wheel_test_arm.py
 上位机 SSH 进去后参照仿真环境部署，跑通即可。
 
 这里注意上位机主目录磁盘较小，推荐到 `/media/data` 中部署运行。
+
+
+## 💬 支持与反馈
+
+我们鼓励反馈问题，使之可被搜索、归档，也方便后来者复用。
+
+### 📝 提交渠道
+
+| 角色 | 提交方式 |
+|:---|:---|
+| 🧑‍💻 **外部用户** | 前往 [GitCode Issues](https://gitcode.com/OpenLET/letools_opensource/issues) 使用 Issue 模板填写完整信息 |
+| 🏢 **乐聚员工** | 通过飞书的LeTools问题反馈表单提交 |
+
+> 📋 **员工提交必填字段：** 问题提出人 · 问题类型 · LeTools 版本/环境 · 具体内容等
+
+### 🔄 处理流程
+
+| 阶段 | 说明 |
+|:---|:---|
+| 📝 **提交问题** | 通过上述对应渠道提交，附上完整信息 |
+| 👤 **管理员分配** | 管理员在 **1 个工作日内** 评估优先级、指定责任人并设定时间节点 |
+| 🔧 **处理与反馈** | 责任人在「工作进度/受理意见」中更新处理进展 |
+| ✅ **解决归档** | 完成后填写「交付意见」并标记「是否解决」 |

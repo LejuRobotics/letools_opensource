@@ -53,6 +53,12 @@ def _load_board(blackboard_client, board_path):
 
 def dry_run_load(tree_json, board_json, do_tick=False):
     os.environ.setdefault("STUDIO_DRY_RUN", "1")
+    # 串行预热公共接口包：dry-run 并行构建节点时，子线程首次 import 同一包会触发
+    # Python _ModuleLock 死锁（core/interfaces/__init__.py 导入 i_hardware 时）。
+    # 在此单线程预先加载，使后续 ThreadPoolExecutor 命中 sys.modules 缓存。
+    import core.interfaces  # noqa: F401
+    import core.interfaces.i_hardware  # noqa: F401
+    import core.interfaces.i_skill  # noqa: F401
     blackboard_client = Client(name="main_tree_blackboard", namespace="/")
     _load_board(blackboard_client, board_json)
     factory = BehaviorTreeFactory(blackboard_client)
