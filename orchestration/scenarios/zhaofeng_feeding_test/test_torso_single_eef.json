@@ -1,0 +1,71 @@
+{
+  "tree": {
+    "name": "Sequence",
+    "label": "test_torso_single_eef",
+    "params": {
+      "memory": {
+        "value": "True",
+        "source": "CUSTOM",
+        "data_type": "string"
+      }
+    },
+    "childs": [
+      {
+        "name": "TorsoSingleEefCtl",
+        "label": "left_arm_ready_pose",
+        "params": {
+          "active_arm": {
+            "source": "CUSTOM",
+            "data_type": "string",
+            "value": "right"
+          },
+          "frame": {
+            "source": "CUSTOM",
+            "data_type": "string",
+            "value": "local"
+          },
+          "torso_4d": {
+            "source": "CUSTOM",
+            "data_type": "json",
+            "value": {
+              "x": 0.21,
+              "z": 1.10,
+              "yaw": 30.0,
+              "pitch": 0.0
+            }
+          },
+          "eef_6d": {
+            "source": "CUSTOM",
+            "data_type": "json",
+            "value": {
+              "x": 0.70,
+              "y": -0.30,
+              "z": 0.90,
+              "yaw": 90.0,
+              "pitch": 0.0,
+              "roll": 0.0
+            }
+          },
+          "locked_arm_joints": {
+            "source": "READ_BOARD",
+            "data_type": "json",
+            "board_key": "ensure_safe"
+          },
+          "duration_s": {
+            "source": "CUSTOM",
+            "data_type": "float",
+            "value": 3.0
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      }
+    ]
+  },
+  "interface": {
+    "inputs": [],
+    "outputs": [],
+    "custom": [],
+    "process": []
+  }
+}

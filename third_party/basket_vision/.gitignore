@@ -1,0 +1,6 @@
+# Model weights (download separately)
+*.pth
+*.pt
+
+# Platform-specific compiled binaries
+*.so

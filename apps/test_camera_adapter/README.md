@@ -63,7 +63,11 @@ apps/test_camera_adapter/
 
 ```bash
 # 终端 1: 先启动相机（保持运行）
+# 默认读取 config/camera_config.yaml
 python3 apps/test_camera_adapter/test_camera_init.py --keep-alive
+
+# 也可以指定其他相机配置
+python3 apps/test_camera_adapter/test_camera_init.py --config path/to/camera_config.yaml --keep-alive
 
 # 如需 rviz 可视化，加 --rviz
 python3 apps/test_camera_adapter/test_camera_init.py --keep-alive --rviz

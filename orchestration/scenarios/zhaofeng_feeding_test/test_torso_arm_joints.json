@@ -1,0 +1,52 @@
+{
+  "tree": {
+    "name": "Sequence",
+    "label": "test_torso_arm_joints",
+    "params": {
+      "memory": {
+        "value": "True",
+        "source": "CUSTOM",
+        "data_type": "string"
+      }
+    },
+    "childs": [
+      {
+        "name": "TorsoArmJointsCtl",
+        "label": "ensure_safe",
+        "params": {
+          "torso_pose": {
+            "source": "CUSTOM",
+            "data_type": "json",
+            "value": {
+              "x": 0.11,
+              "z": 1.00,
+              "yaw": 0.0,
+              "pitch": 0.0
+            }
+          },
+          "arm_joints": {
+            "source": "CUSTOM",
+            "data_type": "json",
+            "value": {
+              "left": [57.0, 41.5, -11.3, -143.5, 21.3, 38.3, 2.3],
+              "right": [57.0, -41.5, 11.3, -143.5, -21.3, -38.3, 2.3]
+            }
+          },
+          "duration_s": {
+            "source": "CUSTOM",
+            "data_type": "float",
+            "value": 3.0
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      }
+    ]
+  },
+  "interface": {
+    "inputs": [],
+    "outputs": [],
+    "custom": [],
+    "process": []
+  }
+}

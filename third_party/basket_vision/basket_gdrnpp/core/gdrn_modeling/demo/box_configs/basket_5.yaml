@@ -1,0 +1,63 @@
+# 5类箱体（basket）自由摆放配置
+#
+# 使用方式：
+#   启动脚本会自动设置 proj_root = <repo>/basket_gdrnpp/
+#   下面 runtime_models 中所有路径都相对于 proj_root
+#   将权重放到对应目录后即可直接预测
+box_name: basket_5
+
+# 模型权重路径（相对于 proj_root）
+runtime_models:
+  gdrn_cfg: output_basket_5/convnext_a6_AugCosyAAEGray_BG05_mlL1_DMask_amodalClipBox_classAware_basket.py
+  gdrn_ckpt: output_basket_5/model_final.pth
+  obj_models: datasets/BOP_DATASETS/basket/models
+  yolo_weights: yolo_basket_5_weights/best.pt
+
+# 通用配置
+common:
+  box_height_m: 0.40   # 5类箱体平均高度（z轴 400~622mm）
+
+# ------------------------------------------------------------------
+# /infer_top_basket_ids  — 顶层识别（自由摆放，不匹配固定槽位）
+# ------------------------------------------------------------------
+top:
+  save_dir: /media/data/basket_gdrnpp/top_vis_logs
+  base_frame: base_link
+  conf_thr: 0.01
+  min_bbox_area_abs: 2000.0
+  max_keep_instances: 5
+  filter_debug: true
+  use_depth_translation: false
+  pallet_height_m: 0.17
+  layer_z_threshold: 0.20
+  pose_rp_max_deg: 20.0
+  base_x_min: 0.5
+  base_x_max: 2.3
+  base_y_min: -0.5
+  base_y_max: 0.5
+  max_layers: 4
+  max_saved_runs: 35
+  max_bbox_area_abs: 0.0
+  camera_prefilter_enabled: false
+  disable_position_filter: true
+  return_single_target: true
+  base_z_offset_m: -0.10
+
+# ------------------------------------------------------------------
+# /infer_basket_pose  — 单箱抓取（选最近一个）
+# ------------------------------------------------------------------
+single:
+  save_dir: /media/data/basket_gdrnpp/vis_logs
+  base_frame: base_link
+  conf_thr: 0.01
+  column_margin_ratio: 0.25
+  min_bbox_area_abs: 7000.0
+  max_keep_instances: 2
+  max_bbox_area_abs: 120000.0
+  filter_debug: true
+  use_depth_translation: false
+  layer_z_threshold: 0.1
+  pose_rp_max_deg: 20.0
+  base_x_min: 0.55
+  base_x_max: 2.0
+  max_saved_runs: 35

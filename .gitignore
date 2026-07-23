@@ -135,3 +135,6 @@ ci_scripts/
 
 # local debug scratch dir (carlos)
 .carlos/
+
+# Locally deployed Lingbot Depth editable source
+/module_internal/zhaofeng_feeding/lingbot_depth/

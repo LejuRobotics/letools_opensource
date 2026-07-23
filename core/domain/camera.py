@@ -31,6 +31,10 @@ class CameraInfo:
     frame_rate: float
     intrinsics: CameraIntrinsics
     extrinsics: Optional[Dict[str, Any]] = None
+    frame_id: str = ""
+    distortion_model: str = ""
+    rectification_matrix: Optional[List[float]] = None
+    projection_matrix: Optional[List[float]] = None
 
 @dataclass
 class CameraFrame:

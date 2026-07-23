@@ -186,7 +186,7 @@ def main():
     scenarios = []
     for num in scenario_nums:
         scenario_name = _build_scenario_name(num)
-        scenario_dir = os.path.join(studio_root, "orchestration", "scenarios", scenario_name)
+        scenario_dir = os.path.join(studio_root, "orchestration", "scenarios", "dismantle_box_internal", scenario_name)
         if not os.path.isdir(scenario_dir):
             print(f"[run_all] 跳过不存在的场景: {scenario_name}")
             continue

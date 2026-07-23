@@ -5,26 +5,35 @@ camera:
   has_head: true
   head_camera_type: "orbbec_camera"    # orbbec_camera / realsense2_camera
 
-  # 相机分辨率（0 表示使用驱动默认值）
+  # 头部 Orbbec 相机分辨率与帧率（0 表示使用驱动默认值）
   color_width: 1280
-  color_height: 720
+  color_height: 800
   color_fps: 30
-  depth_width: 640
-  depth_height: 400
+  depth_width: 1280
+  depth_height: 800
   depth_fps: 30
 
   # 手腕相机
-  enable_wrist_camera: false
+  enable_wrist_camera: true
   has_left_wrist: true
-  left_wrist_camera_sn: "409122272623"
+  left_wrist_camera_sn: "260522277779"
   has_right_wrist: true
-  right_wrist_camera_sn: "409122274640"
+  right_wrist_camera_sn: "260622270790"
+
+  # 腕部 RealSense 相机分辨率与帧率（左右腕共用）
+  wrist_color_width: 848
+  wrist_color_height: 480
+  wrist_color_fps: 15
+  wrist_depth_width: 848
+  wrist_depth_height: 480
+  wrist_depth_fps: 15
+  wrist_align_depth: true          # 将深度图对齐到腕部 RGB 坐标系
 
   # RGB 校准叠加（默认关闭）
   use_wrist_rgb_caminfo_overlay: false
 
   # AprilTag 检测
-  launch_apriltag: true
+  launch_apriltag: false
   # AprilTag 参数文件位于 config/apriltag_settings.yaml 和 config/apriltag_tags.yaml
   # tag_family: 'tag36h11'
   # tag id/size 在 apriltag_tags.yaml 的 standalone_tags 列表中定义

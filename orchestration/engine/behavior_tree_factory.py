@@ -703,7 +703,7 @@ class BehaviorTreeFactory:
         if node_name in ["Sequence", "Selector", "Parallel"]:
             return self._create_composite_node(node_name, node_label, parsed_params, namespace, childs, override_params)
         elif self._is_py_trees_decorator(node_name) and len(childs) >= 1:
-            return self._create_decorator_node(node_name, node_label, namespace, childs, node_params, override_params)
+            return self._create_decorator_node(node_name, node_label, namespace, childs, parsed_params, override_params)
         else:
             return self._create_node_instance(node_name, node_label, namespace, parsed_params)
 
@@ -957,6 +957,7 @@ class BehaviorTreeFactory:
         # studio 自定义装饰器（由本工厂特殊处理）
         "Async",
         "RunIfIndex",
+        "PressureDropGuard",
     })
 
     def _is_py_trees_decorator(self, node_name: str) -> bool:
@@ -1030,6 +1031,16 @@ class BehaviorTreeFactory:
                     key = str(raw_key)
 
                 return RunIfIndex(name=label, child=child_node, index=index, nav_point_index_key=key)
+
+            if node_name == "PressureDropGuard":
+                # 自定义：气压掉落检测装饰器（持续监控夹爪气压，检测到掉落时中断子节点）
+                from orchestration.nodes.pressure_drop_guard import PressureDropGuard
+                from skills.atomic.refactored_sdk.pressure_drop_detection import (
+                    PressureDropDetectionParams,
+                )
+
+                params = PressureDropDetectionParams.from_node_params(node_params)
+                return PressureDropGuard(name=label, child=child_node, params=params)
 
             dec_module = importlib.import_module("py_trees.decorators")
             dec_class = getattr(dec_module, node_name)

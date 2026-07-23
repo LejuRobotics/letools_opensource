@@ -1,0 +1,9 @@
+# Request
+---
+bool success
+string message
+geometry_msgs/Pose[] poses_camera_link
+geometry_msgs/Pose[] poses_base_link
+float32[] bbox_xyxy
+uint32 num_instances
+float32[] yaw
