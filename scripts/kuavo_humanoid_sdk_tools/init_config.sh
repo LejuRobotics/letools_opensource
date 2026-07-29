@@ -108,9 +108,13 @@ cat > "$CONFIG_FILE" << EOF
 export SDK_ROS_DEVEL_PATH="$SDK_ROS_DEVEL_PATH"
 export SDK_ROS_INSTALLED_PATH="infrastructure/ros_packages/installed/lib/python3/dist-packages"
 
+# SDK 版本选择配置（留空则使用 sdk_version.env 中的官方配套版本）
+export SDK_REPO_BRANCH=""
+export SDK_REPO_TAG=""
+
 # Git 版本获取配置
 export SDK_VERSION_STRATEGY="$SDK_VERSION_STRATEGY"
-export SDK_DEFAULT_VERSION="0.0.0-dev"
+export SDK_DEFAULT_VERSION="1.4.4"
 
 # pip 配置
 export SDK_BACKUP_PIP_SOURCE=true

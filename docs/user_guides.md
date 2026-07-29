@@ -26,8 +26,9 @@
 #### 📦 1.1 Docker 镜像部署
 
 仓库地址：https://gitcode.com/OpenLET/kuavo-ros-opensource/tree/dev/
+请下载与当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 master / 1.4.4），则将此仓库下的 master分支，tag为1.4.4,下载到本地，git clone -b 1.4.4 https://gitcode.com/OpenLET/kuavo-ros-opensource.git
 
-将此仓库下的 dev 分支下载到本地，根据 readme.md 文档跑通 docker 环境，注意 Ubuntu 20.04 需要赋予 **sudo 权限**。
+根据 readme.md 文档跑通 docker 环境，注意 Ubuntu 20.04 需要赋予 **sudo 权限**。
 
 - docker 镜像可以自行查看网上相关配置使用 `./docker/Dockerfile` 构建，或者下载已经编译好的镜像：
 
@@ -129,8 +130,7 @@ catkin config --skiplist \
     yolo_valve_object_detection \
     orbbec_camera \
     realsense2_camera \
-    kuavo_camera\
-    kuavo_tf2_web_republisher
+    kuavo_camera
 catkin build
 source devel/setup.bash
 ```
@@ -138,6 +138,9 @@ source devel/setup.bash
 ##### ⚡ 2.1.3 一键安装（推荐）
 
 新开一个终端，在项目根目录运行以下命令，脚本将自动完成 Submodule 初始化、分支切换、配置生成及 SDK 安装：
+>📌 SDK 版本由仓库自带的 `scripts/kuavo_humanoid_sdk_tools/sdk_version.env` 锁定，
+> 记录当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 `master` / `1.4.4`），
+> 每次 LeTools 发版时同步更新，请下载对应分支与tag的kuavo-ros-opensource，以确保安装到与当前版本匹配的 SDK。
 
 ```bash
 cd ~/letools_opensource

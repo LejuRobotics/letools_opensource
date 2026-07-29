@@ -69,9 +69,16 @@ VERSION=""
 SDK_GIT_DIR="$PROJECT_DIR/drivers/leju/kuavo_humanoid_sdk"
 
 if [ "$SDK_VERSION_STRATEGY" = "upstream" ]; then
-    # 从上游 submodule 获取
-    if git -C "$SDK_GIT_DIR" rev-parse --git-dir &>/dev/null; then
-        VERSION=$(git -C "$SDK_GIT_DIR" describe --tags --always 2>/dev/null)
+    # 优先使用 install_sdk.sh 选定的配套 tag（sdk_version.env / sdk_config.sh 提供）
+    if [ -n "$SDK_REPO_TAG" ]; then
+        VERSION="$SDK_REPO_TAG"
+        echo -e "\033[32m✅ 使用配套 tag 版本: $VERSION\033[0m"
+    elif git -C "$SDK_GIT_DIR" rev-parse --git-dir &>/dev/null; then
+        # 回退：从上游 submodule 获取（优先精确 tag，解决浅克隆无 tag 时退化到 hash 的问题）
+        VERSION=$(git -C "$SDK_GIT_DIR" describe --tags --exact-match 2>/dev/null)
+        if [ -z "$VERSION" ]; then
+            VERSION=$(git -C "$SDK_GIT_DIR" describe --tags --always 2>/dev/null)
+        fi
         if [ -n "$VERSION" ]; then
             echo -e "\033[32m✅ 从上游 submodule 获取版本: $VERSION\033[0m"
         fi
@@ -83,7 +90,7 @@ if [ -z "$VERSION" ]; then
     echo -e "\033[33m⚠️  无法从上游获取版本，使用默认: $VERSION\033[0m"
 fi
 
-# 获取分支信息
+# 获取分支信息（tag 检出时为 detached HEAD，BRANCH=HEAD）
 BRANCH=$(git -C "$SDK_GIT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 
 # 格式化版本（与原 install.sh 逻辑一致）
@@ -97,6 +104,13 @@ if [ "$BRANCH" == "beta" ]; then
     fi
 elif [ "$BRANCH" == "master" ]; then
     VERSION_FORMATTED=$(echo "$VERSION_FORMATTED" | sed 's/-/.post/g')
+elif [ -n "$SDK_REPO_TAG" ] && [ "$VERSION" = "$SDK_REPO_TAG" ]; then
+    # 版本直接来自配套 tag（sdk_version.env / sdk_config.sh）：保持干净 tag 号，
+    # 不随本地 sdk-install 分支名追加 a0 后缀
+    VERSION_FORMATTED="$VERSION"
+elif [ "$BRANCH" == "HEAD" ] && [[ "$VERSION" =~ ^[0-9] ]]; then
+    # 精确 tag 检出（detached HEAD）：直接使用 tag 名作为版本号
+    VERSION_FORMATTED="$VERSION"
 else
     VERSION_FORMATTED=$(echo "$VERSION_FORMATTED" | sed 's/-/a/g')
     if [[ ! "$VERSION_FORMATTED" == *"a"* ]]; then
@@ -153,6 +167,10 @@ sed -i "s|^DEVEL_DIR=.*|DEVEL_DIR=\"$DEVEL_DIR\"|" install.sh
 
 # 2. 强制修改 MSG_PACKAGES (只包含基础包)
 sed -i 's/^MSG_PACKAGES=.*/MSG_PACKAGES="kuavo_msgs ocs2_msgs"/' install.sh
+
+# 3. 透传格式化后的版本号给 install.sh（它只从 git 重新计算并追加 a0，不读外部环境变量）
+#    在其版本计算处强制覆盖为 setup_sdk.sh 已算好的干净 tag 版本
+sed -i "s|^check_and_format_version \"\\\$BRANCH\" VERSION|VERSION=\"$VERSION_FORMATTED\"|" install.sh
 
 # 构建 extras 参数
 EXTRAS_ARG=""

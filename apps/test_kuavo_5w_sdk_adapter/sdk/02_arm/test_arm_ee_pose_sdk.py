@@ -1,17 +1,17 @@
 """
-手臂末端位姿控制测试（SDK 单次直调，100Hz 循环）
+手臂末端位姿控制测试（SDK 单次直调，30Hz 循环）
 
 使用的 Adapter 方法: hardware.send_ee_pose_sdk()
 底层路径: SDK 直调 → _low_level_sdk_manager.control_robot_end_effector_pose → robot_sdk.control.control_robot_end_effector_pose
 
 测试用例说明:
-- test_forward_ee_pose: 双臂末端从默认位姿 (x=0.3m) 向前伸到 (x=0.5m)，100Hz 循环 2 秒
-- test_up_ee_pose: 双臂末端从默认位姿 (z=0.5m) 向上抬到 (z=0.7m)，100Hz 循环 2 秒
-- test_return_ee_pose: 双臂末端从前伸位姿回到默认位姿，100Hz 循环 2 秒
+- test_forward_ee_pose: 双臂末端从默认位姿 (x=0.3m) 向前伸到 (x=0.5m)，30Hz 循环 2 秒
+- test_up_ee_pose: 双臂末端从默认位姿 (z=0.5m) 向上抬到 (z=0.7m)，30Hz 循环 2 秒
+- test_return_ee_pose: 双臂末端从前伸位姿回到默认位姿，30Hz 循环 2 秒
 - test_single_arm_ee_pose: 单臂控制（左臂插值，右臂显式保持静止避免跳变）
 
 重要：SDK 末端位姿控制是瞬时指令，必须：
-1. 以 100Hz 频率持续发送指令
+1. 以 30Hz 频率持续发送指令
 2. 从当前位姿插值到目标位姿
 3. 使用前需将 MPC 模式设为 ArmOnly
 """
@@ -35,8 +35,8 @@ DEFAULT_LEFT = [0.3, 0.25, 0.5, 0.0, 0.0, 0.0]
 DEFAULT_RIGHT = [0.3, -0.25, 0.5, 0.0, 0.0, 0.0]
 FORWARD_LEFT = [0.5, 0.25, 0.5, 0.0, 0.0, 0.0]
 FORWARD_RIGHT = [0.5, -0.25, 0.5, 0.0, 0.0, 0.0]
-UP_LEFT = [0.3, 0.25, 0.7, 0.0, 0.0, 0.0]
-UP_RIGHT = [0.3, -0.25, 0.7, 0.0, 0.0, 0.0]
+UP_LEFT = [0.5, 0.25, 0.7, 0.0, 0.0, 0.0]
+UP_RIGHT = [0.5, -0.25, 0.7, 0.0, 0.0, 0.0]
 
 
 def _to_pose6d(pose_list):
@@ -52,7 +52,7 @@ def _interpolate(start, end, t):
 
 def send_ee_pose_loop(hardware, start_left, end_left, start_right, end_right,
                       duration=2.0, frame='world'):
-    """以 100Hz 频率从起始位姿插值到目标位姿，持续发送双臂末端位姿指令
+    """以 30Hz 频率从起始位姿插值到目标位姿，持续发送双臂末端位姿指令
 
     Args:
         hardware: 硬件实例
@@ -63,7 +63,7 @@ def send_ee_pose_loop(hardware, start_left, end_left, start_right, end_right,
         duration: 运动时长（秒）
         frame: 坐标系 ('world' 或 'base_link')
     """
-    freq = 100.0
+    freq = 30.0
     dt = 1.0 / freq
     num_samples = int(duration * freq)
 
@@ -82,7 +82,7 @@ def send_ee_pose_loop(hardware, start_left, end_left, start_right, end_right,
 
 
 def test_forward_ee_pose(hardware):
-    """双臂前伸（100Hz 循环）"""
+    """双臂前伸（30Hz 循环）"""
     logger.info("=== 测试：双臂末端前伸 (SDK 单次直调) ===")
     ok = send_ee_pose_loop(hardware, DEFAULT_LEFT, FORWARD_LEFT,
                            DEFAULT_RIGHT, FORWARD_RIGHT, duration=2.0)
@@ -95,7 +95,7 @@ def test_forward_ee_pose(hardware):
 
 
 def test_up_ee_pose(hardware):
-    """双臂上抬（100Hz 循环）"""
+    """双臂上抬（30Hz 循环）"""
     logger.info("=== 测试：双臂末端上抬 (SDK 单次直调) ===")
     ok = send_ee_pose_loop(hardware, FORWARD_LEFT, UP_LEFT,
                            FORWARD_RIGHT, UP_RIGHT, duration=2.0)
@@ -108,7 +108,7 @@ def test_up_ee_pose(hardware):
 
 
 def test_return_ee_pose(hardware):
-    """返回默认位姿（100Hz 循环）"""
+    """返回默认位姿（30Hz 循环）"""
     logger.info("=== 测试：返回默认位姿 (SDK 单次直调) ===")
     ok = send_ee_pose_loop(hardware, UP_LEFT, DEFAULT_LEFT,
                            UP_RIGHT, DEFAULT_RIGHT, duration=2.0)
@@ -130,7 +130,7 @@ def test_single_arm_ee_pose(hardware):
     logger.info("=== 测试：单臂末端位姿 (SDK 单次直调) ===")
     # 左臂从默认前伸到 FORWARD_LEFT，右臂始终保持 DEFAULT_RIGHT 不动
     right_hold = _to_pose6d(DEFAULT_RIGHT)
-    freq = 100.0
+    freq = 30.0
     dt = 1.0 / freq
     num_samples = int(2.0 * freq)
     ok = True
@@ -182,9 +182,14 @@ def main():
         time.sleep(1.0)
 
         # === 测试用例 ===
+        #建议测试自己需要的用例，多个用例同时测试压力过大
+        # 如需多用例测试，需降低发送频率，多停 2s，让机器人侧 MPC backlog 排空，避免跨用例累积背压
         all_passed &= test_forward_ee_pose(hardware)
+        time.sleep(2.0)
         all_passed &= test_up_ee_pose(hardware)
+        time.sleep(2.0)
         all_passed &= test_return_ee_pose(hardware)
+        time.sleep(2.0)
         all_passed &= test_single_arm_ee_pose(hardware)
 
         # 恢复 MPC 模式

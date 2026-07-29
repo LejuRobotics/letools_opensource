@@ -18,7 +18,10 @@ from timm.models.helpers import (
 )
 from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 from torch.nn.parallel import DataParallel, DistributedDataParallel
-from pytorch_lightning.lite.wrappers import _LiteModule
+try:
+    from pytorch_lightning.lite.wrappers import _LiteModule
+except ImportError:
+    from lightning_fabric.wrappers import _FabricModule as _LiteModule
 
 try:
     from fairscale.nn.data_parallel.sharded_ddp import ShardedDataParallel  # optional

@@ -10,6 +10,7 @@ import torch
 import numpy as np
 import cv2
 import json
+from typing import Optional
 
 import ref
 from core.gdrn_modeling.main_gdrn import Lite
@@ -22,8 +23,6 @@ from lib.utils.utils import iprint
 from lib.utils.time_utils import get_time_str
 from lib.utils.config_utils import try_get_key
 from lib.pysixd import inout, misc
-
-from lib.render_vispy.model3d import load_models
 
 from detectron2.structures import BoxMode
 from detectron2.evaluation import inference_context
@@ -52,8 +51,9 @@ class GdrnPredictor():
                  ):
 
         self.args = SimpleNamespace(config_file=config_file_path,
-                                    opts={'TEST.SAVE_RESULT_ONLY': True,
-                                          'MODEL.WEIGHTS': ckpt_file_path},
+                 opts={'TEST.SAVE_RESULT_ONLY': True,
+                                          'MODEL.WEIGHTS': ckpt_file_path,
+                                          'MODEL.POSE_NET.BACKBONE.INIT_CFG.pretrained': False},
                                     TEST ={
                                         'TEST.EVAL_PERIOD': 0,
                                         'TEST.VIS': True,
@@ -115,6 +115,7 @@ class GdrnPredictor():
 
         if self.cfg.TEST.USE_DEPTH_REFINE:
             from lib.render_vispy.renderer import Renderer
+            from lib.render_vispy.model3d import load_models
             self.ren = Renderer(size=(64, 64), cam=self.cam)
             self.ren_models = load_models(
                 model_paths=[os.path.join(self.objs_dir, f"obj_{i:06d}.ply") for i in self.objs.keys()],
@@ -613,7 +614,7 @@ class GdrnPredictor():
         image,
         results_dir,
         image_name: str,
-        gt_pose: np.ndarray | None = None,
+        gt_pose: Optional[np.ndarray] = None,
     ):
         """
         Visualize a **single instance** (bs = 1):

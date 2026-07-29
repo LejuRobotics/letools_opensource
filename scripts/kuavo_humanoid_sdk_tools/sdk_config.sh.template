@@ -16,6 +16,17 @@ export SDK_ROS_DEVEL_PATH="infrastructure/ros_packages/devel/"
 export SDK_ROS_INSTALLED_PATH="infrastructure/ros_packages/installed/lib/python3/dist-packages"
 
 # ============================================
+# SDK 版本选择配置
+# ============================================
+
+# LeTools 配套的 kuavo-ros-opensource 版本由仓库自带的 sdk_version.env 决定
+# （SDK_REPO_BRANCH + SDK_REPO_TAG 配对，随 LeTools 发版更新）。
+# 以下两项默认留空即使用官方配套版本；
+# 仅当开发者需要临时调试其他版本时，同时填写这两项进行显式覆盖（两项必须同时设置）。
+export SDK_REPO_BRANCH=""
+export SDK_REPO_TAG=""
+
+# ============================================
 # Git 版本获取配置
 # ============================================
 
@@ -24,7 +35,7 @@ export SDK_ROS_INSTALLED_PATH="infrastructure/ros_packages/installed/lib/python3
 export SDK_VERSION_STRATEGY="upstream"
 
 # 如果以上策略都失败，使用的默认版本
-export SDK_DEFAULT_VERSION="0.0.0-dev"
+export SDK_DEFAULT_VERSION="1.4.4"
 
 # ============================================
 # pip 配置

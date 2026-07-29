@@ -5,13 +5,13 @@
 #
 standalone_tags:
   [
-    {id: 0, size: 0.042, name: 'tag_0'},
-    {id: 1, size: 0.042, name: 'tag_1'},
-    {id: 2, size: 0.042, name: 'tag_2'},
-    {id: 3, size: 0.04, name: 'tag_3'},
-    {id: 4, size: 0.04, name: 'tag_4'},
-    {id: 5, size: 0.04, name: 'tag_5'},
-    {id: 6, size: 0.04, name: 'tag_6'},
+    {id: 0, size: 0.06, name: 'tag_0'},
+    {id: 1, size: 0.06, name: 'tag_1'},
+    {id: 2, size: 0.06, name: 'tag_2'},
+    {id: 3, size: 0.06, name: 'tag_3'},
+    {id: 4, size: 0.06, name: 'tag_4'},
+    {id: 5, size: 0.06, name: 'tag_5'},
+    {id: 6, size: 0.06, name: 'tag_6'},
     {id: 7, size: 0.04, name: 'tag_7'},
     {id: 8, size: 0.04, name: 'tag_8'},
     {id: 9, size: 0.04, name: 'tag_9'},

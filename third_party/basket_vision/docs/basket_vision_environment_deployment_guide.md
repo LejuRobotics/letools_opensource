@@ -1,5 +1,9 @@
 # GDRNPP + YOLO 机器人端 Python 环境部署指南
 
+> **状态：历史 Python 3.10 构建方案，不作为当前客户默认部署流程。**
+> JetPack 5.1.4 / ROS Noetic 客户机统一使用已实机验证的
+> [Python 3.8 客户部署基线](basket_vision_python38_deployment.md)。只有为其他平台建立独立 profile 时才参考本文的源码构建方法。
+
 本文用于在 Kuavo Jetson Orin 机器人上，从零创建料箱视觉所需的 Python 运行环境并安装依赖。
 
 本文只处理以下内容：

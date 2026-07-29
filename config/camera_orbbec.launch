@@ -3,11 +3,15 @@
     <!-- 分辨率等参数由 camera_adapter.py 从 camera_config.yaml 读取后传入 -->
 
     <arg name="color_width" default="1280"/>
-    <arg name="color_height" default="720"/>
+    <arg name="color_height" default="800"/>
     <arg name="color_fps" default="30"/>
-    <arg name="depth_width" default="640"/>
-    <arg name="depth_height" default="400"/>
+    <arg name="depth_width" default="1280"/>
+    <arg name="depth_height" default="800"/>
     <arg name="depth_fps" default="30"/>
+    <arg name="head_enable_frame_sync" default="true"/>
+    <arg name="head_depth_registration" default="true"/>
+    <arg name="head_enable_point_cloud" default="false"/>
+    <arg name="head_enable_colored_point_cloud" default="false"/>
 
     <arg name="with_wrist_camera" default="false"/>
     <arg name="wrist_color_width" default="848"/>
@@ -27,7 +31,11 @@
         <arg name="depth_width" value="$(arg depth_width)"/>
         <arg name="depth_height" value="$(arg depth_height)"/>
         <arg name="depth_fps" value="$(arg depth_fps)"/>
-        <arg name="enable_colored_point_cloud" value="true"/>
+        <arg name="enable_frame_sync" value="$(arg head_enable_frame_sync)"/>
+        <arg name="depth_registration" value="$(arg head_depth_registration)"/>
+        <!-- D2C 对齐与点云生成相互独立；仅在业务明确需要时才开启点云。 -->
+        <arg name="enable_point_cloud" value="$(arg head_enable_point_cloud)"/>
+        <arg name="enable_colored_point_cloud" value="$(arg head_enable_colored_point_cloud)"/>
         <arg name="ordered_pc" value="true"/>
     </include>
 
