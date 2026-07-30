@@ -3,7 +3,7 @@
 CameraAdapter TF 静态变换检查
 
 验证 initialize() 后 2 个 static_transform_publisher 节点存在：
-  - head_camera_base → camera_link
+  - head_camera_depth → camera_link
   - camera → head_camera_link
 
 下位机 URDF + orbbec_sensor_robot_enable.launch 提供其余 TF。

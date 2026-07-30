@@ -211,6 +211,62 @@ class IHardware(ABC):
         pass
 
     @abstractmethod
+    def send_timed_left_arm_ee_world(self, pose: List[float], desire_time: float = 3.0) -> Result:
+        """
+        发送带时间参数的左臂末端世界系位姿指令 (planner_index=4, 6D)。
+
+        :param pose: 末端位姿 [x, y, z, yaw, pitch, roll]
+            位置：米；姿态：用户单位（由 angle_unit 配置决定，默认度）
+        :param desire_time: 期望执行时间（秒）
+        :return: Result，包含实际执行时间
+
+        .. note:: 角度单位由适配器的 ``angle_unit`` 配置决定，默认为度（deg）。Pose6D 对象内部始终使用弧度。
+        """
+        pass
+
+    @abstractmethod
+    def send_timed_right_arm_ee_world(self, pose: List[float], desire_time: float = 3.0) -> Result:
+        """
+        发送带时间参数的右臂末端世界系位姿指令 (planner_index=5, 6D)。
+
+        :param pose: 末端位姿 [x, y, z, yaw, pitch, roll]
+            位置：米；姿态：用户单位（由 angle_unit 配置决定，默认度）
+        :param desire_time: 期望执行时间（秒）
+        :return: Result，包含实际执行时间
+
+        .. note:: 角度单位由适配器的 ``angle_unit`` 配置决定，默认为度（deg）。Pose6D 对象内部始终使用弧度。
+        """
+        pass
+
+    @abstractmethod
+    def send_timed_left_arm_ee_local(self, pose: List[float], desire_time: float = 3.0) -> Result:
+        """
+        发送带时间参数的左臂末端局部系位姿指令 (planner_index=6, 6D)。
+
+        :param pose: 末端位姿 [x, y, z, yaw, pitch, roll]
+            位置：米；姿态：用户单位（由 angle_unit 配置决定，默认度）
+        :param desire_time: 期望执行时间（秒）
+        :return: Result，包含实际执行时间
+
+        .. note:: 角度单位由适配器的 ``angle_unit`` 配置决定，默认为度（deg）。Pose6D 对象内部始终使用弧度。
+        """
+        pass
+
+    @abstractmethod
+    def send_timed_right_arm_ee_local(self, pose: List[float], desire_time: float = 3.0) -> Result:
+        """
+        发送带时间参数的右臂末端局部系位姿指令 (planner_index=7, 6D)。
+
+        :param pose: 末端位姿 [x, y, z, yaw, pitch, roll]
+            位置：米；姿态：用户单位（由 angle_unit 配置决定，默认度）
+        :param desire_time: 期望执行时间（秒）
+        :return: Result，包含实际执行时间
+
+        .. note:: 角度单位由适配器的 ``angle_unit`` 配置决定，默认为度（deg）。Pose6D 对象内部始终使用弧度。
+        """
+        pass
+
+    @abstractmethod
     def set_ruckig_planner_params(self, planner_index: int,
                                   is_sync: bool,
                                   velocity_max: List[float],
@@ -322,6 +378,29 @@ class IHardware(ABC):
     @abstractmethod
     def enable_quick_mode(self, enable: bool) -> Result:
         """启用或禁用手臂/下肢快速模式（绕过 MPC 直接控制电机）。"""
+        pass
+
+    @abstractmethod
+    def set_focus_ee(self, focus_ee: bool = True) -> Result:
+        """
+        设置笛卡尔跟踪焦点 (latch 话题 /mobile_manipulator_focus_ee)。
+
+        :param focus_ee: True=跟踪末端（MPC 主动调整躯干提升末端精度），
+                         False=跟踪躯干（末端不可扭曲躯干）
+        :return: Result
+
+        .. note:: 轮臂末端独立控制场景下，初始化时应置 False（躯干/底盘保持不动）。
+        """
+        pass
+
+    @abstractmethod
+    def set_focus_z(self, focus_z: bool = True) -> Result:
+        """
+        设置 Z 轴方向移动的跟随焦点 (latch 话题 /mobile_manipulator_focus_z)。
+
+        :param focus_z: True=跟踪 Z 轴焦点，False=不跟踪
+        :return: Result
+        """
         pass
 
     # --- 5. 末端执行器控制 ---
@@ -496,5 +575,21 @@ class IHardware(ABC):
     @abstractmethod
     def get_ee_poses(self) -> Optional[Dict]:
         """获取末端执行器位姿"""
+        pass
+
+    @abstractmethod
+    def get_ee_pose_reach_error(self, is_left: bool) -> Result:
+        """
+        查询末端位姿到达静差 (服务 /mobile_manipulator_ee_pose_reach_error)。
+
+        :param is_left: True=左臂，False=右臂
+        :return: Result
+            - success: 仅在末端模式且期望位姿不再更新时为 True
+            - data['err_vector']: 6 维误差 [x, y, z, yaw, pitch, roll]
+              位置误差（米），姿态误差（弧度，ZYX 欧拉角顺序）
+            - message: 详细信息
+
+        .. note:: 用于单次指令 / 在线连发后判断末端是否真正到位。
+        """
         pass
     

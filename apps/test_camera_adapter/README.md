@@ -84,6 +84,20 @@ python3 apps/test_camera_adapter/test_camera_tf.py --reuse
 python3 apps/test_camera_adapter/test_perception_frame.py --reuse
 ```
 
+Jetson 上的 Adapter 进程会在导入 NumPy/OpenCV/CvBridge 前，将
+OpenBLAS、OpenMP和OpenCV线程数默认限制为1，避免启动时瞬间占满全部
+CPU核。需要显式提高ROS/硬件进程的数值计算并行度时，可在启动前覆盖统一
+配置：
+
+```bash
+LETOOLS_NUMERIC_THREADS=2 \
+python3 apps/test_camera_adapter/test_camera_init.py --keep-alive
+```
+
+也可以单独设置`OPENBLAS_NUM_THREADS`、`OMP_NUM_THREADS`、
+`OPENCV_FOR_THREADS_NUM`或`LETOOLS_OPENCV_THREADS`；显式库级配置优先于
+`LETOOLS_NUMERIC_THREADS`。
+
 > `--reuse` 跳过 roslaunch/TF/rviz 启动和 shutdown，仅订阅话题 + 执行测试。适用脚本：`test_camera_{frame,depth,pointcloud,status,tf}.py` + `test_perception_frame.py`。
 >
 > **rviz 验证**：通过 `test_camera_init.py --keep-alive --rviz` 在启动相机时同时打开 rviz（使用 `biped_s4_head.rviz` 配置）。在机器人显示器上应能看到 RGB/深度/点云话题的实时可视化。也可单独验证：`python3 apps/test_camera_adapter/test_camera_init.py --rviz`（3s 后自动退出，快速确认 rviz 能正常弹出）。
@@ -161,7 +175,7 @@ PYTHONPATH=. pytest tests/test_interface_contract.py -v
 
 ### CameraAdapter（`camera_config.yaml`）
 
-| 参数 | 类型 | 说明 | 默认值 |
+| 参数 | 类型 | 说明 | 建议/示例值 |
 |------|------|------|--------|
 | `has_head` | bool | 是否启用头部 Orbbec 相机 | `true` |
 | `enable_wrist_camera` | bool | 是否启用手腕 RealSense 相机 | `false` |
@@ -171,15 +185,21 @@ PYTHONPATH=. pytest tests/test_interface_contract.py -v
 | `right_wrist_camera_sn` | str | 右手腕相机序列号 | `""` |
 | `rviz` | bool | 是否启动 rviz（使用 `biped_s4_head.rviz`） | `false` |
 | `color_width` | int | RGB 图像宽度（0=驱动默认） | `1280` |
-| `color_height` | int | RGB 图像高度（0=驱动默认） | `720` |
+| `color_height` | int | RGB 图像高度（0=驱动默认） | `800` |
 | `color_fps` | int | RGB 帧率（0=驱动默认） | `30` |
-| `depth_width` | int | 深度图宽度（0=驱动默认） | `640` |
-| `depth_height` | int | 深度图高度（0=驱动默认） | `400` |
+| `depth_width` | int | 深度图宽度（0=驱动默认） | `1280` |
+| `depth_height` | int | 深度图高度（0=驱动默认） | `800` |
 | `depth_fps` | int | 深度图帧率（0=驱动默认） | `30` |
+| `head_enable_frame_sync` | bool | 开启头部驱动帧同步 | `true` |
+| `head_depth_registration` | bool | 将头部深度配准到 RGB；彩色点云与此开关联动 | `true` |
+| `head_rgbd_sync` | bool | Adapter 按原始时间戳严格配对头部 RGBD | `true` |
+| `rgbd_sync_queue_size` | int | 近似同步队列长度 | `5` |
+| `rgbd_sync_slop_sec` | float | RGB/Depth 最大时间戳差（秒） | `0.015` |
+| `rgbd_require_same_resolution` | bool | 拒绝宽高不一致的同步 RGBD | `true` |
 
 ### PerceptionAdapter（`camera_config.yaml`）
 
-| 参数 | 类型 | 说明 | 默认值 |
+| 参数 | 类型 | 说明 | 代码缺省值 |
 |------|------|------|--------|
 | `launch_apriltag` | bool | 是否启动 AprilTag 检测 | `true` |
 
@@ -199,7 +219,7 @@ PYTHONPATH=. pytest tests/test_interface_contract.py -v
 
 ### CameraAdapter（`camera_config.yaml`）
 
-| 参数 | 类型 | 说明 | 默认值 |
+| 参数 | 类型 | 说明 | 建议/示例值 |
 |------|------|------|--------|
 | `has_head` | bool | 是否启用头部 Orbbec 相机 | `true` |
 | `enable_wrist_camera` | bool | 是否启用手腕 RealSense 相机 | `false` |
@@ -209,11 +229,17 @@ PYTHONPATH=. pytest tests/test_interface_contract.py -v
 | `right_wrist_camera_sn` | str | 右手腕相机序列号 | `""` |
 | `rviz` | bool | 是否启动 rviz（使用 `biped_s4_head.rviz`） | `false` |
 | `color_width` | int | RGB 图像宽度（0=驱动默认） | `1280` |
-| `color_height` | int | RGB 图像高度（0=驱动默认） | `720` |
+| `color_height` | int | RGB 图像高度（0=驱动默认） | `800` |
 | `color_fps` | int | RGB 帧率（0=驱动默认） | `30` |
-| `depth_width` | int | 深度图宽度（0=驱动默认） | `640` |
-| `depth_height` | int | 深度图高度（0=驱动默认） | `400` |
+| `depth_width` | int | 深度图宽度（0=驱动默认） | `1280` |
+| `depth_height` | int | 深度图高度（0=驱动默认） | `800` |
 | `depth_fps` | int | 深度图帧率（0=驱动默认） | `30` |
+| `head_enable_frame_sync` | bool | 开启头部驱动帧同步 | `true` |
+| `head_depth_registration` | bool | 将头部深度配准到 RGB；彩色点云与此开关联动 | `true` |
+| `head_rgbd_sync` | bool | Adapter 按原始时间戳严格配对头部 RGBD | `true` |
+| `rgbd_sync_queue_size` | int | 近似同步队列长度 | `5` |
+| `rgbd_sync_slop_sec` | float | RGB/Depth 最大时间戳差（秒） | `0.015` |
+| `rgbd_require_same_resolution` | bool | 拒绝宽高不一致的同步 RGBD | `true` |
 
 ### PerceptionAdapter（`camera_config.yaml`）
 
@@ -250,6 +276,8 @@ PYTHONPATH=. pytest tests/test_interface_contract.py -v
 | 方法 | 签名 | 返回值 | 说明 |
 |------|------|--------|------|
 | `get_camera_frame` | `(camera_name="camera") -> Optional[CameraFrame]` | `CameraFrame` 或 `None` | 获取最新 RGB + 深度帧 |
+| `get_synchronized_camera_frame` | `(camera_name="camera") -> Optional[CameraFrame]` | `CameraFrame` 或 `None` | 获取最近一组按原始 Header 时间戳配对的 RGBD |
+| `wait_for_next_synchronized_camera_frame` | `(camera_name="camera", timeout_sec=2.0) -> Result` | `Result(data=CameraFrame)` | 等待调用之后产生的下一组同步 RGBD，超时返回失败 |
 | `get_depth_data` | `(camera_name="camera") -> Optional[DepthData]` | `DepthData` 或 `None` | 获取深度图 + 内参（scale=0.001, 毫米→米） |
 | `get_point_cloud` | `(camera_name="camera") -> Optional[PointCloudData]` | `PointCloudData` 或 `None` | 获取点云（仅头部相机） |
 | `get_camera_info` | `(camera_name="camera") -> Optional[CameraInfo]` | `CameraInfo` 或 `None` | 获取相机内参/外参/分辨率/帧率 |
@@ -267,7 +295,7 @@ PYTHONPATH=. pytest tests/test_interface_contract.py -v
 | 方法 | 签名 | 返回值 | 说明 |
 |------|------|--------|------|
 | `check_health` | `(camera_name="camera") -> Dict[str, Any]` | `{healthy, reason, frame_count, last_frame_time, time_since_last_frame}` | 健康检查：5 秒内有新帧视为健康 |
-| `get_performance_metrics` | `(camera_name="camera") -> Dict[str, Any]` | `{frame_count, fps, avg_latency_ms, max_latency_ms, error_counts, time_since_last_frame}` | 按消息类型（color/depth/pointcloud）分别统计 |
+| `get_performance_metrics` | `(camera_name="camera") -> Dict[str, Any]` | `{frame_count, fps, avg_latency_ms, max_latency_ms, error_counts, time_since_last_frame}` | 按消息类型（color/depth/rgbd/pointcloud）分别统计 |
 #### 生命周期
 
 | 方法 | 签名 | 返回值 | 说明 |
@@ -560,8 +588,8 @@ Python `for` 循环逐点遍历 `pc2.read_points()` 处理 92 万点（1280×720
 `ar_control_node.py` 执行 `lookup_transform('base_link', source_frame, ...)` 将 tag 坐标转换到机器人坐标系。完整 TF 链路：
 
 ```
-base_link → ... → zhead_2_link → head_camera_base   ← 下位机 URDF
-head_camera_base → camera_link                       ← camera_adapter
+base_link → ... → head_camera_base → head_camera_depth  ← 下位机 URDF
+head_camera_depth → camera_link                         ← camera_adapter
 camera_link → camera_color_optical_frame             ← Orbbec 驱动 publish_tf
 ```
 

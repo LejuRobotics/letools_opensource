@@ -41,6 +41,8 @@ class PressureDropDetectionParams(SkillParams):
 
     pressure_threshold:  掉落判定阈值 (kPa)，气压 > 此值时触发
     check_interval:      检测间隔（秒），每隔此时间检测一次
+    startup_delay:       启动延迟（秒），监控开始后跳过前 N 秒的检测，
+                         等待气泵真空建立稳定后再开始判定
     enable:              是否启用检测
     left_sensor_id:      左臂气压传感器 ID
     right_sensor_id:     右臂气压传感器 ID
@@ -50,6 +52,7 @@ class PressureDropDetectionParams(SkillParams):
     skill_name: str = "pressure_drop_detection"
     pressure_threshold: float = -15.0
     check_interval: float = 0.8
+    startup_delay: float = 1.5
     enable: bool = True
     left_sensor_id: int = 2
     right_sensor_id: int = 1
@@ -83,6 +86,7 @@ class PressureDropDetectionParams(SkillParams):
         return cls(
             pressure_threshold=_extract("pressure_threshold", defaults.pressure_threshold, float),
             check_interval=_extract("check_interval", defaults.check_interval, float),
+            startup_delay=_extract("startup_delay", defaults.startup_delay, float),
             enable=_extract("enable", defaults.enable, _to_bool),
             left_sensor_id=_extract("left_sensor_id", defaults.left_sensor_id, int),
             right_sensor_id=_extract("right_sensor_id", defaults.right_sensor_id, int),
@@ -100,6 +104,8 @@ class PressureDropDetectionParams(SkillParams):
          "description": "掉落判定阈值 (kPa)，气压 > 此值时触发"},
         {"name": "check_interval", "type": "float", "default": 0.8,
          "description": "检测间隔（秒）"},
+        {"name": "startup_delay", "type": "float", "default": 1.5,
+         "description": "启动延迟（秒），监控开始后跳过前 N 秒的检测，等待气泵真空建立"},
         {"name": "enable", "type": "bool", "default": True,
          "description": "是否启用检测"},
         {"name": "left_sensor_id", "type": "int", "default": 2,
@@ -127,6 +133,7 @@ class PressureDropDetectionSkill(SkillBase):
         self.params: Optional[PressureDropDetectionParams] = None
         self._alarm_triggered = False
         self._last_check_time = 0.0
+        self._start_time = 0.0
         self._done = False
         self._result: Optional[Result] = None
 
@@ -136,12 +143,14 @@ class PressureDropDetectionSkill(SkillBase):
         self.params = params
         self._alarm_triggered = False
         self._last_check_time = 0.0
+        self._start_time = time.time()
         self._done = False
         self._result = None
         logger.info(
             "[pressure_drop] 初始化: threshold=%.1f kPa, interval=%.2fs, "
-            "enable=%s, left_id=%d, right_id=%d, auto_stop_chassis=%s",
+            "startup_delay=%.1fs, enable=%s, left_id=%d, right_id=%d, auto_stop_chassis=%s",
             params.pressure_threshold, params.check_interval,
+            params.startup_delay,
             params.enable, params.left_sensor_id, params.right_sensor_id,
             params.auto_stop_chassis,
         )
@@ -155,8 +164,12 @@ class PressureDropDetectionSkill(SkillBase):
         if not p.enable or self._alarm_triggered:
             return Result.ok("monitoring active (disabled or already triggered)")
 
-        # 检测间隔控制
+        # 启动延迟：气泵刚开启时真空还未建立，跳过前 N 秒的检测
         now = time.time()
+        if p.startup_delay > 0 and (now - self._start_time) < p.startup_delay:
+            return Result.ok("monitoring active (startup delay)")
+
+        # 检测间隔控制
         if (now - self._last_check_time) < p.check_interval:
             return Result.ok("monitoring active (interval skip)")
         self._last_check_time = now

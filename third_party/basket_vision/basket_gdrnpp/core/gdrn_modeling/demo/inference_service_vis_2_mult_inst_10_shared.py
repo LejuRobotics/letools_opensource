@@ -1580,6 +1580,15 @@ class SharedBasketPoseServiceNode:
                 f"camera_frame={self.camera_frame} "
                 f"t_cam=({T_cam_obj[0, 3]:.3f}, {T_cam_obj[1, 3]:.3f}, {T_cam_obj[2, 3]:.3f})"
             )
+            qx, qy, qz, qw = quaternion_from_matrix(T_cam_obj)
+            rospy.loginfo(
+                f"{COLOR_GREEN}[CAM_POSE_6D]{COLOR_RESET} inst#{idx} "
+                f"obj_id={obj_id} obj_name={obj_name} confidence={float(conf[idx]):.4f} "
+                f"bbox_xyxy=({x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f}) "
+                f"frame={self.camera_frame} "
+                f"position_m=({T_cam_obj[0, 3]:.6f}, {T_cam_obj[1, 3]:.6f}, {T_cam_obj[2, 3]:.6f}) "
+                f"quaternion_xyzw=({qx:.6f}, {qy:.6f}, {qz:.6f}, {qw:.6f})"
+            )
             T_pose_frame_obj_est = self.transform_cam_to_frame(
                 T_cam_obj, self.camera_frame, cfg["base_frame"]
             )

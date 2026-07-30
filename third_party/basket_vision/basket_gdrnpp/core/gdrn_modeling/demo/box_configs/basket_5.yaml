@@ -9,9 +9,9 @@ box_name: basket_5
 # 模型权重路径（相对于 proj_root）
 runtime_models:
   gdrn_cfg: output_basket_5/convnext_a6_AugCosyAAEGray_BG05_mlL1_DMask_amodalClipBox_classAware_basket.py
-  gdrn_ckpt: output_basket_5/model_final.pth
+  gdrn_ckpt: output_basket_5/model_final_5.pth.1
   obj_models: datasets/BOP_DATASETS/basket/models
-  yolo_weights: yolo_basket_5_weights/best.pt
+  yolo_weights: yolo_basket_5_weights/best_5.pt
 
 # 通用配置
 common:

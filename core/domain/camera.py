@@ -38,10 +38,15 @@ class CameraInfo:
 
 @dataclass
 class CameraFrame:
-    """相机帧数据"""
+    """相机帧数据；color_image 统一为 RGB uint8 HWC。"""
     color_image: Any
     depth_image: Optional[Any] = None
-    timestamp: float = 0.0
+    timestamp: float = 0.0  # 彩色图原始 ROS Header 时间戳。
+    depth_timestamp: Optional[float] = None  # 深度图原始 ROS Header 时间戳。
+    color_frame_id: str = ""
+    depth_frame_id: str = ""
+    sync_delta_sec: Optional[float] = None  # 严格配对时两路时间戳的绝对差。
+    sequence: int = 0  # Adapter 内同步帧序号；0 表示普通非同步缓存帧。
 
 @dataclass
 class PointCloudData:

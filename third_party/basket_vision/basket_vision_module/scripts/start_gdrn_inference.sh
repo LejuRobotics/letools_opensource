@@ -4,26 +4,31 @@ set -eo pipefail
 
 export LD_LIBRARY_PATH="/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH:-}"
 export LD_PRELOAD="/lib/aarch64-linux-gnu/libGLdispatch.so.0${LD_PRELOAD:+:${LD_PRELOAD}}"
+export PYTHONNOUSERSITE=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KUAVO_STUDIO_DIR="${KUAVO_STUDIO_DIR:-$(cd "${SCRIPT_DIR}/../../../.." && pwd)}"
-BASKET_GDRNPP_DIR="${KUAVO_STUDIO_DIR}/third_party/basket_vision/basket_gdrnpp"
+DEFAULT_BASKET_VISION_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+BASKET_VISION_ROOT="$(cd "${BASKET_VISION_ROOT:-${DEFAULT_BASKET_VISION_ROOT}}" && pwd)"
+KUAVO_STUDIO_DIR="${KUAVO_STUDIO_DIR:-$(cd "${BASKET_VISION_ROOT}/../.." && pwd)}"
+BASKET_GDRNPP_DIR="${BASKET_VISION_ROOT}/basket_gdrnpp"
 
-export TORCH_HOME="${TORCH_HOME:-${KUAVO_STUDIO_DIR}/third_party/basket_vision/torch}"
+export TORCH_HOME="${TORCH_HOME:-${BASKET_VISION_ROOT}/torch}"
 export PYTHONPATH="${BASKET_GDRNPP_DIR}:${BASKET_GDRNPP_DIR}/detectron2:${PYTHONPATH:-}"
 
 WAIT_TOPIC="${1:-/camera/color/image_raw}"
-ENV_NAME="${2:-gdrn}"
-PYTHON_SCRIPT="${3:-${KUAVO_STUDIO_DIR}/third_party/basket_vision/basket_gdrnpp/core/gdrn_modeling/demo/inference_service_vis_2_mult_inst_10_shared.py}"
+ENV_NAME="${2:-.venv}"
+PYTHON_SCRIPT="${3:-${BASKET_GDRNPP_DIR}/core/gdrn_modeling/demo/inference_service_vis_2_mult_inst_10_shared.py}"
 READY_SERVICE_1="${4:-/infer_basket_pose}"
 READY_SERVICE_2="${5:-/infer_top_basket_ids}"
 READY_TIMEOUT_SEC="${6:-180}"
-UV_ACTIVATE_SCRIPT="${UV_ACTIVATE_SCRIPT:-${KUAVO_STUDIO_DIR}/third_party/basket_vision/basket_gdrnpp/${ENV_NAME}/bin/activate}"
+BASKET_VISION_ENV="${BASKET_VISION_ENV:-${BASKET_GDRNPP_DIR}/${ENV_NAME}}"
+UV_ACTIVATE_SCRIPT="${UV_ACTIVATE_SCRIPT:-${BASKET_VISION_ENV}/bin/activate}"
+ENV_PYTHON="$(dirname "${UV_ACTIVATE_SCRIPT}")/python"
 BASKET_BOX_CONFIG_YAML="${BASKET_BOX_CONFIG_YAML:-core/gdrn_modeling/demo/box_configs/basket_5.yaml}"
 
 RUN_ID="${BASKET_VISION_RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
 SERVICE_NAME="${BASKET_VISION_SERVICE_NAME:-gdrn_inference}"
-LOG_ROOT="${BASKET_VISION_LOG_ROOT:-${KUAVO_STUDIO_DIR}/third_party/basket_vision/logs}"
+LOG_ROOT="${BASKET_VISION_LOG_ROOT:-${BASKET_VISION_ROOT}/logs}"
 RUN_DIR="${BASKET_VISION_RUN_DIR:-${LOG_ROOT}/${SERVICE_NAME}/${RUN_ID}}"
 IMAGE_DIR="${BASKET_VISION_IMAGE_DIR:-${RUN_DIR}/images}"
 INTERNAL_LOG_DIR="${BASKET_VISION_INTERNAL_LOG_DIR:-${RUN_DIR}/internal}"
@@ -55,6 +60,7 @@ cat > "${RUN_DIR}/run_info.txt" <<EOF
 run_id=${RUN_ID}
 service_name=${SERVICE_NAME}
 kuavo_studio_dir=${KUAVO_STUDIO_DIR}
+basket_vision_root=${BASKET_VISION_ROOT}
 wait_topic=${WAIT_TOPIC}
 python_script=${PYTHON_SCRIPT}
 box_config_yaml=${BASKET_BOX_CONFIG_YAML}
@@ -80,10 +86,28 @@ echo "[gdrn] service output dir: ${SERVICE_OUTPUT_DIR}"
 echo "[gdrn] single output dir: ${SINGLE_OUTPUT_DIR}"
 echo "[gdrn] top output dir: ${TOP_OUTPUT_DIR}"
 
+if [ ! -f "${UV_ACTIVATE_SCRIPT}" ]; then
+  echo "[gdrn] error: Basket Vision virtual environment is missing"
+  echo "[gdrn] expected activate script: ${UV_ACTIVATE_SCRIPT}"
+  echo "[gdrn] create it with: bash ${BASKET_VISION_ROOT}/basket_vision_module/scripts/install_jetpack5_py38_env.sh"
+  exit 1
+fi
+
+if [ ! -x "${ENV_PYTHON}" ]; then
+  echo "[gdrn] error: virtual-environment Python is not executable: ${ENV_PYTHON}"
+  exit 1
+fi
+
+if ! "${ENV_PYTHON}" -c \
+  'import site, sys; raise SystemExit(0 if sys.version_info[:2] == (3, 8) and sys.prefix != sys.base_prefix and not site.ENABLE_USER_SITE else 1)'; then
+  echo "[gdrn] error: runtime must be an isolated Python 3.8 venv with user-site disabled"
+  exit 1
+fi
+
 ROS_DISTRO_NAME="${ROS_DISTRO:-noetic}"
 ROS_SETUP="/opt/ros/${ROS_DISTRO_NAME}/setup.bash"
 WORKSPACE_SETUP="${KUAVO_STUDIO_DIR}/infrastructure/ros_packages/devel/setup.bash"
-BASKET_VISION_WS_SETUP="${KUAVO_STUDIO_DIR}/third_party/basket_vision/basket_vision_ws/devel/setup.bash"
+BASKET_VISION_WS_SETUP="${BASKET_VISION_ROOT}/basket_vision_ws/devel/setup.bash"
 
 if [ -f "${ROS_SETUP}" ]; then
   # shellcheck disable=SC1090
@@ -111,32 +135,19 @@ echo "[gdrn] topic is ready"
 
 echo "[gdrn] starting python script: ${PYTHON_SCRIPT}"
 
-if [ -f "${UV_ACTIVATE_SCRIPT}" ]; then
-  echo "[gdrn] using activate script: ${UV_ACTIVATE_SCRIPT}"
-  (
-    # shellcheck disable=SC1090
-    source "${UV_ACTIVATE_SCRIPT}"
-    exec python -u "${PYTHON_SCRIPT}" \
-      _proj_root:="${KUAVO_STUDIO_DIR}/third_party/basket_vision/basket_gdrnpp" \
-      _box_config_yaml:="${BASKET_BOX_CONFIG_YAML}" \
-      _save_outputs:=true \
-      _inference_image_width:="${BASKET_INFERENCE_IMAGE_WIDTH:-640}" \
-      _inference_image_height:="${BASKET_INFERENCE_IMAGE_HEIGHT:-480}" \
-      _single_save_dir:="${SINGLE_OUTPUT_DIR}" \
-      _top_save_dir:="${TOP_OUTPUT_DIR}"
-  ) &
-elif command -v uv >/dev/null 2>&1; then
-  echo "[gdrn] activate script not found, fallback to uv run"
-  (
-    cd "$(dirname "${PYTHON_SCRIPT}")"
-    uv run python -u "${PYTHON_SCRIPT}"
-  ) &
-else
-  echo "[gdrn] error: no usable Python environment found"
-  echo "[gdrn] expected activate script: ${UV_ACTIVATE_SCRIPT}"
-  echo "[gdrn] also tried fallback command: uv run"
-  exit 1
-fi
+echo "[gdrn] using activate script: ${UV_ACTIVATE_SCRIPT}"
+(
+  # shellcheck disable=SC1090
+  source "${UV_ACTIVATE_SCRIPT}"
+  exec "${ENV_PYTHON}" -u "${PYTHON_SCRIPT}" \
+    _proj_root:="${BASKET_GDRNPP_DIR}" \
+    _box_config_yaml:="${BASKET_BOX_CONFIG_YAML}" \
+    _save_outputs:=true \
+    _inference_image_width:="${BASKET_INFERENCE_IMAGE_WIDTH:-640}" \
+    _inference_image_height:="${BASKET_INFERENCE_IMAGE_HEIGHT:-480}" \
+    _single_save_dir:="${SINGLE_OUTPUT_DIR}" \
+    _top_save_dir:="${TOP_OUTPUT_DIR}"
+) &
 
 PY_PID=$!
 

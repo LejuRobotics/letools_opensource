@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-一键跑通 dismantle_box 系列 6 个场景。
+一键跑通 dismantle_box 系列 6 个场景，支持顶层不满垛动态识别。
 
 !!!   此脚本未经过长时间测试，并且参数量较大，耦合后可能会出现一些问题，实机运行的时候万分小心   !!!
 
@@ -17,6 +17,13 @@
 
   # 指定场景子集 + 动作组子集
   python3 apps/test_upper_init/run_all_dismantle_box.py --scenarios 2,4,6 --action-groups 1
+
+  # 例如从第3层开始整垛拆（顶层可能不满垛，底下5层满垛），其他层同理
+  python3 apps/test_upper_init/run_all_dismantle_box.py --dynamic-top 3
+  # 顶层不满垛动态识别模式：
+  #   - 先跑 dismantle_box_dynamic（视觉识别缺箱+跳过空位）
+  #   - 然后依次跑 dismantle_box_4, dismantle_box_5, dismantle_box_6（底下各层满垛逐层拆）
+  python3 apps/test_upper_init/run_all_dismantle_box.py --dynamic-top 3
 """
 
 import argparse
@@ -68,12 +75,15 @@ def _build_scenario_name(num: int) -> str:
 
 
 def run_single_scenario(
-    scenario_dir, blackboard_client, controller, action_group_filter, dry_run=False, tick_once=False
+    scenario_dir, blackboard_client, controller, action_group_filter,
+    dry_run=False, tick_once=False, extra_board_path=None,
 ):
     """运行单个场景，返回 (scenario_name, success)。
 
     Args:
         controller: 复用的 BehaviorTreeController 实例，避免重复注册 ROS 服务。
+        extra_board_path: 额外 board 路径，会在主 board 加载后再加载，用于覆盖同名参数。
+            例如 dismantle_box_dynamic 场景运行时，加载 dismantle_box_N/board.json 覆盖腰部参数。
     """
     scenario_name = os.path.basename(scenario_dir)
     tree_path = os.path.join(scenario_dir, "py_tree.json")
@@ -85,12 +95,17 @@ def run_single_scenario(
     print(f"  - tree: {tree_path}")
     print(f"  - subtrees: {subtrees_path}")
     print(f"  - board: {board_path}")
+    if extra_board_path:
+        print(f"  - extra_board (overlay): {extra_board_path}")
     if action_group_filter:
         print(f"  - action_groups: {sorted(action_group_filter)}")
     print(f"{'='*60}")
 
     # 每个场景重新加载 board
     _load_board_into_blackboard(blackboard_client, board_path)
+    # 动态顶层模式：加载对应层 board 覆盖（腰部角度、arm_action 等同名 key 被替换）
+    if extra_board_path:
+        _load_board_into_blackboard(blackboard_client, extra_board_path)
 
     from orchestration.engine.behavior_tree_factory import BehaviorTreeFactory
 
@@ -132,17 +147,27 @@ def run_single_scenario(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="一键跑通 dismantle_box 系列 6 个场景"
+        description="一键跑通 dismantle_box 系列 6 个场景，支持 --dynamic-top 顶层不满垛动态识别"
     )
     parser.add_argument(
         "--scenarios",
         default="1,2,3,4,5,6",
-        help="要运行的场景编号（逗号分隔），默认 '1,2,3,4,5,6'",
+        help="要运行的场景编号（逗号分隔），默认 '1,2,3,4,5,6'。与 --dynamic-top 互斥",
+    )
+    parser.add_argument(
+        "--dynamic-top",
+        type=int,
+        default=0,
+        help="启用动态顶层识别模式，值为当前最高层编号（1~6）。"
+             "如 --dynamic-top 3 表示当前最高层是第3层，先跑 dismantle_box_dynamic"
+             "（用 dismantle_box_3 的 board 覆盖腰部参数），再跑 dismantle_box_4,5,6。"
+             "与 --scenarios 互斥。",
     )
     parser.add_argument(
         "--action-groups",
         default="",
-        help="每个场景只运行指定动作组（逗号分隔，如 '1,3,5'）。不指定则运行全部",
+        help="每个场景只运行指定动作组（逗号分隔，如 '1,3,5'）。不指定则运行全部。"
+             "--dynamic-top 模式下顶层动态识别会忽略此参数（由 top_ids 决定）",
     )
     parser.add_argument(
         "--dry-run",
@@ -167,36 +192,72 @@ def main():
 
     import orchestration.engine.py_trees_compat  # noqa: F401
 
-    # 解析场景编号
-    try:
-        scenario_nums = [int(s.strip()) for s in args.scenarios.split(",")]
-    except ValueError:
-        raise RuntimeError(f"--scenarios 格式错误: {args.scenarios}")
+    scenarios_root = os.path.join(studio_root, "orchestration", "scenarios", "dismantle_box_internal")
 
-    # 解析动作组过滤
-    action_group_filter = None
-    if args.action_groups.strip():
-        try:
-            action_group_filter = set(int(g.strip()) for g in args.action_groups.split(","))
-            print(f"[run_all] 动作组过滤: {sorted(action_group_filter)}")
-        except ValueError:
-            raise RuntimeError(f"--action-groups 格式错误: {args.action_groups}")
-
-    # 检查场景目录是否存在
+    # --- 解析运行计划 ---
+    # 计划元素: (scenario_num, scenario_name, scenario_dir, extra_board_path)
+    # scenario_num: 0 表示 dismantle_box_dynamic 动态顶层；其余为对应层编号
     scenarios = []
-    for num in scenario_nums:
-        scenario_name = _build_scenario_name(num)
-        scenario_dir = os.path.join(studio_root, "orchestration", "scenarios", "dismantle_box_internal", scenario_name)
-        if not os.path.isdir(scenario_dir):
-            print(f"[run_all] 跳过不存在的场景: {scenario_name}")
-            continue
-        scenarios.append((num, scenario_name, scenario_dir))
+
+    if args.dynamic_top > 0:
+        # --- 动态顶层模式 ---
+        top_n = args.dynamic_top
+        if not (1 <= top_n <= 6):
+            raise RuntimeError(f"--dynamic-top 范围错误: {top_n}（应为 1~6）")
+
+        if args.action_groups.strip():
+            print("[run_all] 注意: --dynamic-top 模式下顶层动态识别会忽略 --action-groups（由 top_ids 决定）")
+
+        dynamic_dir = os.path.join(scenarios_root, "dismantle_box_dynamic")
+        if not os.path.isdir(dynamic_dir):
+            raise RuntimeError(f"dismantle_box_dynamic 场景目录不存在: {dynamic_dir}")
+
+        top_overlay_board = os.path.join(scenarios_root, _build_scenario_name(top_n), "board.json")
+        if not os.path.isfile(top_overlay_board):
+            raise RuntimeError(f"顶层覆盖 board.json 不存在: {top_overlay_board}")
+
+        # 顶层动态识别（用 dismantle_box_N 的 board 覆盖 dismantle_box_dynamic 的腰部参数）
+        scenarios.append((0, "dismantle_box_dynamic", dynamic_dir, top_overlay_board))
+        print(f"[run_all] 动态顶层模式: 当前最高层={top_n}")
+        print(f"[run_all]   - 顶层: dismantle_box_dynamic (overlay={_build_scenario_name(top_n)}/board.json)")
+        # 底下各层满垛逐层拆
+        rest_layers = []
+        for num in range(top_n + 1, 7):
+            scenario_name = _build_scenario_name(num)
+            scenario_dir = os.path.join(scenarios_root, scenario_name)
+            if os.path.isdir(scenario_dir):
+                scenarios.append((num, scenario_name, scenario_dir, None))
+                rest_layers.append(scenario_name)
+        print(f"[run_all]   - 底层: {' -> '.join(rest_layers) if rest_layers else '(无)'}")
+    else:
+        # --- 常规模式：按 --scenarios 列表跑 ---
+        try:
+            scenario_nums = [int(s.strip()) for s in args.scenarios.split(",")]
+        except ValueError:
+            raise RuntimeError(f"--scenarios 格式错误: {args.scenarios}")
+
+        for num in scenario_nums:
+            scenario_name = _build_scenario_name(num)
+            scenario_dir = os.path.join(scenarios_root, scenario_name)
+            if not os.path.isdir(scenario_dir):
+                print(f"[run_all] 跳过不存在的场景: {scenario_name}")
+                continue
+            scenarios.append((num, scenario_name, scenario_dir, None))
 
     if not scenarios:
         raise RuntimeError("没有有效的场景可运行")
 
     print(f"[run_all] 待运行场景: {[s[1] for s in scenarios]}")
     print(f"[run_all] 模式: {'dry-run' if args.dry_run else 'ROS'}")
+
+    # 解析动作组过滤（仅常规模式生效）
+    action_group_filter = None
+    if args.action_groups.strip() and args.dynamic_top == 0:
+        try:
+            action_group_filter = set(int(g.strip()) for g in args.action_groups.split(","))
+            print(f"[run_all] 动作组过滤: {sorted(action_group_filter)}")
+        except ValueError:
+            raise RuntimeError(f"--action-groups 格式错误: {args.action_groups}")
 
     # --- 创建黑板 ---
     from py_trees.blackboard import Client
@@ -225,15 +286,21 @@ def main():
 
     # --- 依次运行每个场景 ---
     results = []
-    for num, scenario_name, scenario_dir in scenarios:
+    for num, scenario_name, scenario_dir, extra_board_path in scenarios:
+        # 动态顶层模式下的底下各层，应用 --action-groups 过滤；顶层动态识别不用 action_group_filter
+        if args.dynamic_top > 0 and num == 0:
+            ag_filter_for_this = None  # 顶层动态识别由 top_ids 决定，不用 action-group
+        else:
+            ag_filter_for_this = action_group_filter
         try:
             name, success = run_single_scenario(
                 scenario_dir,
                 blackboard_client,
                 controller,
-                action_group_filter,
+                ag_filter_for_this,
                 dry_run=args.dry_run,
                 tick_once=args.tick_once,
+                extra_board_path=extra_board_path,
             )
             results.append((name, success, None))
         except Exception as e:

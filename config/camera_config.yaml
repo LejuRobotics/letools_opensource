@@ -13,8 +13,20 @@ camera:
   depth_height: 800
   depth_fps: 30
 
+  # 头部 RGBD：驱动级帧同步/空间配准 + Adapter 级时间戳配对
+  # Adapter 使用原始 Header 时间戳做近似同步，不会改写时间戳。
+  head_enable_frame_sync: true
+  head_depth_registration: true
+  # pick 感知只消费对齐 RGBD，不生成/订阅点云。
+  head_enable_point_cloud: false
+  head_enable_colored_point_cloud: false
+  head_rgbd_sync: true
+  rgbd_sync_queue_size: 5
+  rgbd_sync_slop_sec: 0.015
+  rgbd_require_same_resolution: true
+
   # 手腕相机
-  enable_wrist_camera: true
+  enable_wrist_camera: false
   has_left_wrist: true
   left_wrist_camera_sn: "260522277779"
   has_right_wrist: true

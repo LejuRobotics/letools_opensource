@@ -92,8 +92,7 @@ source devel/setup.bash
     yolo_valve_object_detection \
     orbbec_camera \
     realsense2_camera \
-    kuavo_camera\
-    kuavo_tf2_web_republisher
+    kuavo_camera
 > catkin build
 > ```
 
@@ -105,10 +104,14 @@ chmod +x scripts/install_sdk.sh
 ./scripts/install_sdk.sh
 ```
 
+> 📌 SDK 版本由仓库自带的 `scripts/kuavo_humanoid_sdk_tools/sdk_version.env` 锁定，
+> 记录当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 `master` / `1.4.4`），
+> 每次 LeTools 发版时同步更新，确保用户安装到与当前版本匹配的 SDK。
+
 SDK 安装成功后验证：
 
 ```bash
-python3 -c 'from kuavo_humanoid_sdk import KuavoRobot; print("SDK Ready!")'
+python3 -c 'from kuavo_humanoid_sdk import KuavoRobot; print("SDK Ready")'
 ```
 
 <details>

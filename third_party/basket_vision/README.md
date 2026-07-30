@@ -1,5 +1,13 @@
 # Basket Vision — 5 类箱体 6D 位姿推理
 
+首次部署请从这里开始：[新用户 Quick Start](docs/basket_vision_quick_start.md)
+
+Python 3.8 客户部署基线：[Basket Vision Python 3.8 客户部署基线](docs/basket_vision_python38_deployment.md)
+
+完整交付报告：[Basket Vision Python 3.8 完整交付报告](docs/basket_vision_delivery_report_2026-07-29.md)
+
+实机部署记录：[AGX Orin 实机部署与箱体位姿验证记录](docs/agx_orin_field_deployment_record_2026-07-28.md)
+
 基于 **YOLO + GDRN++** 的箱体检测与位姿估计，通过 ROS Service 接口暴露推理结果，同时以伪 AprilTag 形式发布到 `/tag_detections` 兼容现有二维码作业流程，并通过 `/basket_vision/viz_image` 发布带坐标轴的可视化图像。
 
 支持 **5 类箱体**：basket_4322 / basket_4622 / basket_4611 / basket_4633 / basket_4311，**自由摆放**（不依赖预设槽位）。
@@ -21,8 +29,11 @@ third_party/basket_vision/
 │   ├── package.xml
 │   └── srv/InferBasketPose.srv          # ROS 服务定义
 ├── basket_vision_module/scripts/
+│   ├── install_jetpack5_py38_env.sh      # 创建隔离的 Python 3.8 环境
 │   ├── start_gdrn_inference.sh          # 启动 GDRN++ 推理节点
-│   └── start_basket_tf_fallback.sh      # TF 断链 fallback
+│   ├── start_basket_tf_fallback.sh      # TF 断链 fallback
+│   ├── collect_jetson_env.sh             # 客户机只读环境采集
+│   └── verify_jetpack5_py38_runtime.sh   # Python 3.8 严格运行时验收
 ├── basket_gdrnpp/                       # 推理引擎根目录（proj_root）
 │   ├── core/
 │   │   ├── gdrn_modeling/               # GDRN++ 模型定义 + 引擎
@@ -47,6 +58,7 @@ third_party/basket_vision/
 │   │   └── basket.py                    # 5类 id2obj 映射
 │   ├── output_basket_5/                 # GDRN 权重 + config
 │   ├── yolo_basket_5_weights/           # YOLO 权重
+│   ├── requirements/                    # Python 3.8 锁定版本和资产哈希
 │   └── datasets/                        # CAD 模型 + 相机参数
 ├── docs/
 │   └── basket_vision_migration_and_test_guide.md
@@ -123,8 +135,8 @@ third_party/basket_vision/
 | 文件 | 放在哪里 | 说明 |
 |------|---------|------|
 | GDRN 配置 `.py` | `basket_gdrnpp/output_basket_5/` | config 文件 |
-| GDRN 权重 `.pth` | `basket_gdrnpp/output_basket_5/model_final.pth` | 训练好的 checkpoint |
-| YOLO 权重 `.pt` | `basket_gdrnpp/yolo_basket_5_weights/best.pt` | 5 类 YOLO 检测器 |
+| GDRN 权重 `.pth` | `basket_gdrnpp/output_basket_5/model_final_5.pth.1` | 训练好的 checkpoint |
+| YOLO 权重 `.pt` | `basket_gdrnpp/yolo_basket_5_weights/best_5.pt` | 5 类 YOLO 检测器 |
 | CAD 模型 `.ply` | `basket_gdrnpp/datasets/BOP_DATASETS/basket/models/obj_00000{1,2,3,4,5}.ply` | 5 个箱体 3D 模型 |
 | `models_info.json` | 同上目录 | 物体尺寸信息 |
 | `camera.json` | 启动时自动生成 | 相机内参 |
@@ -133,11 +145,9 @@ proj_root 默认指向 `third_party/basket_vision/basket_gdrnpp/`，所有相对
 
 ### Python 环境依赖
 
-> 以下 pip/conda 包需要在运行环境中提前安装：
-
-```bash
-pip install empy==3.3.4      # ROS catkin_make 代码生成依赖（必须 3.x，4.x 不兼容 noetic）
-```
+JetPack 5.1.4 / ROS Noetic 客户机采用独立 Python 3.8 venv。PyTorch、TorchVision、Detectron2 使用已验证的 aarch64 CUDA wheel，其余版本由
+`basket_gdrnpp/requirements/jetpack5_py38_runtime.txt` 完整锁定。使用 `install_jetpack5_py38_env.sh` 安装，完整步骤见
+[Python 3.8 客户部署基线](docs/basket_vision_python38_deployment.md)。不要在客户系统 Python 中直接执行不受控的 `pip install -U`。
 
 ### ROS 包依赖
 
@@ -150,7 +160,7 @@ sudo apt install ros-noetic-apriltag-ros    # AprilTag 消息类型（/tag_detec
 训练好的 5 类模型位于：
 ```
 /data/Real_Downloads/12_29_occ_5/12_29_near_occ_5/gdrnpp_est/output/gdrn/basket/
-├── convnext_a6_..._basket/   ← GDRN model_final.pth, config
+├── convnext_a6_..._basket/   ← GDRN model_final_5.pth.1, config
 └── best_5.pt                 ← YOLO 5-class detector
 ```
 
@@ -250,8 +260,10 @@ result = hw.infer_top_basket()    # Result{success, message, data}
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
+| `BASKET_VISION_ROOT` | 从脚本位置解析 | Basket Vision 模块根目录 |
 | `KUAVO_STUDIO_DIR` | 从脚本路径自动推算 | 项目根目录。若推算错误需手动指定 |
-| `UV_ACTIVATE_SCRIPT` | `.../basket_gdrnpp/gdrn/bin/activate` | Python 虚拟环境 activate 脚本路径 |
+| `BASKET_VISION_ENV` | `.../basket_gdrnpp/.venv` | 隔离的 Python 3.8 venv 路径 |
+| `UV_ACTIVATE_SCRIPT` | `$BASKET_VISION_ENV/bin/activate` | 兼容旧部署的覆盖变量 |
 | `BASKET_BOX_CONFIG_YAML` | `core/gdrn_modeling/demo/box_configs/basket_5.yaml` | 配置文件路径 |
 | `BASKET_INFERENCE_IMAGE_WIDTH` | `640` | 推理缩放目标宽度（设为 `0` 禁用缩放） |
 | `BASKET_INFERENCE_IMAGE_HEIGHT` | `480` | 推理缩放目标高度（设为 `0` 禁用缩放） |
@@ -259,7 +271,7 @@ result = hw.infer_top_basket()    # Result{success, message, data}
 | `BASKET_VISION_LOG_ROOT` | `logs/` | 日志根目录 |
 | `TORCH_HOME` | `.../torch` | PyTorch 缓存 |
 
-> **关于 `UV_ACTIVATE_SCRIPT`**：启动脚本期望 `basket_gdrnpp/gdrn/bin/activate` 路径存在。如果你用的是 conda 环境（如 `conda activate gdrn`），可以设置 `export UV_ACTIVATE_SCRIPT=/path/to/conda/envs/gdrn/bin/activate` 来覆盖。或者直接 source ROS 环境和 `basket_vision_ws/devel/setup.bash` 后手动运行 Python 脚本（见下方 6.2 节"手动启动"）。
+> **关于 Python 环境**：启动脚本只接受隔离的 Python 3.8 venv，并强制关闭用户 `~/.local` 包。新部署设置 `BASKET_VISION_ENV`；`UV_ACTIVATE_SCRIPT` 仅用于兼容已有配置，名称不表示依赖 uv。
 >
 > **关于 `KUAVO_STUDIO_DIR`**：脚本默认通过 `$(cd ../../../.. && pwd)` 推算。如果文件夹层级不符合预期，手动 `export KUAVO_STUDIO_DIR=/your/project/root` 即可。
 >
@@ -286,13 +298,15 @@ result = hw.infer_top_basket()    # Result{success, message, data}
 ```bash
 cd third_party/basket_vision/basket_vision_ws
 source /opt/ros/noetic/setup.bash
-catkin_make -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+catkin_make \
+  -DPYTHON_EXECUTABLE=/usr/bin/python3.8 \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 source devel/setup.bash
 ```
 
 > **关于 `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`**：新版 CMake（≥3.5）移除了对 `< 3.5` 的兼容。ROS noetic 的 `catkin` 默认生成 `cmake_minimum_required(VERSION 3.0.2)`，不加此参数会报错 `Compatibility with CMake < 3.5 has been removed`。
 >
-> **关于 `empy`**：`catkin_make` 需要 `empy` 包来生成 ROS 消息代码。必须安装 `3.3.4` 版本（`pip install empy==3.3.4`），因为 4.x 移除了 `em.RAW_OPT` 等 API，与 ROS noetic 的 `gencpp` 不兼容。报错信息为 `AttributeError: module 'em' has no attribute 'RAW_OPT'`。
+> **关于 Python 和 `empy`**：客户机应使用 `/usr/bin/python3.8` 编译消息，并通过 apt 安装 Noetic 配套的 `python3-empy` 3.x。不要安装 `empy` 4.x；它移除了 `em.RAW_OPT` 等 Noetic 仍使用的 API。完整命令见 Python 3.8 部署基线。
 
 ### 6.2 启动推理节点
 
@@ -306,8 +320,8 @@ source third_party/basket_vision/basket_vision_ws/devel/setup.bash
 # 如果 KUAVO_STUDIO_DIR 推算不对，手动指定
 export KUAVO_STUDIO_DIR=/path/to/kuavo-studio
 
-# 如果用的不是脚本默认的 venv 路径，指定 conda/env 路径
-export UV_ACTIVATE_SCRIPT=/path/to/conda/envs/gdrn/bin/activate
+# 如果使用外部 venv 路径
+export BASKET_VISION_ENV=/path/to/basket_vision_envs/gdrn38
 
 # 环境设置（仅 ROS 多机场景需要）
 export ROS_MASTER_URI=http://kuavo_master:11311
@@ -317,9 +331,9 @@ export ROS_IP=192.168.26.12
 bash third_party/basket_vision/basket_vision_module/scripts/start_gdrn_inference.sh
 ```
 
-**方式二：手动启动（conda 环境）**
+**方式二：手动启动（仅调试）**
 
-如果你已经 `conda activate gdrn`，可以直接运行 Python 脚本：
+客户部署不要使用此方式。开发调试时如果已经激活安装器创建的 Python 3.8 venv，可以直接运行 Python 脚本：
 
 ```bash
 cd /path/to/kuavo-studio
@@ -341,8 +355,8 @@ python -u core/gdrn_modeling/demo/inference_service_vis_2_mult_inst_10_shared.py
 [RESOLUTION] letterbox 1280x800 → 640x480 (content=640x400, scale=0.5000, pad=[40,40,0,0])
 [RESOLUTION] scaled intrinsics: fx=304.72, fy=304.71, cx=323.23, cy=201.03
 [BOX_CFG] loaded box config: .../basket_5.yaml
-[BOX_CFG] gdrn_ckpt .../output_basket_5/model_final.pth
-[BOX_CFG] yolo_weights .../yolo_basket_5_weights/best.pt
+[BOX_CFG] gdrn_ckpt .../output_basket_5/model_final_5.pth.1
+[BOX_CFG] yolo_weights .../yolo_basket_5_weights/best_5.pt
 SharedBasketPoseServiceNode ready.
   service: /infer_basket_pose
   service: /infer_top_basket_ids

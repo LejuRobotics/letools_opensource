@@ -1,6 +1,22 @@
 # Model weights (download separately)
 *.pth
+*.pth.*
 *.pt
+basket_gdrnpp/datasets/BOP_DATASETS/basket/models/*.ply
 
 # Platform-specific compiled binaries
 *.so
+
+# Customer-local runtime artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+basket_vision_ws/build/
+basket_vision_ws/devel/
+basket_vision_ws/install/
+logs/
+basket_vision_host_report.txt
+basket_vision_module/.venv/
+basket_gdrnpp/.venv/
+basket_gdrnpp/camera.json
+basket_gdrnpp/output/
