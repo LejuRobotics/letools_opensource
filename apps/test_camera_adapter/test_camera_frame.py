@@ -41,7 +41,7 @@ class CameraFrameTest:
 
         try:
             self.adapter = CameraAdapter()
-            config = {'has_head': True, 'enable_wrist_camera': False}
+            config = {'enable_head': True, 'enable_wrist_camera': False}
 
             if reuse:
                 import rospy

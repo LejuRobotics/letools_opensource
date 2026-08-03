@@ -81,7 +81,7 @@ class PerceptionAdapterTest:
             # 先初始化 CameraAdapter（注入到 PerceptionAdapter）
             self.camera_adapter = CameraAdapter()
             camera_config = {
-                'has_head': True,
+                'enable_head': True,
                 'enable_wrist_camera': False,
             }
             camera_result = self.camera_adapter.initialize(camera_config)

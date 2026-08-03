@@ -48,21 +48,45 @@ class NodeComputePickGoal(BaseAction):
             self.feedback_message = f"tag {self._tag_id} not on blackboard"
             return Status.RUNNING
 
-        # tag.pose_in_world 是 Pose6D dataclass，字段 .x/.y/.z
         stand_pos = self.params.get("stand_in_tag_pos", [0.0, 0.0, 0.0])
-        new_pos = (
-            tag.pose_in_world.x + stand_pos[0],
-            tag.pose_in_world.y + stand_pos[1],
-            tag.pose_in_world.z + stand_pos[2],
+        stand_euler = self.params.get("stand_in_tag_euler", [0.0, 0.0, 0.0])
+
+        #   1) stand_pose_in_tag = (stand_pos, stand_euler)（TAG 系，board 默认值 [-90°,90°,0]）
+        #   2) stand_pose_in_world = tag_odom_matrix × stand_in_tag_matrix（CalcMoveDest 的 transform_pose_from_tag_to_world）
+        import math
+        import numpy as np
+        from scipy.spatial.transform import Rotation as R
+
+        def _mat(pos, euler_rad):
+            m = np.eye(4)
+            m[:3, 3] = pos
+            m[:3, :3] = R.from_euler("xyz", euler_rad).as_matrix()
+            return m
+
+        tag_t = tag.pose_in_world
+        T_tag = _mat(
+            [tag_t.x, tag_t.y, tag_t.z],
+            [math.pi / 2, 0.0, tag_t.yaw],          # ← embodied fix roll
         )
-        self._write_walk_goal(new_pos, (0.0, 0.0, 0.0))
+        T_stand = _mat(
+            [stand_pos[0], stand_pos[1], stand_pos[2]],
+            [stand_euler[0], stand_euler[1], stand_euler[2] if len(stand_euler) > 2 else 0.0],
+        )
+        T_world = T_tag @ T_stand
+
+        new_pos = (float(T_world[0, 3]), float(T_world[1, 3]), float(T_world[2, 3]))
+        face_yaw = float(np.arctan2(T_world[1, 0], T_world[0, 0]))
+
+        self._write_walk_goal(new_pos, (0.0, 0.0, face_yaw))
+        print(f"[NodeComputePickGoal] tag_odom=({tag_t.x:.3f},{tag_t.y:.3f},{tag_t.z:.3f},yaw={tag_t.yaw:.3f}) "
+              f"walk_goal=({new_pos[0]:.3f},{new_pos[1]:.3f}) yaw={face_yaw:.3f}rad ({math.degrees(face_yaw):.1f}°)")
         return Status.SUCCESS
 
     def _write_walk_goal(self, pos, euler):
         from kuavo_humanoid_sdk.kuavo_strategy_pytree.common.data_type import Pose
         setattr(
             self.global_blackboard, "walk_goal",
-            Pose(pos=pos, quat=(0.0, 0.0, 0.0, 1.0), frame="odom"),
+            Pose.from_euler(pos=pos, euler=euler, frame="odom", degrees=False),
         )
         setattr(self.global_blackboard, "is_walk_goal_new", True)
         self.feedback_message = f"walk_goal={pos}"

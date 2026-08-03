@@ -44,7 +44,7 @@ class PerceptionInitTest:
             # 1. 先初始化 CameraAdapter
             print("📌 步骤 1: 初始化 CameraAdapter")
             self.camera_adapter = CameraAdapter()
-            camera_config = {'has_head': True, 'enable_wrist_camera': False}
+            camera_config = {'enable_head': True, 'enable_wrist_camera': False}
             result = self.camera_adapter.initialize(camera_config)
 
             if not result.success:

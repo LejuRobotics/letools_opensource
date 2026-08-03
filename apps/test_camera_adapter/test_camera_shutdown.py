@@ -41,7 +41,7 @@ class CameraShutdownTest:
         try:
             # 初始化
             self.adapter = CameraAdapter()
-            config = {'has_head': True, 'enable_wrist_camera': False}
+            config = {'enable_head': True, 'enable_wrist_camera': False}
             result = self.adapter.initialize(config)
 
             if not result.success:

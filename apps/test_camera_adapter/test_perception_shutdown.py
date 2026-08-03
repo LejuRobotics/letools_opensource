@@ -43,7 +43,7 @@ class PerceptionShutdownTest:
             # 初始化链路
             self.camera_adapter = CameraAdapter()
             result = self.camera_adapter.initialize({
-                'has_head': True,
+                'enable_head': True,
                 'enable_wrist_camera': False
             })
             if not result.success:

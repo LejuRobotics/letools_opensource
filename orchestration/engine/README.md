@@ -41,3 +41,16 @@ run_behavior_tree_json.py
 - **子树复用**：子 JSON 通过 `copy.deepcopy` 隔离状态，同一子树可被多处引用而不互相干扰
 - **并行加载**：`enable_parallel_loading=True` 时用 ThreadPoolExecutor 并行构建子节点
 - **黑板**：通过 `py_trees.blackboard.Client` 在主树加载前写入 board.json，叶子节点通过 `self.global_blackboard` 读写
+
+## 通用循环装饰器
+
+`RepeatUntil` 是 Factory 支持的通用装饰器。它重复执行成功的子树，直到黑板
+条件满足；子树失败时立即返回 `FAILURE`。条件由以下参数定义：
+
+- `condition_key`：黑板键名（必填）
+- `condition_path`：可选的字典/对象点分路径
+- `expected_value`：条件期望值，默认 `true`
+
+例如，`condition_key="box_state_status"`、`condition_path="is_finished"` 会在
+黑板 `box_state_status.is_finished == true` 时结束循环。该装饰器不包含任何
+场景或机器人业务逻辑。

@@ -48,7 +48,7 @@ class E2EValidator:
             print("📷 步骤 1: 初始化 CameraAdapter")
             self.camera_adapter = CameraAdapter()
             camera_config = {
-                'has_head': True,
+                'enable_head': True,
                 'enable_wrist_camera': False,
             }
             result = self.camera_adapter.initialize(camera_config)

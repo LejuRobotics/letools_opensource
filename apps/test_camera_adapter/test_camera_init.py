@@ -14,9 +14,14 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
+import rospy
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from adapters.hardware.leju_wheeled.camera_adapter import CameraAdapter
+from adapters.hardware.leju_wheeled.mixins._logging_setup import (
+    reconfigure_logging_after_rospy_init,
+)
 from core.common.config_loader import ConfigLoader
 
 
@@ -54,8 +59,15 @@ class CameraInitTest:
                 config['rviz'] = True
 
             print(f"   配置文件: {Path(config_path).resolve()}")
-            print(f"   头部相机: {'启用' if config.get('has_head', True) else '关闭'}")
+            print(f"   头部相机: {'启用' if config.get('enable_head', True) else '关闭'}")
             print(f"   腕部相机: {'启用' if config.get('enable_wrist_camera', False) else '关闭'}")
+
+            # CameraAdapter 只负责订阅，不负责创建进程级 ROS 节点。
+            # 未 init_node 时 Subscriber 对象虽能构造，却不会向 ROS master
+            # 正常注册，按需启流的相机驱动因看不到订阅者而永远不发布首帧。
+            if not rospy.core.is_initialized():
+                rospy.init_node('test_camera_init', anonymous=True)
+                reconfigure_logging_after_rospy_init()
 
             self.adapter = CameraAdapter()
             result = self.adapter.initialize(config)

@@ -1,0 +1,547 @@
+{
+  "$schema": "https://v3.pytrees.schema/tree.json",
+  "version": "3.0",
+  "name": "py_tree",
+  "description": "搬箱主树（LeTools 版，感知/走近/抬箱复用 single_tag_pick 已验证节点，双臂夹板抓放用搬箱节点）",
+  "interface": {
+    "inputs": [
+      {"internal_name": "pick_tag_id", "type": "int", "required": false, "default": 4, "description": "取货侧箱子 Tag ID"},
+      {"internal_name": "place_tag_id", "type": "int", "required": false, "default": 0, "description": "放置侧 Tag ID"},
+      {"internal_name": "tag_ids", "type": "list", "required": false, "default": [0, 4], "description": "NodePercep 监听的 Tag ID 列表"},
+      {"internal_name": "head_search_yaws", "type": "list", "required": false, "default": [12, 0, -12, 0], "description": "头部扫描 yaw 序列(度)"},
+      {"internal_name": "head_search_pitchs", "type": "list", "required": false, "default": [-15, 0, 15, 0], "description": "头部扫描 pitch 序列(度)"},
+      {"internal_name": "tag_scan_timeout", "type": "float", "required": false, "default": 30.0, "description": "找 Tag 超时(秒)"},
+      {"internal_name": "real_tag_timeout_sec", "type": "float", "required": false, "default": 30.0, "description": "等真 Tag 超时(秒)，超时注入虚拟 Tag"},
+      {"internal_name": "use_virtual_tag", "type": "bool", "required": false, "default": false, "description": "强制使用虚拟 Tag（调试）"},
+      {"internal_name": "virtual_tag_pose_in_odom", "type": "list", "required": false, "default": [1.0, 0.0, 1.1, 0.0, 0.0, 0.0], "description": "虚拟 Tag odom 位姿"},
+      {"internal_name": "pick_stand_in_tag_pos", "type": "list", "required": false, "default": [0.0, 0.0, 0.6], "description": "取箱站位在 tag 系偏移"},
+      {"internal_name": "pick_stand_in_tag_euler", "type": "list", "required": false, "default": [-1.5708, 1.5708, 0.0], "description": "取箱站位在 tag 系姿态"},
+      {"internal_name": "place_stand_in_tag_pos", "type": "list", "required": false, "default": [0.0, 0.0, 0.8], "description": "放箱站位在 tag 系偏移"},
+      {"internal_name": "place_stand_in_tag_euler", "type": "list", "required": false, "default": [-1.5708, 1.5708, 0.0], "description": "放箱站位在 tag 系姿态"},
+      {"internal_name": "chassis_walk_mode", "type": "string", "required": false, "default": "cmd_pos_world", "description": "走近底盘控制模式"},
+      {"internal_name": "box_length", "type": "float", "required": false, "default": 0.4, "description": "箱长(m)"},
+      {"internal_name": "box_width", "type": "float", "required": false, "default": 0.3, "description": "箱宽(m)"},
+      {"internal_name": "box_height", "type": "float", "required": false, "default": 0.25, "description": "箱高(m)"},
+      {"internal_name": "gripper_position", "type": "int", "required": false, "default": 100, "description": "夹爪闭合行程[0,100]"},
+      {"internal_name": "gripper_effort", "type": "float", "required": false, "default": 1.0, "description": "夹爪力矩(A)"}
+    ],
+    "outputs": []
+  },
+  "tree": {
+    "name": "Sequence",
+    "label": "move_box_seq",
+    "params": {
+      "memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}
+    },
+    "childs": [
+      {
+        "name": "Sequence",
+        "label": "jibot_nav_to_pick",
+        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
+        "childs": [
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "BaseMoveToTargetJibotMove",
+            "label": "jibot_move",
+            "params": {
+              "x": {"value": "2.126", "source": "CUSTOM", "data_type": "float"},
+              "y": {"value": "6.300", "source": "CUSTOM", "data_type": "float"},
+              "theta": {"value": "-1.57", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "CheckArrivedJibotMove",
+            "label": "jibot_check_arrived",
+            "params": {
+              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
+              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ]
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "look_for_tag.json",
+        "label": "find_box_subtree",
+        "params": {
+          "head_search_yaws": {"value": "${head_search_yaws}", "source": "INPUT", "data_type": "list"},
+          "head_search_pitchs": {"value": "${head_search_pitchs}", "source": "INPUT", "data_type": "list"},
+          "tag_scan_timeout": {"value": "${tag_scan_timeout}", "source": "INPUT", "data_type": "float"},
+          "tag_ids": {"value": "${tag_ids}", "source": "INPUT", "data_type": "list"},
+          "target_tag_id": {"value": "${pick_tag_id}", "source": "INPUT", "data_type": "int"},
+          "stand_in_tag_pos": {"value": "${pick_stand_in_tag_pos}", "source": "INPUT", "data_type": "list"},
+          "stand_in_tag_euler": {"value": "${pick_stand_in_tag_euler}", "source": "INPUT", "data_type": "list"},
+          "use_virtual_tag": {"value": "${use_virtual_tag}", "source": "INPUT", "data_type": "bool"},
+          "real_tag_timeout_sec": {"value": "${real_tag_timeout_sec}", "source": "INPUT", "data_type": "float"},
+          "virtual_tag_pose_in_odom": {"value": "${virtual_tag_pose_in_odom}", "source": "INPUT", "data_type": "list"}
+        },
+        "childs": []
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "walk_to_tag.json",
+        "label": "walk_to_box",
+        "params": {
+          "target_tag_id": {"value": "${pick_tag_id}", "source": "INPUT", "data_type": "int"},
+          "stand_in_tag_pos": {"value": "${pick_stand_in_tag_pos}", "source": "INPUT", "data_type": "list"},
+          "stand_in_tag_euler": {"value": "${pick_stand_in_tag_euler}", "source": "INPUT", "data_type": "list"},
+          "chassis_walk_mode": {"value": "${chassis_walk_mode}", "source": "INPUT", "data_type": "string"}
+        },
+        "childs": []
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "grasp_box_lb.json",
+        "label": "grasp_box_subtree",
+        "params": {
+          "target_tag_id": {"value": "${pick_tag_id}", "source": "INPUT", "data_type": "int"},
+          "box_length": {"value": "${box_length}", "source": "INPUT", "data_type": "float"},
+          "box_width": {"value": "${box_width}", "source": "INPUT", "data_type": "float"},
+          "box_height": {"value": "${box_height}", "source": "INPUT", "data_type": "float"},
+          "gripper_position": {"value": "${gripper_position}", "source": "INPUT", "data_type": "int"},
+          "gripper_effort": {"value": "${gripper_effort}", "source": "INPUT", "data_type": "float"}
+        },
+        "childs": []
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "CalcLegMove",
+        "label": "lift_box",
+        "params": {
+          "offset_x": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
+          "offset_y": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
+          "offset_z": {"value": "1.2", "source": "CUSTOM", "data_type": "float"},
+          "control_base": {"value": "false", "source": "CUSTOM", "data_type": "string"},
+          "leg_mode": {"value": "leg", "source": "CUSTOM", "data_type": "string"},
+          "offset_yaw": {"value": "0.0", "source": "CUSTOM", "data_type": "float"}
+        },
+        "childs": []
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "Sequence",
+        "label": "jibot_nav_to_pick",
+        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
+        "childs": [
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "BaseMoveToTargetJibotMove",
+            "label": "jibot_move",
+            "params": {
+              "x": {"value": "0.720", "source": "CUSTOM", "data_type": "float"},
+              "y": {"value": "6.394", "source": "CUSTOM", "data_type": "float"},
+              "theta": {"value": "-1.57", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "CheckArrivedJibotMove",
+            "label": "jibot_check_arrived",
+            "params": {
+              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
+              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ]
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "Sequence",
+        "label": "jibot_nav_to_pick",
+        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
+        "childs": [
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "BaseMoveToTargetJibotMove",
+            "label": "jibot_move",
+            "params": {
+              "x": {"value": "0.687", "source": "CUSTOM", "data_type": "float"},
+              "y": {"value": "0.900", "source": "CUSTOM", "data_type": "float"},
+              "theta": {"value": "1.57", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "CheckArrivedJibotMove",
+            "label": "jibot_check_arrived",
+            "params": {
+              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
+              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ]
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "Sequence",
+        "label": "jibot_nav_to_pick",
+        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
+        "childs": [
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "BaseMoveToTargetJibotMove",
+            "label": "jibot_move",
+            "params": {
+              "x": {"value": "2.032", "source": "CUSTOM", "data_type": "float"},
+              "y": {"value": "0.900", "source": "CUSTOM", "data_type": "float"},
+              "theta": {"value": "1.57", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "CheckArrivedJibotMove",
+            "label": "jibot_check_arrived",
+            "params": {
+              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
+              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ]
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "look_for_tag.json",
+        "label": "find_place_subtree",
+        "params": {
+          "head_search_yaws": {"value": "${head_search_yaws}", "source": "INPUT", "data_type": "list"},
+          "head_search_pitchs": {"value": "${head_search_pitchs}", "source": "INPUT", "data_type": "list"},
+          "tag_scan_timeout": {"value": "${tag_scan_timeout}", "source": "INPUT", "data_type": "float"},
+          "tag_ids": {"value": "${tag_ids}", "source": "INPUT", "data_type": "list"},
+          "target_tag_id": {"value": "${place_tag_id}", "source": "INPUT", "data_type": "int"},
+          "stand_in_tag_pos": {"value": "${place_stand_in_tag_pos}", "source": "INPUT", "data_type": "list"},
+          "stand_in_tag_euler": {"value": "${place_stand_in_tag_euler}", "source": "INPUT", "data_type": "list"},
+          "use_virtual_tag": {"value": "${use_virtual_tag}", "source": "INPUT", "data_type": "bool"},
+          "real_tag_timeout_sec": {"value": "${real_tag_timeout_sec}", "source": "INPUT", "data_type": "float"},
+          "virtual_tag_pose_in_odom": {"value": "${virtual_tag_pose_in_odom}", "source": "INPUT", "data_type": "list"}
+        },
+        "childs": []
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "walk_to_tag.json",
+        "label": "walk_to_place",
+        "params": {
+          "target_tag_id": {"value": "${place_tag_id}", "source": "INPUT", "data_type": "int"},
+          "stand_in_tag_pos": {"value": "${place_stand_in_tag_pos}", "source": "INPUT", "data_type": "list"},
+          "stand_in_tag_euler": {"value": "${place_stand_in_tag_euler}", "source": "INPUT", "data_type": "list"},
+          "chassis_walk_mode": {"value": "${chassis_walk_mode}", "source": "INPUT", "data_type": "string"}
+        },
+        "childs": []
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "CalcLegMove",
+        "label": "crouch_for_grasp",
+        "params": {
+          "offset_x": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
+          "offset_y": {"value": "-0.3", "source": "CUSTOM", "data_type": "float"},
+          "offset_z": {"value": "0.45", "source": "CUSTOM", "data_type": "float"},
+          "control_base": {"value": "false", "source": "CUSTOM", "data_type": "string"},
+          "leg_mode": {"value": "target", "source": "CUSTOM", "data_type": "string"},
+          "tag_id": {"value": "${place_tag_id}", "source": "INPUT", "data_type": "int"},
+          "offset_yaw": {"value": "0.0", "source": "CUSTOM", "data_type": "float"}
+        },
+        "childs": []
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "place_box_lb.json",
+        "label": "place_box_subtree",
+        "params": {
+          "target_tag_id": {"value": "${place_tag_id}", "source": "INPUT", "data_type": "int"},
+          "box_length": {"value": "${box_length}", "source": "INPUT", "data_type": "float"},
+          "box_width": {"value": "${box_width}", "source": "INPUT", "data_type": "float"},
+          "box_height": {"value": "${box_height}", "source": "INPUT", "data_type": "float"},
+          "gripper_position": {"value": "${gripper_position}", "source": "INPUT", "data_type": "int"},
+          "gripper_effort": {"value": "${gripper_effort}", "source": "INPUT", "data_type": "float"}
+        },
+        "childs": []
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "ChassisStopMove",
+        "label": "chassis_stop",
+        "params": {
+          "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "BaseMoveRelativeJibotMove",
+        "label": "back_away",
+        "params": {
+          "x": {"value": "-0.5", "source": "CUSTOM", "data_type": "float"},
+          "y": {"value": "0", "source": "CUSTOM", "data_type": "float"},
+          "theta": {"value": "0", "source": "CUSTOM", "data_type": "float"}
+        },
+        "childs": []
+      },
+      {
+        "name": "ChassisStopMove",
+        "label": "chassis_stop",
+        "params": {
+          "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "CalcLegMove",
+        "label": "recover_leg",
+        "params": {
+          "offset_x": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
+          "offset_y": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
+          "offset_z": {"value": "1.2", "source": "CUSTOM", "data_type": "float"},
+          "control_base": {"value": "false", "source": "CUSTOM", "data_type": "string"},
+          "leg_mode": {"value": "leg", "source": "CUSTOM", "data_type": "string"},
+          "offset_yaw": {"value": "0.0", "source": "CUSTOM", "data_type": "float"}
+        },
+        "childs": []
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      }
+    ]
+  }
+}

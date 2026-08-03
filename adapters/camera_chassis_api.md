@@ -110,7 +110,7 @@ from adapters.hardware.leju_wheeled.camera_adapter import CameraAdapter
 
 camera = CameraAdapter()
 result = camera.initialize({
-    "has_head": True,
+    "enable_head": True,
     "enable_wrist_camera": False,
     "rviz": False,
 })
@@ -281,8 +281,11 @@ Bases: `ICamera`
 
 📥 **入参**
   * **config** (*dict*) - 相机配置。
-    - `has_head`：是否有头部相机。
-    - `enable_wrist_camera`：是否启用腕部相机。
+    - `enable_head`：是否启动头部相机。
+    - `enable_wrist_camera`：腕部相机总开关。
+    - `has_left_wrist` / `has_right_wrist`：硬件是否实际安装对应腕部相机。
+      某侧只有在总开关和对应安装标记均为 `true` 时才会启动；完全未安装
+      腕部相机时三项均设为 `false`。
     - `rviz`：是否启动 RViz 可视化。
 
 📤 **出参**
@@ -299,7 +302,7 @@ camera = CameraAdapter()
 
 try:
     result = camera.initialize({
-        "has_head": True,
+        "enable_head": True,
         "enable_wrist_camera": False,
         "rviz": False,
     })
@@ -485,7 +488,7 @@ from adapters.hardware.leju_wheeled.camera_adapter import CameraAdapter
 from adapters.hardware.leju_wheeled.perception_adapter import PerceptionAdapter
 
 camera = CameraAdapter()
-camera.initialize({"has_head": True})
+camera.initialize({"enable_head": True})
 
 perception = PerceptionAdapter()
 ok = perception.initialize(camera, {})
@@ -1646,7 +1649,7 @@ try:
 
     # 初始化相机。这里启用头部相机，不启用腕部相机。
     result = camera.initialize({
-        "has_head": True,
+        "enable_head": True,
         "enable_wrist_camera": False,
         "rviz": False,
     })

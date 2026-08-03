@@ -955,7 +955,7 @@ class BehaviorTreeFactory:
         "RunningIsFailure", "RunningIsSuccess", "SuccessIsFailure", "SuccessIsRunning",
         "PassThrough", "Count",
         # studio 自定义装饰器（由本工厂特殊处理）
-        "Async",
+        "Async", "RepeatUntil",
         "RunIfIndex",
         "PressureDropGuard",
     })
@@ -1005,6 +1005,22 @@ class BehaviorTreeFactory:
                     except Exception:
                         tick_hz = 50.0
                 return Async(name=label, child=child_node, tick_hz=tick_hz)
+
+            if node_name == "RepeatUntil":
+                from orchestration.nodes.repeat_until import RepeatUntil
+
+                condition_key = str(node_params.get("condition_key", "")).strip()
+                if not condition_key:
+                    raise ValueError("RepeatUntil requires condition_key")
+                condition_path = str(node_params.get("condition_path", "")).strip()
+                expected_value = node_params.get("expected_value", True)
+                return RepeatUntil(
+                    name=label,
+                    child=child_node,
+                    condition_key=condition_key,
+                    condition_path=condition_path,
+                    expected_value=expected_value,
+                )
 
             if node_name == "RunIfIndex":
                 # 自定义：按索引门控装饰器（仅当黑板 nav_point_index 匹配时执行子节点）

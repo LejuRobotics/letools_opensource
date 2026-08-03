@@ -177,10 +177,11 @@ PYTHONPATH=. pytest tests/test_interface_contract.py -v
 
 | 参数 | 类型 | 说明 | 建议/示例值 |
 |------|------|------|--------|
-| `has_head` | bool | 是否启用头部 Orbbec 相机 | `true` |
-| `enable_wrist_camera` | bool | 是否启用手腕 RealSense 相机 | `false` |
-| `has_left_wrist` | bool | 是否启用左手腕相机 | `true` |
-| `has_right_wrist` | bool | 是否启用右手腕相机 | `true` |
+| `enable_head` | bool | 是否启动头部 Orbbec 相机 | `true` |
+| `enable_wrist_camera` | bool | 腕部 RealSense 相机总开关 | `false` |
+| `has_left_wrist` | bool | 硬件是否实际安装左腕相机 | `false` |
+| `has_right_wrist` | bool | 硬件是否实际安装右腕相机 | `false` |
+| `camera_startup_timeout_sec` | float | 等待所有启用相机首组 RGB/深度帧的超时 | `10.0` |
 | `left_wrist_camera_sn` | str | 左手腕相机序列号 | `""` |
 | `right_wrist_camera_sn` | str | 右手腕相机序列号 | `""` |
 | `rviz` | bool | 是否启动 rviz（使用 `biped_s4_head.rviz`） | `false` |
@@ -221,10 +222,11 @@ PYTHONPATH=. pytest tests/test_interface_contract.py -v
 
 | 参数 | 类型 | 说明 | 建议/示例值 |
 |------|------|------|--------|
-| `has_head` | bool | 是否启用头部 Orbbec 相机 | `true` |
-| `enable_wrist_camera` | bool | 是否启用手腕 RealSense 相机 | `false` |
-| `has_left_wrist` | bool | 是否启用左手腕相机 | `true` |
-| `has_right_wrist` | bool | 是否启用右手腕相机 | `true` |
+| `enable_head` | bool | 是否启动头部 Orbbec 相机 | `true` |
+| `enable_wrist_camera` | bool | 腕部 RealSense 相机总开关 | `false` |
+| `has_left_wrist` | bool | 硬件是否实际安装左腕相机 | `false` |
+| `has_right_wrist` | bool | 硬件是否实际安装右腕相机 | `false` |
+| `camera_startup_timeout_sec` | float | 等待所有启用相机首组 RGB/深度帧的超时 | `10.0` |
 | `left_wrist_camera_sn` | str | 左手腕相机序列号 | `""` |
 | `right_wrist_camera_sn` | str | 右手腕相机序列号 | `""` |
 | `rviz` | bool | 是否启动 rviz（使用 `biped_s4_head.rviz`） | `false` |
@@ -238,6 +240,11 @@ PYTHONPATH=. pytest tests/test_interface_contract.py -v
 | `head_depth_registration` | bool | 将头部深度配准到 RGB；彩色点云与此开关联动 | `true` |
 | `head_rgbd_sync` | bool | Adapter 按原始时间戳严格配对头部 RGBD | `true` |
 | `rgbd_sync_queue_size` | int | 近似同步队列长度 | `5` |
+
+腕部相机的实际启动条件为
+`enable_wrist_camera and has_left_wrist`（左侧）或
+`enable_wrist_camera and has_right_wrist`（右侧）。机器人没有安装腕部相机时，
+三个值均配置为 `false`。
 | `rgbd_sync_slop_sec` | float | RGB/Depth 最大时间戳差（秒） | `0.015` |
 | `rgbd_require_same_resolution` | bool | 拒绝宽高不一致的同步 RGBD | `true` |
 
@@ -373,7 +380,7 @@ adapter = CameraAdapter()
 
 # 初始化（启动相机 launch、TF、话题订阅）
 result = adapter.initialize({
-    "has_head": True,
+    "enable_head": True,
     "enable_wrist_camera": False,
     "rviz": False,
 })
@@ -403,7 +410,7 @@ from adapters.hardware.leju_wheeled.perception_adapter import PerceptionAdapter
 
 # 先初始化相机
 camera = CameraAdapter()
-camera.initialize({"has_head": True})
+camera.initialize({"enable_head": True})
 
 # 依赖注入
 perception = PerceptionAdapter()
@@ -481,7 +488,7 @@ adapter = CameraAdapter()
 
 # 初始化（启动相机 launch、TF、话题订阅）
 result = adapter.initialize({
-    "has_head": True,
+    "enable_head": True,
     "enable_wrist_camera": False,
     "rviz": False,
 })
@@ -511,7 +518,7 @@ from adapters.hardware.leju_wheeled.perception_adapter import PerceptionAdapter
 
 # 先初始化相机
 camera = CameraAdapter()
-camera.initialize({"has_head": True})
+camera.initialize({"enable_head": True})
 
 # 依赖注入
 perception = PerceptionAdapter()

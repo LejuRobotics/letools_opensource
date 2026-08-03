@@ -2,7 +2,7 @@
 
 camera:
   # 头部相机
-  has_head: true
+  enable_head: true
   head_camera_type: "orbbec_camera"    # orbbec_camera / realsense2_camera
 
   # 头部 Orbbec 相机分辨率与帧率（0 表示使用驱动默认值）
@@ -25,11 +25,16 @@ camera:
   rgbd_sync_slop_sec: 0.015
   rgbd_require_same_resolution: true
 
+  # 启动时等待所有已启用相机收到首组 RGB/深度帧，防止 roslaunch 存活但相机无数据。
+  camera_startup_timeout_sec: 10.0
+
   # 手腕相机
+  # enable_wrist_camera 是总开关；左右 has_* 表示硬件是否实际安装。
+  # 某侧仅在两者同时为 true 时启动。完全未安装腕部相机时三项均设为 false。
   enable_wrist_camera: false
-  has_left_wrist: true
+  has_left_wrist: false
   left_wrist_camera_sn: "260522277779"
-  has_right_wrist: true
+  has_right_wrist: false
   right_wrist_camera_sn: "260622270790"
 
   # 腕部 RealSense 相机分辨率与帧率（左右腕共用）

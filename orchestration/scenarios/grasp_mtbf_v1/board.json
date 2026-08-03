@@ -1,0 +1,21 @@
+{
+  "pick_tag_id": 4,
+  "place_tag_id": 0,
+  "tag_ids": [0, 4],
+  "head_search_yaws": [12, 0, -12, 0],
+  "head_search_pitchs": [-15, 0, 15, 0],
+  "tag_scan_timeout": 30.0,
+  "real_tag_timeout_sec": 30.0,
+  "use_virtual_tag": false,
+  "virtual_tag_pose_in_odom": [1.0, 0.0, 1.1, 0.0, 0.0, 0.0],
+  "pick_stand_in_tag_pos": [0.0, 0.0, 0.8],
+  "pick_stand_in_tag_euler": [-1.5708, 1.5708, 0.0],
+  "place_stand_in_tag_pos": [0.0, 0.0, 0.8],
+  "place_stand_in_tag_euler": [-1.5708, 1.5708, 0.0],
+  "chassis_walk_mode": "cmd_pos_world",
+  "box_length": 0.4,
+  "box_width": 0.3,
+  "box_height": 0.25,
+  "gripper_position": 100,
+  "gripper_effort": 1.0
+}
