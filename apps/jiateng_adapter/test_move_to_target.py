@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """
-测试嘉腾底盘 map 绝对目标点移动适配器。
+验证嘉腾底盘的 ``map`` 坐标系绝对目标移动。
 
-适配器接口: LejuWheeledArmHardware.base_move_to_target_jiateng()
-ROS 服务: /move_base/move_to_target
+适配器接口：``LejuWheeledArmHardware.base_move_to_target_jiateng()``
+ROS 服务：``/move_base/move_to_target``（``leju_mobile_base_msgs.MoveToTarget``）
 
-注意事项:
-1. 目标使用 map 坐标，不是机器人坐标系相对位移
-2. 当前位姿读取自 /move_base/amcl_pose
-3. map x 增加不一定等于机器人正前方
-4. 只在 main 中保留一个 suite.addTest
+覆盖场景：
+- 从当前 AMCL 位姿向 ``map`` 的 x 正方向移动；
+- 移动到附近 ``map`` 目标，同时改变朝向。
+
+每个用例都会等待服务返回的 ``task_id`` 到达。测试前若检测到外部控制模式，
+会自动切换到嘉腾导航模式（``/enable_vel_control=false``）；该状态在测试结束后保持不变。
+
+目标 ``x``、``y`` 使用 ``map`` 坐标，``theta`` 使用 ``map`` 朝向；它们不是
+机器人本体坐标系的相对位移。因此 ``map`` 的 x 正方向不一定是机器人正前方。
 """
 
 import math
@@ -25,14 +29,16 @@ sys.path.insert(0, PROJECT_ROOT)
 from adapters.hardware.leju_wheeled.hardware import LejuWheeledArmHardware
 from apps.jiateng_adapter._scaffold import (
     assert_no_active_navigation_task,
+    assert_vel_control_state,
     jiateng_setup,
     read_current_map_pose,
+    read_vel_control_state,
 )
 from core.domain.chassis_options import MoveToTargetOptions
 
 
 class TestMoveToTarget(unittest.TestCase):
-    """嘉腾底盘绝对位置移动测试。"""
+    """嘉腾底盘 ``map`` 绝对目标移动测试。"""
 
     @classmethod
     def setUpClass(cls):
@@ -47,6 +53,16 @@ class TestMoveToTarget(unittest.TestCase):
         )
 
     def setUp(self):
+        # /move_base 导航需要独占嘉腾控制权。
+        if read_vel_control_state():
+            print(
+                "WARNING: 当前为外部控制模式，"
+                "已切换到嘉腾 /move_base 导航模式后继续测试。"
+            )
+            result = self.hardware.enable_vel_control_jiateng(False)
+            self.assertTrue(result.success, result.message)
+
+        assert_vel_control_state(False)
         assert_no_active_navigation_task()
 
     def _run_absolute_target(
@@ -58,6 +74,7 @@ class TestMoveToTarget(unittest.TestCase):
         options,
         timeout=60.0,
     ):
+        """提交一个 ``map`` 绝对目标，并等待该任务到达。"""
         print(
             f"绝对目标: x={target_x:.3f}, y={target_y:.3f}, "
             f"theta={target_theta:.3f}"
@@ -91,7 +108,7 @@ class TestMoveToTarget(unittest.TestCase):
         print(f"绝对位置移动完成: task_id={task_id}")
 
     def test_01_nearby_target_from_amcl_pose(self):
-        """从当前 map 位置向 map x 正方向移动 0.10m。"""
+        """从当前 AMCL 位姿向 ``map`` x 正方向移动 0.10m。"""
         x, y, theta = read_current_map_pose()
         options = MoveToTargetOptions(
             avoid_enabled=True,
@@ -110,7 +127,7 @@ class TestMoveToTarget(unittest.TestCase):
         )
 
     def test_02_move_and_change_heading(self):
-        """移动到附近 map 目标，同时改变朝向 0.30rad。"""
+        """移动到附近 ``map`` 目标，同时改变朝向 0.30rad。"""
         x, y, theta = read_current_map_pose()
         target_theta = math.atan2(
             math.sin(theta + 0.30),
@@ -136,6 +153,7 @@ class TestMoveToTarget(unittest.TestCase):
 if __name__ == "__main__":
     suite = unittest.TestSuite()
 
+    # 默认执行一个真实运动任务；可按现场需要切换或增加用例。
     # suite.addTest(TestMoveToTarget("test_01_nearby_target_from_amcl_pose"))
     suite.addTest(TestMoveToTarget("test_02_move_and_change_heading"))
 

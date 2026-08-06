@@ -253,8 +253,6 @@ python3 orchestration/main.py \
 | [shared_hardware.py](./shared_hardware.py) | 全局 `IHardware` 单例 |
 | [nodes/](./nodes/) | 行为节点实现 |
 | [scenarios/](./scenarios/) | 场景 `py_tree.json` / `board.json` |
-| [../docs/PHASE1_SIMPLE_TREE_TASK_PLAN.md](../docs/PHASE1_SIMPLE_TREE_TASK_PLAN.md) | 阶段 1 任务与 DoD |
-| [../docs/modules/MODULE_orchestration.md](../docs/modules/MODULE_orchestration.md) | 编排层开发指南 |
 
 ---
 

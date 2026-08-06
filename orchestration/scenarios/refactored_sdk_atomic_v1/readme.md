@@ -16,7 +16,7 @@
 ├─────────────────────────────────────────────────────────┤
 │  硬件适配层 (adapters/hardware/leju_wheeled/*.py)        │  ← IHardware 接口实现，多 Mixin 组装
 ├─────────────────────────────────────────────────────────┤
-│  Core SDK 管理层 (core/sdk_managers/*)                    │  ← ArmSDKManager / LowLevelSDKManager
+│  SDK 管理层 (adapters/hardware/leju_wheeled/services/sdk_manager/) │  ← ArmSDKManager / LowLevelSDKManager
 ├─────────────────────────────────────────────────────────┤
 │  Kuavo Humanoid SDK (kuavo_humanoid_sdk)                 │  ← robot_sdk.control.* 底层 API
 └─────────────────────────────────────────────────────────┘
@@ -216,7 +216,7 @@ Atomic Skill (SkillBase)
 IHardware 接口 (LejuWheeledArmHardware)
     │  send_arm_joint_traj_sdk() / send_leg_joint_sdk() / ...
     ▼
-Core SDK Manager (ArmSDKManager / LowLevelSDKManager)
+SDK 管理服务（Adapter 内部：ArmSDKManager / LowLevelSDKManager）
     │  move_joint_traj_auto() / move_wheel_lower_joint_auto() / ...
     ▼
 Kuavo Humanoid SDK (robot_sdk.control.*)

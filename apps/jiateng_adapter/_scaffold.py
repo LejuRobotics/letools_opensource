@@ -20,8 +20,34 @@ def jiateng_setup(timeout=5.0, services=None):
             disable_signals=True,
         )
 
-    for service in services or REQUIRED_SERVICES:
+    selected_services = REQUIRED_SERVICES if services is None else services
+    for service in selected_services:
         rospy.wait_for_service(service, timeout=timeout)
+
+
+def read_vel_control_state(timeout=3.0):
+    """读取外部控制通道状态。"""
+    from std_msgs.msg import Bool
+
+    message = rospy.wait_for_message(
+        "/enable_vel_control_state",
+        Bool,
+        timeout=timeout,
+    )
+    return message.data
+
+
+def assert_vel_control_state(expected, timeout=3.0):
+    """确认当前控制权符合测试类型，不自动切换控制权。"""
+    actual = read_vel_control_state(timeout=timeout)
+    if actual != expected:
+        required = "true（外部控制）" if expected else "false（嘉腾导航）"
+        actual_text = "true（外部控制）" if actual else "false（嘉腾导航）"
+        raise RuntimeError(
+            "/enable_vel_control_state 状态不符合当前测试: "
+            f"当前为 {actual_text}，需要 {required}。"
+        )
+    return actual
 
 
 def assert_no_active_navigation_task(timeout=3.0):

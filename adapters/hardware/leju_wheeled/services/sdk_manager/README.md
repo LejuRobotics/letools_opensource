@@ -1,4 +1,4 @@
-# SDK 管理器（Core 层）
+# SDK 管理器（Adapter 内部服务）
 
 **版本**: v1.0  
 **状态**: ✅ 已完成  
@@ -15,7 +15,7 @@
 1. **统一管理** - 集中处理 SDK 初始化、MPC 模式管理、错误处理
 2. **双模式支持** - 同时提供自动管理和手动管理 MPC 模式
 3. **单位转换** - 自动处理角度单位转换（度 ↔ 弧度）
-4. **解耦依赖** - Adapter 层不直接依赖 SDK，便于测试和维护
+4. **上层解耦** - 上层通过硬件适配器间接使用 SDK 管理服务，便于测试和维护
 
 ---
 
@@ -604,7 +604,7 @@ firefox htmlcov/index.html
 | **TimedCmdManager** | `test_timed_cmd_manager.py` | 12+ | 7 种控制模式、单位转换、参数验证、错误处理 |
 | **ArmSDKManager** | `test_arm_sdk_manager.py` | 10+ | 自动/手动 MPC 模式、末端轨迹、关节轨迹、手臂归位 |
 | **LowLevelSDKManager** | `test_low_level_sdk_manager.py` | 10+ | 底层 API 访问、MPC 模式管理、单位转换、错误处理 |
-| **总计** | 4 个文件 | **47+** | 完整覆盖 Core 层功能 |
+| **总计** | 4 个文件 | **47+** | 完整覆盖 SDK 管理服务功能 |
 
 ### 集成测试
 

@@ -10,16 +10,16 @@ ROS 服务: /enable_vel_control
 ROS 话题: /enable_vel_control_state
 
 注意事项:
-1. enable=False：关闭外部 /cmd_vel 转发
-2. enable=True：开启外部 /cmd_vel 转发
-3. 该开关不会禁用嘉腾 /move_base 导航服务
-4. 若成功读取初始状态，切换测试结束后会自动恢复
-5. 只在 main 中保留一个 suite.addTest
+1. enable=True：外部 /cmd_vel、/cmd_pose、/cmd_pose_world 控制模式
+2. enable=False：嘉腾 /move_base 导航模式
+3. 两种模式不能与另一类运动命令并发使用
+4. 本脚本保留设置结果，不会自动恢复原状态
 """
 
 import os
 import sys
 import unittest
+import rospy
 
 PROJECT_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..")
@@ -27,10 +27,7 @@ PROJECT_ROOT = os.path.abspath(
 sys.path.insert(0, PROJECT_ROOT)
 
 from adapters.hardware.leju_wheeled.hardware import LejuWheeledArmHardware
-from apps.jiateng_adapter._scaffold import (
-    assert_no_active_navigation_task,
-    jiateng_setup,
-)
+from apps.jiateng_adapter._scaffold import jiateng_setup
 
 
 class TestEnableVelControl(unittest.TestCase):
@@ -43,30 +40,8 @@ class TestEnableVelControl(unittest.TestCase):
             config={"skip_sdk_managers": True}
         )
         result = cls.hardware.get_vel_control_state_jiateng(timeout=3.0)
-        cls.initial_state = (
-            result.data["state"]
-            if result.success
-            else None
-        )
-        print(f"初始外部速度通道状态: {cls.initial_state}")
-
-    @classmethod
-    def tearDownClass(cls):
-        if cls.initial_state is None:
-            return
-
-        result = cls.hardware.get_vel_control_state_jiateng(timeout=3.0)
-        current_state = (
-            result.data["state"]
-            if result.success
-            else None
-        )
-        if current_state != cls.initial_state:
-            print(f"恢复外部速度通道状态: {cls.initial_state}")
-            cls.hardware.enable_vel_control_jiateng(cls.initial_state)
-
-    def setUp(self):
-        assert_no_active_navigation_task()
+        cls.initial_state = result.data["state"] if result.success else None
+        print(f"初始控制模式: {cls.initial_state}")
 
     def test_01_get_current_state(self):
         """读取当前外部速度通道状态。"""
@@ -75,27 +50,33 @@ class TestEnableVelControl(unittest.TestCase):
         self.assertIsInstance(result.data.get("state"), bool)
         print(f"当前外部速度通道状态: {result.data['state']}")
 
-    def test_02_set_false(self):
-        """设置 enable=False，关闭外部 /cmd_vel 转发。"""
-        result = self.hardware.enable_vel_control_jiateng(False)
-        self.assertTrue(result.success, result.message)
-        self.assertIs(result.data.get("state_after"), False)
-        print("外部速度通道已设置为 False")
-
-    def test_03_set_true(self):
-        """设置 enable=True，开启外部 /cmd_vel 转发。"""
+    def test_02_set_true(self):
+        """切换到外部 /cmd_vel、/cmd_pose 控制模式。"""
         result = self.hardware.enable_vel_control_jiateng(True)
         self.assertTrue(result.success, result.message)
         self.assertIs(result.data.get("state_after"), True)
-        print("外部速度通道已设置为 True")
+        print("已切换到外部 /cmd_vel、/cmd_pose 控制模式")
+
+    def test_03_set_false(self):
+        """切换到嘉腾 /move_base 导航模式。"""
+        result = self.hardware.enable_vel_control_jiateng(False)
+        self.assertTrue(result.success, result.message)
+        self.assertIs(result.data.get("state_after"), False)
+        print("已切换到嘉腾 /move_base 导航模式")
 
 
 if __name__ == "__main__":
     suite = unittest.TestSuite()
 
-    # suite.addTest(TestEnableVelControl("test_01_get_current_state"))
-    suite.addTest(TestEnableVelControl("test_02_set_false"))
-    # suite.addTest(TestEnableVelControl("test_03_set_true"))
+    suite.addTest(TestEnableVelControl("test_01_get_current_state"))
+    rospy.sleep(0.5)
+    suite.addTest(TestEnableVelControl("test_02_set_true"))
+    rospy.sleep(0.5)
+    suite.addTest(TestEnableVelControl("test_01_get_current_state"))
+    rospy.sleep(0.5)
+    suite.addTest(TestEnableVelControl("test_03_set_false"))
+    rospy.sleep(0.5)
+    suite.addTest(TestEnableVelControl("test_01_get_current_state"))
 
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     sys.exit(0 if result.wasSuccessful() else 1)

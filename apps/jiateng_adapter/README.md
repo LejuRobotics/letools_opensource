@@ -1,8 +1,7 @@
 # 嘉腾底盘适配器测试
 
 本目录用于验证 `LejuWheeledArmHardware` 的嘉腾底盘接口。嘉腾是仓库中
-新增的一款底盘选择，与 JiBot 并列存在；这里使用独立的 `_jiateng`
-方法，不调用 `_jibot` 实现。
+新增的一款底盘选择，与 JiBot 并列存在。
 
 话题控制和脚本使用示例见
 [《嘉腾底盘控制使用说明》](./嘉腾底盘控制使用说明.md)。
@@ -11,10 +10,10 @@
 
 | 文件 | 用途 |
 |---|---|
-| `_scaffold.py` | 初始化 ROS、等待服务、读取任务状态和 AMCL 位姿 |
+| `_scaffold.py` | 初始化 ROS、读取状态、检查控制模式 |
 | `test_base_move.py` | 嘉腾相对移动、原地旋转、移动加旋转 |
 | `test_move_to_target.py` | 嘉腾 map 绝对目标移动 |
-| `test_enable_vel_control.py` | 外部 `/cmd_vel` 转发开关 |
+| `test_enable_vel_control.py` | 嘉腾导航与外部控制模式切换 |
 
 ## 嘉腾适配器接口
 
@@ -47,9 +46,8 @@ cd ~/letools_opensource
 source infrastructure/ros_packages/devel/setup.bash
 ```
 
-每个测试文件的 `main` 都使用显式 `suite.addTest(...)`。运行前只保留一个
-未注释的用例，避免连续创建多个运动任务。不要使用 pytest 直接执行整个
-文件，否则 pytest 会自动发现其中全部 `test_*` 方法。
+每个测试文件的 `main` 都使用显式 `suite.addTest(...)`。根据现场空间和测试
+目的，保留需要执行的用例。
 
 相对移动：
 
@@ -69,25 +67,38 @@ python3 apps/jiateng_adapter/test_move_to_target.py
 python3 apps/jiateng_adapter/test_enable_vel_control.py
 ```
 
-## 外部速度通道
+## 控制模式
 
-现场连接关系为：
+嘉腾导航与外部控制互斥：
 
-```text
-/cmd_vel
-  → /nodelet_manager
-  → /move_base/base_cmd_vel
-  → /leju_node
-  → 嘉腾底盘
+| 状态 | 可用接口 | 禁止并发接口 |
+|---|---|---|
+| `false` | `/move_base/base_move`、`/move_base/move_to_target` | `/cmd_vel`、`/cmd_pose`、`/cmd_pose_world` |
+| `true` | `/cmd_vel`、`/cmd_pose`、`/cmd_pose_world` | `/move_base/*` 导航任务 |
+
+`data=true` 时，外部速度链路会抢占嘉腾导航源。此时 `/move_base` 服务可能
+返回任务已受理，但底盘仅短暂动作后停住，任务保持运行状态。切换控制模式前
+必须确认另一类任务已经结束。
+
+导航前设置：
+
+```bash
+rosservice call /enable_vel_control "data: false"
 ```
 
-`/enable_vel_control` 的实机语义：
+外部控制前设置：
 
-- `data=false`：关闭外部 `/cmd_vel` 转发。
-- `data=true`：开启外部 `/cmd_vel` 转发。
-- 该开关不是嘉腾导航总开关；`data=true` 时 `/move_base` 仍可使用。
-- 外部 `/cmd_vel` 与导航可能同时汇入底盘，测试时不要同时输出非零命令。
-- 停止 `/cmd_vel` 连续发布后，底盘会通过速度超时机制停止。
+```bash
+rosservice call /enable_vel_control "data: true"
+```
+
+测试脚本的控制模式行为：
+
+| 脚本 | 所需模式 | 行为 |
+|---|---|---|
+| `test_base_move.py` | 嘉腾导航 `false` | 若当前为 `true`，打印 WARNING 后自动切换为 `false` |
+| `test_move_to_target.py` | 嘉腾导航 `false` | 若当前为 `true`，打印 WARNING 后自动切换为 `false` |
+| `test_enable_vel_control.py` | 无 | 显式切换模式，并保留切换结果 |
 
 当前 `/cmd_vel` 的注册发布者可能包括手柄节点。发布者存在不等于正在发送
 速度，使用以下命令检查：
@@ -99,22 +110,15 @@ timeout 3 rostopic hz /cmd_vel
 
 ## 测试结果判定
 
-运动测试会检查：
+`test_base_move.py` 和 `test_move_to_target.py` 使用嘉腾导航模式。若测试开始时
+检测到外部控制模式，脚本会先输出 WARNING，再切换到
+`/enable_vel_control=false`。
 
-1. 服务调用成功。
-2. 返回非空 `task_id`。
-3. 非零任务没有被下游判定为 `accepted_zero_displacement`。
-4. `/move_base/check_arrived` 在超时内确认到达。
+测试通过必须同时满足：
 
-嘉腾下游可能缓存重复目标。重复执行相同目标时，即使请求距离非零，也可能
-返回 `repeat_same_target=true` 和 `accepted_zero_displacement`；测试会把
-这种情况判定为失败，而不是仅凭服务返回 `success` 认为底盘已经移动。
+1. `/move_base` 服务成功受理请求。
+2. 响应中包含非空 `task_id`。
+3. `/move_base/check_arrived` 在超时时间内返回 `arrived=true`。
 
-## 已知问题
-
-- `/move_base/make_plan` 曾在实机调用时导致 `lqr_path_track_node`
-  以 `SIGSEGV` 退出，因此本目录不包含该接口测试。
-- `/enable_vel_control_state` 可能只在状态变化时发布；单独读取当前状态时
-  可能等待超时。
-- 运动服务返回成功只表示任务被接受，最终结果仍以指定 `task_id` 的
-  `check_arrived` 响应为准。
+服务响应中的 `success=true` 仅表示任务已受理，不能单独证明底盘完成了运动；
+最终结果以对应 `task_id` 的 `check_arrived` 响应为准。

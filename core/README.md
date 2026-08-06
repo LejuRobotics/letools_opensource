@@ -138,7 +138,7 @@ Core Layer
 │   ├── AppConfig - 应用配置
 │   └── Logger - 日志系统
 │
-└── Services (核心服务)
+└── Services（Adapter 内部服务，详见 adapters/）
     ├── SDKManager - SDK 管理器
     └── StateManager - 状态管理器
 ```
@@ -637,7 +637,7 @@ factory_cfg = get_hardware_factory_config()
 
 > **架构调整**：`services` 已从 Core 层迁移到 Adapters 层，现位于 `adapters/hardware/leju_wheeled/services/`。这些实现为了与 ROS 状态话题交互而引入了 `rospy` 等依赖，放在 Adapters 层更符合 Core 层“零外部依赖”的设计原则。
 
-#### SDKManager - SDK 管理器
+#### Adapter 内部 SDK 管理服务（SDKManager）
 
 **位置**：`adapters/hardware/leju_wheeled/services/sdk_manager/`
 
@@ -832,7 +832,7 @@ def some_operation() -> Result:
 | Interfaces | ✅ 已完成 | 100% | IHardware, ISkill, ICamera, IPerception |
 | Domain | ✅ 已完成 | 95% | 核心数据结构已完善，包含新增底盘/规划器/标签模型 |
 | Common | ✅ 已完成 | 95% | 日志系统、坐标变换、配置加载已完成 |
-| Services | 🔄 进行中 | 70% | SDKManager 已完善；StateManager 含 ROS 依赖，需后续架构优化 |
+| Services | ✅ 已迁移 | - | SDKManager、StateManager 已迁移至 Adapter 内部服务 |
 
 ---
 

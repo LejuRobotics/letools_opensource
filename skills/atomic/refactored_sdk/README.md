@@ -8,7 +8,7 @@
 Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
     │
     └── hardware.xxx()     ← IHardware 接口
-         └── _xxx_manager  ← Core 层 SDK 管理器
+         └── _xxx_manager  ← Adapter 内部 SDK 管理服务
               └── robot_sdk.control.xxx()  ← Kuavo 底层 SDK
 ```
 

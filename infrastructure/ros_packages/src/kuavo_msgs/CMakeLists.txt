@@ -64,6 +64,8 @@ add_message_files(
   robotHandPosition.msg
   picoPoseInfo.msg
   picoPoseInfoList.msg
+  xsensePoseInfo.msg
+  xsensePoseInfoList.msg
   gaitTimeName.msg
   JoySticks.msg
   armTargetPoses.msg
@@ -138,6 +140,8 @@ add_message_files(
   FaceBoundingBox.msg
   AudioPlaybackStatus.msg
 
+  picoPoseRetarget.msg
+  xsensePoseRetarget.msg
   mpc_target_trajectories.msg
   mpc_state.msg
   mpc_input.msg
@@ -145,10 +149,19 @@ add_message_files(
   robotWaistControl.msg
   # VMP Controller
   VMPTrajectoryState.msg
+  DanceTrajectoryState.msg
 
+  # kuavo_mocap_gmr messages
+  RigidBodyFrame.msg
+  SkeletonFrame.msg
+  RigidBodyDescription.msg
+  MocapPoseRetarget.msg
   # Battery info
   BatteryInfo.msg
   ControllerSwitchEvent.msg
+
+# Power board status (0x01 系统状态读取)
+  PowerBoardStatus.msg
 
   # Lb single timed cmd
   timedSingleCmd.msg
@@ -167,6 +180,7 @@ add_service_files(
   changeArmCtrlMode.srv
   changeWaistCtrlMode.srv
   switchController.srv
+  FallStandCommand.srv
   getControllerList.srv
   switchToNextController.srv
   singleStepControl.srv
@@ -176,6 +190,7 @@ add_service_files(
   gestureList.srv
   gestureExecuteState.srv
   controlLejuClaw.srv
+  lejuClawRecovery.srv
   setTagId.srv
   footPoseTargetTrajectoriesSrv.srv
   footPose6DTargetTrajectoriesSrv.srv
@@ -193,6 +208,7 @@ add_service_files(
   handForceLevel.srv
   enableHandTouchSensor.srv
   playmusic.srv
+  PlayMusicImmediate.srv
   changeMotorParam.srv
   getMotorParam.srv
 
@@ -201,6 +217,7 @@ add_service_files(
   twoArmHandPoseCmdSrv.srv
   twoArmHandPoseCmdFreeSrv.srv
   changeArmCtrlModeKuavo.srv
+  SetIncrementalArmTrajLink.srv
   fkSrv.srv
   lbBaseLinkPoseCmdSrv.srv
   lbLegControlSrv.srv
@@ -233,6 +250,8 @@ add_service_files(
 
   # Battery service
   GetBatteryInfo.srv
+  # Power board status service (0x01 系统状态读取)
+  GetPowerBoardStatus.srv
 
 
   # Lb obs update mode
@@ -259,6 +278,9 @@ add_service_files(
 
   # Lb eePose reach error
   eePoseReachError.srv
+
+  # Transport mode
+  TransportModeCommand.srv
 )
 
 ## Generate actions in the 'action' folder

@@ -56,10 +56,10 @@ endif()
 # ==============================================================================
 set(SRC_OBJECTS
     src/common/common.cpp
+    src/common/arm_traj_shm.cpp
     src/kuavo_common.cpp
     src/common/kuavo_settings.cpp
     src/common/utils.cpp
-    src/common/seat_config.cpp
     include/${PROJECT_NAME}/common/json.hpp
     include/${PROJECT_NAME}/common/json_config_reader.hpp
 )
@@ -71,9 +71,10 @@ set(SRC_OBJECTS
 add_library(${PROJECT_NAME} SHARED ${SRC_OBJECTS})
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} 
+target_link_libraries(${PROJECT_NAME}
     ${EIGEN3_LIBRARIES}
     stdc++fs
+    rt
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC

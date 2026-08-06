@@ -28,9 +28,9 @@ orchestration 行为树编排
     ↓
 skills 原子技能
     ↓
-adapters 硬件适配器
+adapters 硬件适配器（含 SDK 管理服务）
     ↓
-core 接口/数据模型/SDK 管理
+core 接口/数据模型
     ↓
 drivers + infrastructure 底层 SDK / ROS / 相机 / 消息包
     ↓
@@ -226,7 +226,7 @@ adapters/hardware/leju_wheeled/*.py
 | 控制方式     | 方法特征                                          | 底层路径                                     | 适合场景                   |
 | -------- | --------------------------------------------- | ---------------------------------------- | ---------------------- |
 | 标准接口     | `send_base_pose`, `control_head`, `arm_reset` | ROS 话题/服务或封装后的 SDK                       | 普通应用、Skill、行为树         |
-| SDK 直调   | `*_sdk`，如 `control_head_sdk`                  | Core SDK Manager -> `kuavo_humanoid_sdk` | 高频控制、SDK 示例、底层验证       |
+| SDK 直调   | `*_sdk`，如 `control_head_sdk`                  | Adapter 内部 SDK 管理服务 → `kuavo_humanoid_sdk` | 高频控制、SDK 示例、底层验证       |
 | TimedCmd | `*_timed`, `send_timed_*`                     | TimedCmdManager -> ROS 服务                | 带时间规划、多规划器、Ruckig、离线轨迹 |
 
 </details>

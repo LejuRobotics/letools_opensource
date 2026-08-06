@@ -88,7 +88,7 @@ leju_wheeled/
 │   ├── mode_service_mixin.py          # MPC / 快速 / 手臂控制模式
 │   ├── end_effector_mixin.py          # 末端执行器（夹爪/灵巧手）
 │   ├── state_feedback_mixin.py        # 状态查询
-│   └── sdk_control_mixin.py           # Core 层 SDK 调用 + control_head/arm_reset 等
+│   └── sdk_control_mixin.py           # Adapter 内部 SDK 调用 + control_head/arm_reset 等
 ├── hardware copy.py                   # ⚠️ 历史备份，保留参考，**勿被自动导入**
 ├── hardware.py.bak                    # ⚠️ 重构前完整备份（2025 年 Mixin 拆分时生成）
 └── __pycache__/                       # Python 缓存目录（可随时删除）
@@ -255,7 +255,7 @@ flowchart LR
 
 #### SDKControlMixin
 - 包含两类方法：
-  1. **`_sdk` 后缀方法**：直接调用 Core 层 SDK 管理器（高级用户）
+  1. **`_sdk` 后缀方法**：直接调用 Adapter 内部 SDK 管理服务（高级用户）
   2. **IHardware 标准方法**：`control_head` / `arm_reset`，内部调用 `_sdk` 方法
 
 > **注意**：`apply_arm_force` / `enable_force_empty_detect` 已迁移到独立的 **ForceControlMixin**（ROS 话题路径），详见第 4 章 Mixin 职责矩阵。
@@ -277,7 +277,7 @@ flowchart LR
 
     subgraph SDK直调
         SDKAPI[_sdk 后缀方法\nsend_base_velocity_sdk]
-        SDKMgr[Core 层 SDK 管理器]
+        SDKMgr[Adapter 内部 SDK 管理服务]
         SDK[Kuavo Humanoid SDK]
     end
 
@@ -299,7 +299,7 @@ flowchart LR
 | 维度 | 标准接口（ROS 话题） | SDK 直调（`_sdk`） | TimedCmd（`_timed`） |
 |------|---------------------|--------------------|----------------------|
 | 方法命名 | 无后缀 | `_sdk` 后缀 | `_timed` 后缀 |
-| 底层路径 | ROS 话题/服务 | Core 层 SDK 管理器 → Kuavo SDK | TimedCmdAPI → ROS 服务 |
+| 底层路径 | ROS 话题/服务 | Adapter 内部 SDK 管理服务 → Kuavo SDK | TimedCmdAPI → ROS 服务 |
 | 控制精度 | 一般（受话题频率限制） | 较高（可 100Hz 循环） | 高（带时间参数规划） |
 | 角度单位 | 弧度 (rad) | 度 (deg) | 弧度 (rad) |
 | 适用场景 | 通用控制、Skill 编排 | 高频循环、力控、底层调试 | 精确时序、轨迹规划、Ruckig |
@@ -322,7 +322,7 @@ flowchart LR
 | 后缀/前缀 | 含义 | 示例 | 调用方 |
 |----------|------|------|--------|
 | 无后缀 | **标准接口方法**（实现 IHardware） | `send_base_velocity()` | 上层应用、Skill |
-| `_sdk` 后缀 | **SDK 模式方法**（调用 Core 层 SDK） | `send_base_velocity_sdk()` | 高级用户、底层测试 |
+| `_sdk` 后缀 | **SDK 模式方法**（调用 Adapter 内部 SDK 管理服务） | `send_base_velocity_sdk()` | 高级用户、底层测试 |
 | `_impl` 后缀 | **内部实现辅助方法** | `send_torso_pose_impl()` | 仅同一 Mixin 内调用 |
 | `_` 前缀 | **私有方法/属性** | `_initialize_sdk_managers()`, `_timed_cmd_manager` | 仅类内部使用 |
 
@@ -800,7 +800,7 @@ diff <(grep -E '^\s*def ' hardware.py.bak) <(cat mixins/*.py | grep -E '^\s*def 
   - 📦 备份文件：`hardware.py.bak`（重构前完整版本）
 
 ### 2024-XX-XX：Phase 2 - SDK 管理器集成
-- 引入 Core 层 SDK 管理器（TimedCmdManager / ArmSDKManager / LowLevelSDKManager）
+- 引入 Adapter 内部 SDK 管理服务（TimedCmdManager / ArmSDKManager / LowLevelSDKManager）
 - 新增 `_sdk` 后缀的高级控制方法
 - 实现 `control_head` / `arm_reset` / `apply_arm_force` 等接口
 

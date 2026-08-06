@@ -1,7 +1,7 @@
 """
 Kuavo 5W 重构版测试套件
 
-使用 Core 层 SDK 管理器进行控制，与 test_kuavo_5w_app（使用 ROS 话题）完全隔离。
+使用 Adapter 内部 SDK 管理服务进行控制，与 test_kuavo_5w_app（使用 ROS 话题）完全隔离。
 
 目录结构:
     01_base_control/      - 底盘控制测试

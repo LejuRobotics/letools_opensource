@@ -4,7 +4,7 @@
 
 ## 定位
 
-**T4 是 Factory 模式封装验证层**，使用 `HardwareFactory.create_hardware()` 创建 `LejuWheeledArmHardware` 实例，通过 `_sdk` / `_timed` 后缀方法验证 Core 层 SDK 管理器的封装正确性。
+**T4 是 Factory 模式封装验证层**，使用 `HardwareFactory.create_hardware()` 创建 `LejuWheeledArmHardware` 实例，通过 `_sdk` / `_timed` 后缀方法验证 Adapter 内部 SDK 管理服务的封装正确性。
 
 在 LeTools 的分层测试架构中：
 
@@ -23,15 +23,15 @@ T2 和 T4 都测试同一个 `LejuWheeledArmHardware`，但测试不同的方法
 |------|-------------|----------|
 | **测试方法** | 无后缀标准方法 | `_sdk` + `_timed` 后缀方法 |
 | **工厂创建** | 直接 `LejuWheeledArmHardware()` | `HardwareFactory.create_hardware()` |
-| **底层路径** | ROS 话题/服务 | Core 层 SDKManager → KuavoHumanoid SDK |
+| **底层路径** | ROS 话题/服务 | Adapter 内部 SDK 管理服务 → KuavoHumanoid SDK |
 | **脚手架** | `adapter_setup/adapter_teardown` | `factory_setup/factory_teardown` |
 
 ### 两种封装路径
 
 | 子目录 | 方法后缀 | 底层 Mixin | 调用链 |
 |--------|---------|-----------|--------|
-| `sdk/` | `_sdk` | `SDKControlMixin` | Factory → Core SDKMgr → `robot_sdk.control.*` |
-| `timed/` | `_timed` | `TimedCommandMixin` | Factory → Core TimedCmdMgr → `TimedCmdAPI` → ROS 服务 |
+| `sdk/` | `_sdk` | `SDKControlMixin` | Factory → Adapter 内部 SDK 管理服务 → `robot_sdk.control.*` |
+| `timed/` | `_timed` | `TimedCommandMixin` | Factory → Adapter 内部 TimedCmdManager → `TimedCmdAPI` → ROS 服务 |
 
 **源脚本路径**：
 - Path A：`kuavo-ros-opensource/src/demo/test_kuavo_wheel_real/`

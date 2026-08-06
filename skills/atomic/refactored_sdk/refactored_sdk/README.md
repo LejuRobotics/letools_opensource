@@ -8,7 +8,7 @@
 Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
     │
     └── hardware.xxx()     ← IHardware 接口
-         └── _xxx_manager  ← Core 层 SDK 管理器
+         └── _xxx_manager  ← Adapter 内部 SDK 管理服务
               └── robot_sdk.control.xxx()  ← Kuavo 底层 SDK
 ```
 
@@ -73,8 +73,8 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 |------|------|
 | 硬件适配器接口 | `adapters/hardware/leju_wheeled/mixins/sdk_control_mixin.py` |
 | 底盘适配器 | `adapters/hardware/leju_wheeled/mixins/base_control_mixin.py` |
-| Arm SDK 管理器 | `core/services/sdk_manager/arm_sdk_manager.py` |
-| LowLevel SDK 管理器 | `core/services/sdk_manager/low_level_sdk_manager.py` |
+| Arm SDK 管理器 | `adapters/hardware/leju_wheeled/services/sdk_manager/arm_sdk_manager.py` |
+| LowLevel SDK 管理器 | `adapters/hardware/leju_wheeled/services/sdk_manager/low_level_sdk_manager.py` |
 | 硬件工厂 | `adapters/hardware/factory.py` |
 | 共享硬件单例 | `orchestration/shared_hardware.py` |
 | 编排节点（薄封装） | `orchestration/nodes/` |
