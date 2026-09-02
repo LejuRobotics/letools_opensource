@@ -86,6 +86,14 @@ def main():
     parser.add_argument("--subtrees", default="", help="子树集合 py_tree_child.json 路径（可选）")
     parser.add_argument("--board", default="", help="黑板 board.json 路径（可选）")
     parser.add_argument(
+        "--hardware-config",
+        default="",
+        help=(
+            "硬件配置覆盖 JSON（可选）；优先于 scenario/hardware_config.json，"
+            "适合仅启用相机的安全测试"
+        ),
+    )
+    parser.add_argument(
         "--ros-node",
         default="behavior_tree_main",
         help="ROS node name（仅在 ROS 环境生效）",
@@ -117,9 +125,21 @@ def main():
     )
     args = parser.parse_args()
 
+    # 节点统一通过该进程级标志判断是否允许访问 ROS/真实硬件。必须在构树和
+    # 动态导入节点之前设置，否则节点构造阶段可能误触发共享硬件初始化。
+    if args.dry_run:
+        os.environ["STUDIO_DRY_RUN"] = "1"
+
     studio_root, orch_root = _resolve_studio_paths(__file__)
     os.chdir(studio_root)
     _ensure_sys_path(studio_root, orch_root)
+
+    # 行为树节点会动态导入 kuavo_msgs 等 catkin 生成包。
+    # 在正式入口统一补齐路径，避免要求每个节点或 Driver 各自修改 sys.path。
+    if not args.dry_run:
+        from core.common.ros_environment import ensure_local_ros_python_path
+
+        ensure_local_ros_python_path(Path(studio_root))
 
     # [CRITICAL] 必须先导入 compat，避免 py_trees 版本差异
     print("[apps] 导入 py_trees ...", flush=True)
@@ -139,12 +159,22 @@ def main():
     tree_path = os.path.abspath(args.tree) if args.tree else default_tree
     subtrees_path = os.path.abspath(args.subtrees) if args.subtrees else default_subtrees
     board_path = os.path.abspath(args.board) if args.board else default_board
+    hardware_config_path = (
+        os.path.abspath(args.hardware_config)
+        if args.hardware_config
+        else (
+            os.path.join(scenario_dir, "hardware_config.json")
+            if scenario_dir
+            else ""
+        )
+    )
 
     print("[apps] 启动参数")
     print(f"  - workdir: {os.getcwd()}")
     print(f"  - tree: {tree_path}")
     print(f"  - subtrees: {subtrees_path or '(none)'}")
     print(f"  - board: {board_path or '(none)'}")
+    print(f"  - hardware config: {hardware_config_path or '(default)'}")
 
     if not tree_path or not os.path.isfile(tree_path):
         raise RuntimeError(f"主树 py_tree.json 不存在: {tree_path}")
@@ -209,20 +239,57 @@ def main():
     try:
         from orchestration.shared_hardware import get_shared_hardware, set_hardware_config
 
-        # 场景级硬件配置：若 scenario 目录下有 hardware_config.json 则应用
-        if scenario_dir:
-            hw_cfg_path = os.path.join(scenario_dir, "hardware_config.json")
-            if os.path.isfile(hw_cfg_path):
-                with open(hw_cfg_path, "r", encoding="utf-8") as f:
+        # 显式硬件配置优先；否则回退到场景目录的 hardware_config.json。
+        if hardware_config_path:
+            if os.path.isfile(hardware_config_path):
+                with open(hardware_config_path, "r", encoding="utf-8") as f:
                     set_hardware_config(json.load(f))
-                print(f"[apps] 已加载场景硬件配置: {hw_cfg_path}")
+                print(f"[apps] 已加载硬件配置: {hardware_config_path}")
+            elif args.hardware_config:
+                raise RuntimeError(
+                    f"显式指定的硬件配置不存在: {hardware_config_path}"
+                )
 
         _hw = get_shared_hardware()
         print(f"[apps] 硬件预热完成: {type(_hw).__name__}")
     except Exception as e:
-        print(f"[apps] 硬件预热失败（将继续，树内首次访问时再初始化）: {e}")
+        # 初始化失败后继续运行只会在首个硬件节点中重复初始化，并掩盖真正原因。
+        print(f"[apps] 硬件预热失败: {e}")
+        _quiet_shutdown_shared_hardware()
+        raise SystemExit(1)
 
     final_status = controller.start_behavior_tree(tree_path, blackboard_client)
+
+    if final_status is not None and getattr(final_status, "name", "") == "FAILURE":
+        root = (
+            controller.bt_instance.root
+            if controller.bt_instance is not None
+            else None
+        )
+        feedback = getattr(root, "feedback_message", "") if root else ""
+        if feedback:
+            print(f"[apps] 行为树失败原因: {feedback}")
+
+    # HeadPerceptionPick 在 Debug 模式下把产物摘要写入该键。统一在入口打印，
+    # 无需为了测试输出再增加一个行为树节点。
+    try:
+        from py_trees.common import Access
+
+        blackboard_client.register_key(
+            key="head_perception_debug", access=Access.READ
+        )
+        debug_summary = blackboard_client.get("head_perception_debug")
+        if isinstance(debug_summary, dict):
+            print(
+                "[apps] 感知 Debug 产物: "
+                f"{debug_summary.get('artifact_dir', '(unknown)')}"
+            )
+        blackboard_client.register_key(key="obj_xyz", access=Access.READ)
+        selected_xyz = blackboard_client.get("obj_xyz")
+        if isinstance(selected_xyz, dict):
+            print(f"[apps] 感知抓取点 obj_xyz: {selected_xyz}")
+    except Exception:
+        pass
 
     if args.spin:
         rospy.loginfo("[apps] --spin: 保持节点运行（Ctrl+C 退出）")

@@ -28,6 +28,15 @@ class GripperCommand:
     velocity: float = 50.0  # 速度 [0, 100]
     effort: float = 1.0     # 力矩/电流 (A)
 
+
+@dataclass
+class DualGripperCommand:
+    """双侧夹爪命令；位置为 ``None`` 的一侧不参与本次控制。"""
+    left_position: Optional[float] = None
+    right_position: Optional[float] = None
+    velocity: float = 50.0
+    effort: float = 1.0
+
 @dataclass
 class HandFingerCommand:
     """

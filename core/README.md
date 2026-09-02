@@ -382,6 +382,7 @@ hardware.send_ee_pose(side=ArmSide.LEFT, pose=pose, frame=FrameType.WORLD)
 
 **主要类**：
 - `GripperCommand` - 夹爪命令（开合度、力度）
+- `DualGripperCommand` - 双侧夹爪命令（支持左右不同位置或跳过单侧）
 - `HandFingerCommand` - 灵巧手手指命令
 - `EndEffectorState` - 末端执行器状态
 - `GripperStatus` - 夹爪状态
@@ -389,11 +390,21 @@ hardware.send_ee_pose(side=ArmSide.LEFT, pose=pose, frame=FrameType.WORLD)
 **使用示例**：
 
 ```python
-from core.domain.end_effector import GripperCommand
+from core.domain.end_effector import DualGripperCommand, GripperCommand
 
 # 控制夹爪
-cmd = GripperCommand(open_ratio=0.5, force=10.0)
+# 控制左夹爪
+cmd = GripperCommand(position=50.0, velocity=50.0, effort=1.0)
 hardware.control_end_effector(side=ArmSide.LEFT, cmd=cmd)
+
+# 左侧不控制，右侧移动到 50
+dual_cmd = DualGripperCommand(
+    left_position=None,
+    right_position=50.0,
+    velocity=60.0,
+    effort=0.8,
+)
+hardware.control_end_effector(side=ArmSide.BOTH, cmd=dual_cmd)
 ```
 
 ---
@@ -839,4 +850,3 @@ def some_operation() -> Result:
 **最后更新**: 2026-06-17  
 **维护者**: Kuavo Studio Team  
 **版本**: v1.1
-

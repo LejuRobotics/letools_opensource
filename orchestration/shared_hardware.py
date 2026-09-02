@@ -36,9 +36,19 @@ def get_shared_hardware():
             if _config_override:
                 config.update(_config_override)
 
-            _shared_hardware = HardwareFactory.create_hardware(config=config)
-            if hasattr(_shared_hardware, "initialize"):
-                _shared_hardware.initialize()
+            candidate = HardwareFactory.create_hardware(config=config)
+            if hasattr(candidate, "initialize"):
+                result = candidate.initialize()
+                if result is not None and not getattr(result, "success", True):
+                    try:
+                        if hasattr(candidate, "shutdown"):
+                            candidate.shutdown()
+                    finally:
+                        raise RuntimeError(
+                            getattr(result, "message", "硬件初始化失败")
+                        )
+            # 仅在初始化成功后发布单例，避免缓存半初始化对象。
+            _shared_hardware = candidate
         return _shared_hardware
 
 

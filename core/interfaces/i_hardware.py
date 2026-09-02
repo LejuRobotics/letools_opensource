@@ -3,7 +3,8 @@ from typing import List, Dict, Optional, Union
 from ..domain.result import Result
 from ..domain.pose import Pose6D
 from ..domain.enums import FrameType, MPCControlMode, ArmSide
-from ..domain.end_effector import GripperCommand, HandFingerCommand
+from ..domain.end_effector import DualGripperCommand, GripperCommand, HandFingerCommand
+from ..domain.chassis_options import MoveToTargetOptions
 
 class IHardware(ABC):
     """
@@ -44,6 +45,48 @@ class IHardware(ABC):
         .. note:: 角度单位由适配器的 ``angle_unit`` 配置决定，默认为度（deg）。Pose6D 对象内部始终使用弧度。
         """
         pass
+
+    # 以下导航接口属于可选硬件能力，因此提供默认失败实现，避免没有导航底盘的
+    # Hardware Adapter 被迫实现无意义的空方法。支持导航的 Adapter 应覆盖它们。
+    def move_chassis_relative(
+        self,
+        x: float,
+        y: float,
+        theta: float,
+        options: Optional[MoveToTargetOptions] = None,
+    ) -> Result:
+        """在底盘本体坐标系下提交相对导航任务。"""
+        return Result.fail("当前 Hardware Adapter 不支持底盘相对导航")
+
+    def move_chassis_to_target(
+        self,
+        x: float,
+        y: float,
+        theta: float,
+        options: Optional[MoveToTargetOptions] = None,
+    ) -> Result:
+        """在地图坐标系下提交绝对目标导航任务。"""
+        return Result.fail("当前 Hardware Adapter 不支持底盘地图导航")
+
+    def check_chassis_arrived(
+        self,
+        task_id: str,
+        blocking: bool = True,
+        timeout: float = 20.0,
+    ) -> Result:
+        """查询底盘导航任务的到达状态。"""
+        return Result.fail("当前 Hardware Adapter 不支持导航到达查询")
+
+    def set_chassis_external_control(self, enable: bool) -> Result:
+        """切换底盘控制权；True 为外部控制，False 为导航控制。"""
+        return Result.fail("当前 Hardware Adapter 不支持底盘控制权切换")
+
+    def get_chassis_external_control_state(
+        self,
+        timeout: float = 3.0,
+    ) -> Result:
+        """读取底盘当前是否处于外部控制模式。"""
+        return Result.fail("当前 Hardware Adapter 不支持底盘控制权状态查询")
 
     @abstractmethod
     def send_torso_pose(self, pose: Pose6D) -> Result:
@@ -405,7 +448,11 @@ class IHardware(ABC):
 
     # --- 5. 末端执行器控制 ---
     @abstractmethod
-    def control_end_effector(self, side: ArmSide, cmd: Union[GripperCommand, HandFingerCommand]) -> Result:
+    def control_end_effector(
+        self,
+        side: ArmSide,
+        cmd: Union[GripperCommand, DualGripperCommand, HandFingerCommand],
+    ) -> Result:
         """统一控制末端执行器（夹爪或灵巧手）。"""
         pass
 
@@ -551,7 +598,6 @@ class IHardware(ABC):
         :return: 预计到达时间（秒），如果未收到则返回 None
         """
         pass
-    
     @abstractmethod
     def get_mpc_observation(self) -> Optional[Dict]:
         """获取MPC观测状态"""
@@ -592,4 +638,3 @@ class IHardware(ABC):
         .. note:: 用于单次指令 / 在线连发后判断末端是否真正到位。
         """
         pass
-    

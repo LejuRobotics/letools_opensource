@@ -1869,7 +1869,7 @@ hw = HardwareFactory.create_hardware(config={
 
 #### 指令数据结构
 
-末端执行器使用两种指令对象，定义于 `core/domain/end_effector.py`：
+末端执行器使用以下指令对象，定义于 `core/domain/end_effector.py`：
 
 ##### 📋 GripperCommand（夹爪指令）
 
@@ -1881,6 +1881,17 @@ hw = HardwareFactory.create_hardware(config={
 | `velocity` | float | 速度 [0, 100] | 50.0 | 夹爪运动速度 |
 | `effort` | float | 电流 (A) | 1.0 | 夹持力矩/电流，越大抓得越紧 |
 
+##### 📋 DualGripperCommand（双侧夹爪指令）
+
+用于在一次服务请求中给左右夹爪设置不同位置；位置为 `None` 的一侧不控制。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `left_position` | Optional[float] | None | 左夹爪行程；None 表示不控制 |
+| `right_position` | Optional[float] | None | 右夹爪行程；None 表示不控制 |
+| `velocity` | float | 50.0 | 所有受控夹爪的速度 |
+| `effort` | float | 1.0 | 所有受控夹爪的电流 |
+
 ##### 📋 HandFingerCommand（灵巧手指令）
 
 适用于灵巧手，控制 6 个手指关节的位置。
@@ -1890,17 +1901,18 @@ hw = HardwareFactory.create_hardware(config={
 | `positions` | List[float] | 行程占比 [0, 100] | [0.0]×6 | 6 个手指关节位置，0=张开, 100=闭合 |
 
 <details>
-<summary id="control_end_effector">🔧 <code>control_end_effector(side: ArmSide, cmd: Union[GripperCommand, HandFingerCommand]) → Result</code></summary>
+<summary id="control_end_effector">🔧 <code>control_end_effector(side: ArmSide, cmd: Union[GripperCommand, DualGripperCommand, HandFingerCommand]) → Result</code></summary>
 
 
 统一控制末端执行器。根据传入的指令类型自动选择控制路径：
 
 - **GripperCommand** → 调用 `LejuEndEffector.send_command(side, cmd)`，走 ROS 服务 `/control_robot_leju_claw`
+- **DualGripperCommand** → 一次服务调用按需控制左、右或双侧夹爪
 - **HandFingerCommand** → 调用 `LejuEndEffector.send_hand_command(left, right)`，走 ROS 话题 `/control_robot_hand_position`
 
 📥 **入参**
   * **side** ([*ArmSide*]) – 手臂侧 (LEFT / RIGHT / BOTH)。
-  * **cmd** (*GripperCommand* 或 *HandFingerCommand*) – 末端执行器指令。
+  * **cmd** (*GripperCommand*、*DualGripperCommand* 或 *HandFingerCommand*) – 末端执行器指令。
 
 📤 **出参**
   指令发送成功返回 `Result.ok()`，否则返回 `Result.fail()`。
@@ -1909,13 +1921,15 @@ hw = HardwareFactory.create_hardware(config={
   `Result`（`.success=True/False`，`.message` 含结果或错误描述，`.data=None`）
 
 #### 💡 NOTE
-**夹爪（GripperCommand）**：底层将 `side.value`（"left"/"right"）作为夹爪名称拼接为 `{side}_claw`，单次调用控制单侧夹爪。若需同时控制双侧夹爪，请分别调用两次（LEFT + RIGHT）。
+**夹爪（GripperCommand）**：`side` 可为 LEFT、RIGHT 或 BOTH；BOTH 会在一次请求中给两侧发送相同位置。
+
+**双侧夹爪（DualGripperCommand）**：与 `side=BOTH` 配合，在一次请求中发送不同的左右位置；位置为 `None` 的一侧不会出现在请求中。
 
 **灵巧手（HandFingerCommand）**：底层 `send_hand_command` 同时下发左右手指令。传入 `side=LEFT` 时，左侧填充实际指令、右侧填充零位指令（`HandFingerCommand()`）；`side=RIGHT` 则反之。
 
 ```python
 from core.domain.enums import ArmSide
-from core.domain.end_effector import GripperCommand, HandFingerCommand
+from core.domain.end_effector import DualGripperCommand, GripperCommand, HandFingerCommand
 
 # === 二指夹爪 ===
 # 抓取：闭合左夹爪（position=100, effort=1.0A）
@@ -1924,10 +1938,14 @@ hw.control_end_effector(ArmSide.LEFT, GripperCommand(position=100, velocity=50, 
 # 释放：张开左夹爪（position=0）
 hw.control_end_effector(ArmSide.LEFT, GripperCommand(position=0, velocity=80, effort=0.5))
 
-# 同时闭合双侧夹爪（需调用两次）
-cmd = GripperCommand(position=100)
-hw.control_end_effector(ArmSide.LEFT, cmd)
-hw.control_end_effector(ArmSide.RIGHT, cmd)
+# 同时闭合双侧夹爪（一次服务请求、相同位置）
+hw.control_end_effector(ArmSide.BOTH, GripperCommand(position=100))
+
+# 左侧不控制，右侧移动到 50（一次服务请求）
+hw.control_end_effector(
+    ArmSide.BOTH,
+    DualGripperCommand(left_position=None, right_position=50, velocity=60, effort=0.8),
+)
 
 # === 灵巧手 ===
 # 控制左手 6 个手指关节（半闭合）
@@ -2993,4 +3011,3 @@ document.addEventListener('click', function(e) {
   }
 }, true);
 </script>
-

@@ -9,7 +9,7 @@
 # 
 # name     : 'left_claw' , 'right_claw'
 # position : 0 ~ 100, the percentage of the claw's opening angle
-#            0: closed, 100: open   
+#            0: open, 100: closed
 # velocity : 0 ~ 100, if size is 0, will use default `50.0`.
 # effort   : torque/current, better 1A ~ 2A, if size is 0, will use default `1.0`.
 # 

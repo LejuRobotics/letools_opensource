@@ -1,7 +1,12 @@
 from .pose import Pose6D
 from .result import Result
 from .enums import FrameType, MPCControlMode, ArmSide
-from .end_effector import EndEffectorType, GripperCommand, HandFingerCommand
+from .end_effector import (
+    EndEffectorType,
+    GripperCommand,
+    DualGripperCommand,
+    HandFingerCommand,
+)
 from .joint_state import JointState, JointCommand
 from .trajectory import TrajectoryPoint, OfflineTrajectory
 from .ruckig_params import RuckigParams
@@ -16,7 +21,7 @@ __all__ = [
     "Pose6D", 
     "Result", 
     "FrameType", "MPCControlMode", "ArmSide",
-    "EndEffectorType", "GripperCommand", "HandFingerCommand",
+    "EndEffectorType", "GripperCommand", "DualGripperCommand", "HandFingerCommand",
     "JointState", "JointCommand",
     "TrajectoryPoint", "OfflineTrajectory",
     "RuckigParams",
