@@ -13,28 +13,32 @@ camera:
   depth_height: 800
   depth_fps: 30
 
-  # 头部 RGBD：驱动级帧同步/空间配准 + Adapter 级时间戳配对
-  # Adapter 使用原始 Header 时间戳做近似同步，不会改写时间戳。
   head_enable_frame_sync: true
   head_depth_registration: true
-  # pick 感知只消费对齐 RGBD，不生成/订阅点云。
   head_enable_point_cloud: false
   head_enable_colored_point_cloud: false
+
+  driver_only: true
+
+  # 头部 RGBD：驱动级帧同步/空间配准 + Adapter 级时间戳配对
+  # Adapter 使用原始 Header 时间戳做近似同步，不会改写时间戳。
+  # CameraAdapter 使用 driver_only 模式时，以下 Adapter 数据面参数不生效；
+  # 外部图像消费者应独立配置其同步策略。
   head_rgbd_sync: true
   rgbd_sync_queue_size: 5
   rgbd_sync_slop_sec: 0.015
   rgbd_require_same_resolution: true
 
-  # 启动时等待所有已启用相机收到首组 RGB/深度帧，防止 roslaunch 存活但相机无数据。
+  # 完整 Adapter 模式启动时等待首组 RGB/深度帧；driver_only 模式不读取此项。
   camera_startup_timeout_sec: 10.0
 
   # 手腕相机
   # enable_wrist_camera 是总开关；左右 has_* 表示硬件是否实际安装。
   # 某侧仅在两者同时为 true 时启动。完全未安装腕部相机时三项均设为 false。
-  enable_wrist_camera: false
-  has_left_wrist: false
+  enable_wrist_camera: true
+  has_left_wrist: true
   left_wrist_camera_sn: "260522277779"
-  has_right_wrist: false
+  has_right_wrist: true
   right_wrist_camera_sn: "260622270790"
 
   # 腕部 RealSense 相机分辨率与帧率（左右腕共用）
@@ -54,8 +58,7 @@ camera:
   # AprilTag 参数文件位于 config/apriltag_settings.yaml 和 config/apriltag_tags.yaml
   # tag_family: 'tag36h11'
   # tag id/size 在 apriltag_tags.yaml 的 standalone_tags 列表中定义
-  # R11 评审 #8 升级:tag topic 可配置;默认 /robot_tag_info(向后兼容)
-  #   本案例(refactored_sdk_single_tag_pick_v0)使用 ODOM 系 → /robot_tag_info_odom
+  # Tag结果话题可配置，默认保持为 /robot_tag_info。
   apriltag_topic: /robot_tag_info
 
   # RViz

@@ -1,0 +1,17 @@
+# 按列表顺序依次抓取料盘。tray_qr_id 是料盘上的 2 cm 小码，
+# coarse_qr_id 是该料盘所属货架分区的大码；多个料盘可共用同一个大码。
+# pick_strategy 按料盘 ID 选择抓取策略，可填 upper、lower：
+#   upper = 上层策略（任务开始时躯干上升）
+#   lower = 下层策略（躯干不上升，所有下层料盘共用同一套准备姿态和抓取偏置）
+# 上层条目必须排在下层条目前面；省略 pick_strategy 时兼容为 upper。
+# 示例：
+# trays:
+#   - {tray_qr_id: 1, coarse_qr_id: 101, pick_strategy: upper}
+#   - {tray_qr_id: 2, coarse_qr_id: 101, pick_strategy: upper}
+#   - {tray_qr_id: 3, coarse_qr_id: 102, pick_strategy: lower}
+#   - {tray_qr_id: 4, coarse_qr_id: 102, pick_strategy: lower}
+trays:
+  - {tray_qr_id: 7, coarse_qr_id: 0, pick_strategy: upper}
+
+# 所有料盘共用的箱子二维码 ID；不得与任何小码或大码 ID 相同。
+box_qr_id: null

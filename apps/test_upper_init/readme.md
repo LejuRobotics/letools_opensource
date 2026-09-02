@@ -6,6 +6,25 @@
 
 > 编排层主入口 `orchestration/main.py` 默认场景为 `studio_smoke_v1`，详见 [orchestration/README.md](../../orchestration/README.md)。本启动器是**通用、场景无关**的入口，建议新场景优先使用本启动器。
 
+<!-- AUTO-GENERATED:START directory-tree -->
+## 目录结构
+
+```
+apps/test_upper_init/
+├── readme.md                           # 本文件
+├── run_behavior_tree_json.py            # 通用 JSON 行为树启动器（场景无关）
+├── run_all_dismantle_box.py             # 拆垛系列一键跑通（dismantle_box 6 场景）
+└── run_all_palletize_box.py             # 码垛系列一键跑通（palletize_box 系列）
+```
+
+| 脚本 | 用途 | 适用场景 |
+|------|------|----------|
+| `run_behavior_tree_json.py` | 从 `--scenario` 加载单棵行为树并运行 | 通用入口 / CI / 多场景复用 |
+| `run_all_dismantle_box.py` | 批量跑通拆垛 6 个场景，支持顶层不满垛动态识别 | 拆垛实机 / 仿真整链验证 |
+| `run_all_palletize_box.py` | 批量跑通码垛系列场景，支持顶层不满垛动态识别 | 码垛实机 / 仿真整链验证 |
+
+> ⚠️ `run_all_dismantle_box.py` 和 `run_all_palletize_box.py` 头部均标注：「此脚本未经过长时间测试，参数量较大、耦合后可能会出现问题，实机运行万分小心」。
+<!-- AUTO-GENERATED:END directory-tree -->
 ---
 
 ## 与 `orchestration/main.py` 的区别
@@ -62,17 +81,40 @@ python3 apps/test_upper_init/run_all_dismantle_box.py  \
 
 ## 核心参数
 
-| 参数 | 作用 |
-|---|---|
-| `--scenario DIR` | 场景文件夹，自动从该目录取 `py_tree.json` / `py_tree_child.json` / `board.json` |
-| `--tree PATH` | 显式指定主树路径(优先级高于 `--scenario` 默认值) |
-| `--subtrees PATH` | 显式指定子树集合文件(单文件 `py_tree_child.json`) |
-| `--board PATH` | 显式指定黑板 JSON |
-| `--dry-run` | 离线验证：不初始化 ROS，不连硬件；需 `py_trees` 可用 |
-| `--dry-run --tick-once` | 干跑并执行一次 tick |
-| `--spin` | 树跑完后 `rospy.spin()`(Ctrl+C 退出) |
-| `--parallel-load` | 启用并行构树(可能引发 import 死锁，默认关闭) |
-| `--ros-node NAME` | ROS 节点名，默认 `behavior_tree_main` |
+<!-- AUTO-GENERATED:START script-reference -->
+### `run_behavior_tree_json.py` — 通用入口
+
+| 参数 | 必填 | 说明 | 示例 |
+|------|:----:|------|------|
+| `--scenario DIR` | 否 | 场景文件夹，自动从该目录取 `py_tree.json` / `py_tree_child.json` / `board.json`（默认 `studio_smoke_v1`） | `--scenario studio_smoke_v1` |
+| `--tree PATH` | 否 | 显式指定主树路径（优先级高于 `--scenario` 默认值） | `--tree path/to/py_tree.json` |
+| `--subtrees PATH` | 否 | 显式指定子树集合文件（单文件 `py_tree_child.json`） | `--subtrees path/to/child.json` |
+| `--board PATH` | 否 | 显式指定黑板 JSON | `--board path/to/board.json` |
+| `--dry-run` | 否 | 离线验证：不初始化 ROS，不连硬件；需 `py_trees` 可用 | `--dry-run` |
+| `--tick-once` | 否 | 与 `--dry-run` 合用：执行一次 tick | `--dry-run --tick-once` |
+| `--spin` | 否 | 树跑完后 `rospy.spin()`（Ctrl+C 退出） | `--spin` |
+| `--parallel-load` | 否 | 启用并行构树（可能引发 import 死锁，默认关闭） | `--parallel-load` |
+| `--ros-node NAME` | 否 | ROS 节点名，默认 `behavior_tree_main` | `--ros-node behavior_tree_main` |
+
+### `run_all_dismantle_box.py` — 拆垛一键跑通
+
+| 参数 | 必填 | 说明 | 示例 |
+|------|:----:|------|------|
+| `--scenarios` | 否 | 场景编号逗号分隔，默认 `1,2,3,4,5,6`（与 `--dynamic-top` 互斥） | `--scenarios 1,3` |
+| `--dynamic-top N` | 否 | 顶层不满垛动态识别，指定最高层（1~6，与 `--scenarios` 互斥） | `--dynamic-top 3` |
+| `--action-groups` | 否 | 动作组编号逗号分隔，默认全部（`--dynamic-top` 顶层忽略此项） | `--action-groups 1,3` |
+| `--dry-run` | 否 | 离线验证（不连 ROS） | `--dry-run` |
+| `--tick-once` | 否 | 与 `--dry-run` 合用：执行一次 tick | `--dry-run --tick-once` |
+
+### `run_all_palletize_box.py` — 码垛一键跑通
+
+| 参数 | 必填 | 说明 | 示例 |
+|------|:----:|------|------|
+| `--scenarios` | 否 | 场景编号逗号分隔，默认全部 | `--scenarios 1,2` |
+| `--action-groups` | 否 | 动作组编号逗号分隔，默认全部 | `--action-groups 1,3` |
+| `--dry-run` | 否 | 离线验证（不连 ROS） | `--dry-run` |
+| `--tick-once` | 否 | 与 `--dry-run` 合用：执行一次 tick | `--dry-run --tick-once` |
+<!-- AUTO-GENERATED:END script-reference -->
 
 ---
 

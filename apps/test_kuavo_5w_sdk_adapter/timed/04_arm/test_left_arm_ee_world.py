@@ -71,13 +71,13 @@ def main():
     })
     try:
         hardware.initialize()
-        factory_setup(hardware, need_arm=True)
+        factory_setup(hardware, need_arm_reset=True)
         test_default(hardware)
         test_forward(hardware)
         test_up(hardware)
         test_default(hardware)
         logger.info("🎉 左臂末端世界系测试完成")
-        factory_teardown(hardware, need_arm=True)
+        factory_teardown(hardware, need_arm_reset=True)
     finally:
         hardware.shutdown()
 

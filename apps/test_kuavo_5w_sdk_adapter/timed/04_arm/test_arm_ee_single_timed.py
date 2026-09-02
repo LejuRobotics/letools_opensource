@@ -116,14 +116,14 @@ class TestArmEESingleTimed(unittest.TestCase):
     def setUp(self):
         """初始化机器人状态（末端独立控制）"""
         factory_setup(self.hardware,
-                      need_arm=not self.no_reset_arm,
+                      need_arm_reset=not self.no_reset_arm,
                       need_torso_reset=not self.no_reset_torso,
                       focus_ee=self.focus_ee,
                       focus_z=False)
 
     def tearDown(self):
         """恢复机器人状态"""
-        factory_teardown(self.hardware, need_arm=not self.no_reset_arm)
+        factory_teardown(self.hardware, need_arm_reset=not self.no_reset_arm)
 
     def test_ee_single(self):
         """测试单臂末端单次位姿"""

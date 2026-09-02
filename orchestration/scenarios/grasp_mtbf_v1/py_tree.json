@@ -8,13 +8,13 @@
       {"internal_name": "pick_tag_id", "type": "int", "required": false, "default": 4, "description": "取货侧箱子 Tag ID"},
       {"internal_name": "place_tag_id", "type": "int", "required": false, "default": 0, "description": "放置侧 Tag ID"},
       {"internal_name": "tag_ids", "type": "list", "required": false, "default": [0, 4], "description": "NodePercep 监听的 Tag ID 列表"},
-      {"internal_name": "head_search_yaws", "type": "list", "required": false, "default": [12, 0, -12, 0], "description": "头部扫描 yaw 序列(度)"},
-      {"internal_name": "head_search_pitchs", "type": "list", "required": false, "default": [-15, 0, 15, 0], "description": "头部扫描 pitch 序列(度)"},
+      {"internal_name": "head_search_yaws", "type": "list", "required": false, "default": [0], "description": "头部扫描 yaw 序列(度)，不左右转"},
+      {"internal_name": "head_search_pitchs", "type": "list", "required": false, "default": [20], "description": "头部扫描 pitch 序列(度)，低头20°（正值为低头）"},
       {"internal_name": "tag_scan_timeout", "type": "float", "required": false, "default": 30.0, "description": "找 Tag 超时(秒)"},
       {"internal_name": "real_tag_timeout_sec", "type": "float", "required": false, "default": 30.0, "description": "等真 Tag 超时(秒)，超时注入虚拟 Tag"},
       {"internal_name": "use_virtual_tag", "type": "bool", "required": false, "default": false, "description": "强制使用虚拟 Tag（调试）"},
       {"internal_name": "virtual_tag_pose_in_odom", "type": "list", "required": false, "default": [1.0, 0.0, 1.1, 0.0, 0.0, 0.0], "description": "虚拟 Tag odom 位姿"},
-      {"internal_name": "pick_stand_in_tag_pos", "type": "list", "required": false, "default": [0.0, 0.0, 0.6], "description": "取箱站位在 tag 系偏移"},
+      {"internal_name": "pick_stand_in_tag_pos", "type": "list", "required": false, "default": [0.0, 0.0, 0.5], "description": "取箱站位在 tag 系偏移（机器人停靠位，非手臂接触距）"},
       {"internal_name": "pick_stand_in_tag_euler", "type": "list", "required": false, "default": [-1.5708, 1.5708, 0.0], "description": "取箱站位在 tag 系姿态"},
       {"internal_name": "place_stand_in_tag_pos", "type": "list", "required": false, "default": [0.0, 0.0, 0.8], "description": "放箱站位在 tag 系偏移"},
       {"internal_name": "place_stand_in_tag_euler", "type": "list", "required": false, "default": [-1.5708, 1.5708, 0.0], "description": "放箱站位在 tag 系姿态"},
@@ -22,6 +22,7 @@
       {"internal_name": "box_length", "type": "float", "required": false, "default": 0.4, "description": "箱长(m)"},
       {"internal_name": "box_width", "type": "float", "required": false, "default": 0.3, "description": "箱宽(m)"},
       {"internal_name": "box_height", "type": "float", "required": false, "default": 0.25, "description": "箱高(m)"},
+      {"internal_name": "box_height_offset", "type": "float", "required": false, "default": -0.22, "description": "抓取高度偏移(m)，负值下移"},
       {"internal_name": "gripper_position", "type": "int", "required": false, "default": 100, "description": "夹爪闭合行程[0,100]"},
       {"internal_name": "gripper_effort", "type": "float", "required": false, "default": 1.0, "description": "夹爪力矩(A)"}
     ],
@@ -52,9 +53,9 @@
             "name": "BaseMoveToTargetJibotMove",
             "label": "jibot_move",
             "params": {
-              "x": {"value": "2.126", "source": "CUSTOM", "data_type": "float"},
-              "y": {"value": "6.300", "source": "CUSTOM", "data_type": "float"},
-              "theta": {"value": "-1.57", "source": "CUSTOM", "data_type": "float"}
+              "x": {"value": "-0.091", "source": "CUSTOM", "data_type": "float"},
+              "y": {"value": "0.082", "source": "CUSTOM", "data_type": "float"},
+              "theta": {"value": "5", "source": "CUSTOM", "data_type": "float"}
             },
             "childs": []
           },
@@ -122,15 +123,64 @@
         "childBoard": []
       },
       {
-        "name": "walk_to_tag.json",
-        "label": "walk_to_box",
+        "name": "Parallel",
+        "label": "prepare_and_approach",
         "params": {
-          "target_tag_id": {"value": "${pick_tag_id}", "source": "INPUT", "data_type": "int"},
-          "stand_in_tag_pos": {"value": "${pick_stand_in_tag_pos}", "source": "INPUT", "data_type": "list"},
-          "stand_in_tag_euler": {"value": "${pick_stand_in_tag_euler}", "source": "INPUT", "data_type": "list"},
-          "chassis_walk_mode": {"value": "${chassis_walk_mode}", "source": "INPUT", "data_type": "string"}
+          "policy": {"value": "success_on_all", "source": "CUSTOM", "data_type": "string"}
         },
-        "childs": []
+        "childs": [
+          {
+            "name": "Async",
+            "label": "raise_arm_async",
+            "params": {
+              "tick_hz": {"value": "50.0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": [
+              {
+                "name": "MoveArmBaseTargetPoseMove",
+                "label": "pre_reach_arm",
+                "params": {
+                  "prep_only": {"value": "true", "source": "CUSTOM", "data_type": "bool"},
+                  "prep_time": {"value": "3.0", "source": "CUSTOM", "data_type": "float"},
+                  "prep_left_pose": {
+                    "value": [0.46, 0.35, 1.23, 0, -90, 0],
+                    "source": "CUSTOM",
+                    "data_type": "json"
+                  },
+                  "prep_right_pose": {
+                    "value": [0.46, -0.35, 1.23, 0, -90, 0],
+                    "source": "CUSTOM",
+                    "data_type": "json"
+                  }
+                },
+                "childs": []
+              }
+            ],
+            "childBoard": []
+          },
+          {
+            "name": "Async",
+            "label": "walk_to_tag_async",
+            "params": {
+              "tick_hz": {"value": "50.0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": [
+              {
+                "name": "walk_to_tag.json",
+                "label": "walk_to_box",
+                "params": {
+                  "target_tag_id": {"value": "${pick_tag_id}", "source": "INPUT", "data_type": "int"},
+                  "stand_in_tag_pos": {"value": "${pick_stand_in_tag_pos}", "source": "INPUT", "data_type": "list"},
+                  "stand_in_tag_euler": {"value": "${pick_stand_in_tag_euler}", "source": "INPUT", "data_type": "list"},
+                  "chassis_walk_mode": {"value": "${chassis_walk_mode}", "source": "INPUT", "data_type": "string"}
+                },
+                "childs": []
+              }
+            ],
+            "childBoard": []
+          }
+        ],
+        "childBoard": []
       },
       {
         "name": "WaitForEnter",
@@ -153,6 +203,7 @@
           "box_length": {"value": "${box_length}", "source": "INPUT", "data_type": "float"},
           "box_width": {"value": "${box_width}", "source": "INPUT", "data_type": "float"},
           "box_height": {"value": "${box_height}", "source": "INPUT", "data_type": "float"},
+          "box_height_offset": {"value": "${box_height_offset}", "source": "INPUT", "data_type": "float"},
           "gripper_position": {"value": "${gripper_position}", "source": "INPUT", "data_type": "int"},
           "gripper_effort": {"value": "${gripper_effort}", "source": "INPUT", "data_type": "float"}
         },
@@ -172,12 +223,183 @@
         "childBoard": []
       },
       {
-        "name": "CalcLegMove",
-        "label": "lift_box",
+        "name": "Sequence",
+        "label": "jibot_nav_to_pick",
+        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
+        "childs": [
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "BaseMoveToTargetJibotMove",
+            "label": "jibot_move",
+            "params": {
+              "x": {"value": "0.269", "source": "CUSTOM", "data_type": "float"},
+              "y": {"value": "-1.029", "source": "CUSTOM", "data_type": "float"},
+              "theta": {"value": "0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "CheckArrivedJibotMove",
+            "label": "jibot_check_arrived",
+            "params": {
+              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
+              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ]
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
         "params": {
-          "offset_x": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "Sequence",
+        "label": "jibot_nav_to_pick",
+        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
+        "childs": [
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "BaseMoveToTargetJibotMove",
+            "label": "jibot_move",
+            "params": {
+              "x": {"value": "5.259", "source": "CUSTOM", "data_type": "float"},
+              "y": {"value": "-0.968", "source": "CUSTOM", "data_type": "float"},
+              "theta": {"value": "0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "CheckArrivedJibotMove",
+            "label": "jibot_check_arrived",
+            "params": {
+              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
+              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ]
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "Sequence",
+        "label": "jibot_nav_to_pick",
+        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
+        "childs": [
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "BaseMoveToTargetJibotMove",
+            "label": "jibot_move",
+            "params": {
+              "x": {"value": "5.540", "source": "CUSTOM", "data_type": "float"},
+              "y": {"value": "0.385", "source": "CUSTOM", "data_type": "float"},
+              "theta": {"value": "179", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "CheckArrivedJibotMove",
+            "label": "jibot_check_arrived",
+            "params": {
+              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
+              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ]
+      },
+      {
+        "name": "WaitForEnter",
+        "label": "wait_finish",
+        "params": {
+          "message": {
+            "value": "导航完成！按Enter退出",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "CalcLegMove",
+        "label": "recover_leg",
+        "params": {
+          "offset_x": {"value": "0.15", "source": "CUSTOM", "data_type": "float"},
           "offset_y": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
-          "offset_z": {"value": "1.2", "source": "CUSTOM", "data_type": "float"},
+          "offset_z": {"value": "1.35", "source": "CUSTOM", "data_type": "float"},
           "control_base": {"value": "false", "source": "CUSTOM", "data_type": "string"},
           "leg_mode": {"value": "leg", "source": "CUSTOM", "data_type": "string"},
           "offset_yaw": {"value": "0.0", "source": "CUSTOM", "data_type": "float"}
@@ -185,188 +407,23 @@
         "childs": []
       },
       {
-        "name": "WaitForEnter",
-        "label": "wait_finish",
+        "name": "MoveArmBaseTargetPoseMove",
+        "label": "pre_reach_arm",
         "params": {
-          "message": {
-            "value": "导航完成！按Enter退出",
+          "prep_only": {"value": "true", "source": "CUSTOM", "data_type": "bool"},
+          "prep_time": {"value": "3.0", "source": "CUSTOM", "data_type": "float"},
+          "prep_left_pose": {
+            "value": [0.7, 0.19, 1.53, 0, -90, 0],
             "source": "CUSTOM",
-            "data_type": "string"
+            "data_type": "json"
+          },
+          "prep_right_pose": {
+            "value": [0.7, -0.19, 1.53, 0, -90, 0],
+            "source": "CUSTOM",
+            "data_type": "json"
           }
         },
-        "childs": [],
-        "childBoard": []
-      },
-      {
-        "name": "Sequence",
-        "label": "jibot_nav_to_pick",
-        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
-        "childs": [
-          {
-            "name": "ChassisStopMove",
-            "label": "chassis_stop",
-            "params": {
-              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
-            },
-            "childs": [],
-            "childBoard": []
-          },
-          {
-            "name": "BaseMoveToTargetJibotMove",
-            "label": "jibot_move",
-            "params": {
-              "x": {"value": "0.720", "source": "CUSTOM", "data_type": "float"},
-              "y": {"value": "6.394", "source": "CUSTOM", "data_type": "float"},
-              "theta": {"value": "-1.57", "source": "CUSTOM", "data_type": "float"}
-            },
-            "childs": []
-          },
-          {
-            "name": "CheckArrivedJibotMove",
-            "label": "jibot_check_arrived",
-            "params": {
-              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
-              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
-            },
-            "childs": []
-          },
-          {
-            "name": "ChassisStopMove",
-            "label": "chassis_stop",
-            "params": {
-              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
-            },
-            "childs": [],
-            "childBoard": []
-          }
-        ]
-      },
-      {
-        "name": "WaitForEnter",
-        "label": "wait_finish",
-        "params": {
-          "message": {
-            "value": "导航完成！按Enter退出",
-            "source": "CUSTOM",
-            "data_type": "string"
-          }
-        },
-        "childs": [],
-        "childBoard": []
-      },
-      {
-        "name": "Sequence",
-        "label": "jibot_nav_to_pick",
-        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
-        "childs": [
-          {
-            "name": "ChassisStopMove",
-            "label": "chassis_stop",
-            "params": {
-              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
-            },
-            "childs": [],
-            "childBoard": []
-          },
-          {
-            "name": "BaseMoveToTargetJibotMove",
-            "label": "jibot_move",
-            "params": {
-              "x": {"value": "0.687", "source": "CUSTOM", "data_type": "float"},
-              "y": {"value": "0.900", "source": "CUSTOM", "data_type": "float"},
-              "theta": {"value": "1.57", "source": "CUSTOM", "data_type": "float"}
-            },
-            "childs": []
-          },
-          {
-            "name": "CheckArrivedJibotMove",
-            "label": "jibot_check_arrived",
-            "params": {
-              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
-              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
-            },
-            "childs": []
-          },
-          {
-            "name": "ChassisStopMove",
-            "label": "chassis_stop",
-            "params": {
-              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
-            },
-            "childs": [],
-            "childBoard": []
-          }
-        ]
-      },
-      {
-        "name": "WaitForEnter",
-        "label": "wait_finish",
-        "params": {
-          "message": {
-            "value": "导航完成！按Enter退出",
-            "source": "CUSTOM",
-            "data_type": "string"
-          }
-        },
-        "childs": [],
-        "childBoard": []
-      },
-      {
-        "name": "Sequence",
-        "label": "jibot_nav_to_pick",
-        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
-        "childs": [
-          {
-            "name": "ChassisStopMove",
-            "label": "chassis_stop",
-            "params": {
-              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
-            },
-            "childs": [],
-            "childBoard": []
-          },
-          {
-            "name": "BaseMoveToTargetJibotMove",
-            "label": "jibot_move",
-            "params": {
-              "x": {"value": "2.032", "source": "CUSTOM", "data_type": "float"},
-              "y": {"value": "0.900", "source": "CUSTOM", "data_type": "float"},
-              "theta": {"value": "1.57", "source": "CUSTOM", "data_type": "float"}
-            },
-            "childs": []
-          },
-          {
-            "name": "CheckArrivedJibotMove",
-            "label": "jibot_check_arrived",
-            "params": {
-              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
-              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
-            },
-            "childs": []
-          },
-          {
-            "name": "ChassisStopMove",
-            "label": "chassis_stop",
-            "params": {
-              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
-            },
-            "childs": [],
-            "childBoard": []
-          }
-        ]
-      },
-      {
-        "name": "WaitForEnter",
-        "label": "wait_finish",
-        "params": {
-          "message": {
-            "value": "导航完成！按Enter退出",
-            "source": "CUSTOM",
-            "data_type": "string"
-          }
-        },
-        "childs": [],
-        "childBoard": []
+        "childs": []
       },
       {
         "name": "look_for_tag.json",
@@ -427,7 +484,7 @@
         "label": "crouch_for_grasp",
         "params": {
           "offset_x": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
-          "offset_y": {"value": "-0.3", "source": "CUSTOM", "data_type": "float"},
+          "offset_y": {"value": "-0.5", "source": "CUSTOM", "data_type": "float"},
           "offset_z": {"value": "0.45", "source": "CUSTOM", "data_type": "float"},
           "control_base": {"value": "false", "source": "CUSTOM", "data_type": "string"},
           "leg_mode": {"value": "target", "source": "CUSTOM", "data_type": "string"},
@@ -541,6 +598,138 @@
         },
         "childs": [],
         "childBoard": []
+      },
+      {
+        "name": "Sequence",
+        "label": "jibot_nav_to_pick",
+        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
+        "childs": [
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "BaseMoveToTargetJibotMove",
+            "label": "jibot_move",
+            "params": {
+              "x": {"value": "5.259", "source": "CUSTOM", "data_type": "float"},
+              "y": {"value": "-0.968", "source": "CUSTOM", "data_type": "float"},
+              "theta": {"value": "0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "CheckArrivedJibotMove",
+            "label": "jibot_check_arrived",
+            "params": {
+              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
+              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ]
+      },
+      {
+        "name": "Sequence",
+        "label": "jibot_nav_to_pick",
+        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
+        "childs": [
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "BaseMoveToTargetJibotMove",
+            "label": "jibot_move",
+            "params": {
+              "x": {"value": "0.269", "source": "CUSTOM", "data_type": "float"},
+              "y": {"value": "-1.029", "source": "CUSTOM", "data_type": "float"},
+              "theta": {"value": "0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "CheckArrivedJibotMove",
+            "label": "jibot_check_arrived",
+            "params": {
+              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
+              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ]
+      },
+      {
+        "name": "Sequence",
+        "label": "jibot_nav_to_pick",
+        "params": {"memory": {"value": "True", "source": "CUSTOM"}},
+        "childs": [
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "BaseMoveToTargetJibotMove",
+            "label": "jibot_move",
+            "params": {
+              "x": {"value": "-0.091", "source": "CUSTOM", "data_type": "float"},
+              "y": {"value": "0.082", "source": "CUSTOM", "data_type": "float"},
+              "theta": {"value": "5", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "CheckArrivedJibotMove",
+            "label": "jibot_check_arrived",
+            "params": {
+              "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
+              "timeout": {"value": "60.0", "source": "CUSTOM", "data_type": "float"}
+            },
+            "childs": []
+          },
+          {
+            "name": "ChassisStopMove",
+            "label": "chassis_stop",
+            "params": {
+              "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ]
       }
     ]
   }

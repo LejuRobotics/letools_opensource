@@ -684,6 +684,12 @@ class BehaviorTreeFactory:
             )
         node_label = node_config.get("label", node_name)
         node_params = node_config.get("params", {})
+        if node_name in ("CartonVisionInjectPose", "SafetyLockBoard") and "enable" not in node_params:
+            node_params = dict(node_params)
+            node_params["enable"] = {
+                "source": "READ_BOARD",
+                "board_key": "carton_vision_enable",
+            }
         childs = _get_child_configs(node_config)
         
 
@@ -955,7 +961,7 @@ class BehaviorTreeFactory:
         "RunningIsFailure", "RunningIsSuccess", "SuccessIsFailure", "SuccessIsRunning",
         "PassThrough", "Count",
         # studio 自定义装饰器（由本工厂特殊处理）
-        "Async", "RepeatUntil",
+        "Async", "RepeatUntil", "ForEach",
         "RunIfIndex",
         "PressureDropGuard",
     })
@@ -1014,12 +1020,30 @@ class BehaviorTreeFactory:
                     raise ValueError("RepeatUntil requires condition_key")
                 condition_path = str(node_params.get("condition_path", "")).strip()
                 expected_value = node_params.get("expected_value", True)
+                wait_for_child_completion = node_params.get(
+                    "wait_for_child_completion", False
+                )
                 return RepeatUntil(
                     name=label,
                     child=child_node,
                     condition_key=condition_key,
                     condition_path=condition_path,
                     expected_value=expected_value,
+                    wait_for_child_completion=wait_for_child_completion,
+                )
+
+            if node_name == "ForEach":
+                from orchestration.nodes.for_each import ForEach
+
+                source_key = str(node_params.get("source_key", "")).strip()
+                target_key = str(node_params.get("target_key", "")).strip()
+                if not source_key or not target_key:
+                    raise ValueError("ForEach requires source_key and target_key")
+                return ForEach(
+                    name=label,
+                    child=child_node,
+                    source_key=source_key,
+                    target_key=target_key,
                 )
 
             if node_name == "RunIfIndex":

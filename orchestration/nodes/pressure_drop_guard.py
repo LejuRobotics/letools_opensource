@@ -32,6 +32,17 @@ class PressureDropGuard(Decorator):
 
     def tick(self) -> Iterator[Behaviour]:
         """每次 tick 前通过 Skill 检查气压，掉落时中断子节点。"""
+        if not self._params.enable:
+            for node in self.decorated.tick():
+                yield node
+            new_status = self.decorated.status
+            if new_status != Status.RUNNING:
+                self.stop(new_status)
+            self.status = new_status
+            self.feedback_message = "pressure_drop_guard disabled"
+            yield self
+            return
+
         if self.status != Status.RUNNING:
             self.initialise()
 

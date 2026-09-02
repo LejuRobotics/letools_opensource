@@ -27,7 +27,7 @@ sys.path.insert(0, project_root)
 
 import rospy
 from adapters.hardware.leju_wheeled.hardware import LejuWheeledArmHardware
-from apps.jibot._scaffold import jibot_setup
+from apps.jibot_adapter._scaffold import jibot_setup
 
 
 class TestCheckArrived(unittest.TestCase):

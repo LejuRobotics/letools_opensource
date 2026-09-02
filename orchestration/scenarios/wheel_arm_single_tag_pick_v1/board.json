@@ -1,0 +1,12 @@
+{
+  "pick_tag_id": 1,
+  "tag_ids": [1],
+  "box_width": 0.35,
+  "box_behind_tag": 0.0,
+  "box_beneath_tag": 0.0,
+  "box_left_tag": 0.0,
+  "hand_pitch_degree": 0.0,
+  "arm_control_type": "joint",
+  "use_virtual_tag": true,
+  "virtual_tag_pose_in_odom": [0.5, 0.0, 0.75, 0.0, 0.0, 0.0]
+}

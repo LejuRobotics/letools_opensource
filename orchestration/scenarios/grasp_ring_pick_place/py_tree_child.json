@@ -1,0 +1,148 @@
+{
+  "pre_grasp.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "pre_grasp_seq",
+      "params": {"memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}},
+      "childs": [
+        {"name": "EndEffectorClose", "label": "gripper_half_open", "params": {
+          "side":     {"value": "both", "source": "CUSTOM", "data_type": "string"},
+          "position": {"value": "${gripper_pre_position}", "source": "INPUT", "data_type": "float"},
+          "effort":   {"value": "1.0", "source": "CUSTOM", "data_type": "float"}
+        }, "childs": [], "childBoard": []},
+        {"name": "WaitSeconds", "label": "wait_gripper", "params": {
+          "duration_sec": {"value": "1.0", "source": "CUSTOM", "data_type": "float"}
+        }, "childs": [], "childBoard": []},
+        {"name": "HeadControlSdkMove", "label": "head_down", "params": {
+          "yaw_deg":   {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
+          "pitch_deg": {"value": "20.0", "source": "CUSTOM", "data_type": "float"}
+        }, "childs": [], "childBoard": []},
+        {"name": "WaitSeconds", "label": "wait_head", "params": {
+          "duration_sec": {"value": "1.0", "source": "CUSTOM", "data_type": "float"}
+        }, "childs": [], "childBoard": []},
+        {"name": "LegJointSdkMove", "label": "torso_adjust", "params": {
+          "j0": {"value": "10.0", "source": "CUSTOM", "data_type": "float"},
+          "j1": {"value": "-20.0", "source": "CUSTOM", "data_type": "float"},
+          "j2": {"value": "25.0", "source": "CUSTOM", "data_type": "float"},
+          "j3": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
+          "total_time": {"value": "2.0", "source": "CUSTOM", "data_type": "float"}
+        }, "childs": [], "childBoard": []},
+        {"name": "WaitSeconds", "label": "wait_torso", "params": {
+          "duration_sec": {"value": "3.0", "source": "CUSTOM", "data_type": "float"}
+        }, "childs": [], "childBoard": []},
+        {"name": "ArmJointTrajSdkMove", "label": "arm_to_pre", "params": {
+          "use_board_trajectory": {"value": "false", "source": "CUSTOM", "data_type": "string"},
+          "joint_traj": {"value": [[40, 0, 0, -120, -90, -40, 0, 50, 0, 0, -140, 90, 40, 0], [40, 0, 0, -120, -90, -40, 0, 50, 0, 0, -140, 90, 40, 0]], "source": "CUSTOM", "data_type": "json"},
+          "total_time": {"value": "3.0", "source": "CUSTOM", "data_type": "float"}
+        }, "childs": [], "childBoard": []},
+        {"name": "WaitSeconds", "label": "wait_arm", "params": {
+          "duration_sec": {"value": "4.0", "source": "CUSTOM", "data_type": "float"}
+        }, "childs": [], "childBoard": []}
+      ],
+      "childBoard": []
+    }
+  },
+  "grasp_ring.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "grasp_ring_seq",
+      "params": {"memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}},
+      "childs": [
+        {"name": "GraspRingMove", "label": "grasp_ring", "params": {
+          "q_pre":               {"value": "${q_pre}",               "source": "INPUT", "data_type": "list"},
+          "grasp_offset_z":       {"value": "${grasp_offset_z}",       "source": "INPUT", "data_type": "float"},
+          "pre_grasp_offset_z":   {"value": "${pre_grasp_offset_z}",   "source": "INPUT", "data_type": "float"},
+          "ee_to_tip_z":          {"value": "${ee_to_tip_z}",          "source": "INPUT", "data_type": "float"},
+          "gripper_pre_position": {"value": "${gripper_pre_position}", "source": "INPUT", "data_type": "float"},
+          "gripper_close_position": {"value": "${gripper_close_position}", "source": "INPUT", "data_type": "float"},
+          "ring_name":           {"value": "${ring_name}",           "source": "INPUT", "data_type": "string"}
+        }, "childs": [], "childBoard": []}
+      ],
+      "childBoard": []
+    }
+  },
+  "inference_control.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "inference_control_seq",
+      "params": {"memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}},
+      "childs": [
+        {"name": "InferenceControl", "label": "inference_control", "params": {
+          "inference_config_path":   {"value": "${inference_config_path}",   "source": "INPUT", "data_type": "string"},
+          "policy_type":             {"value": "${policy_type}",             "source": "INPUT", "data_type": "string"},
+          "pretrained_path":         {"value": "${pretrained_path}",         "source": "INPUT", "data_type": "string"},
+          "task_prompt":             {"value": "${task_prompt}",             "source": "INPUT", "data_type": "string"},
+          "max_episode_steps":       {"value": "${max_episode_steps}",       "source": "INPUT", "data_type": "int"},
+          "device":                  {"value": "${device}",                  "source": "INPUT", "data_type": "string"},
+          "inference_env":           {"value": "${inference_env}",           "source": "INPUT", "data_type": "string"},
+          "gripper_pre_position":    {"value": "${gripper_pre_position}",    "source": "INPUT", "data_type": "float"},
+          "gripper_close_threshold": {"value": "${gripper_close_threshold}", "source": "INPUT", "data_type": "float"},
+          "gripper_hold_frames":     {"value": "${gripper_hold_frames}",     "source": "INPUT", "data_type": "int"},
+          "post_close_steps":        {"value": "${post_close_steps}",        "source": "INPUT", "data_type": "int"}
+        }, "childs": [], "childBoard": []}
+      ],
+      "childBoard": []
+    }
+  },
+  "pose_after_grasp.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "pose_after_grasp_seq",
+      "params": {"memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}},
+      "childs": [
+        {"name": "ArmJointTrajSdkMove", "label": "arm_to_place", "params": {
+          "use_board_trajectory": {"value": "false", "source": "CUSTOM", "data_type": "string"},
+          "joint_traj": {"value": [[57.0, 41.5, -11.3, -143.5, 21.3, 38.3, 2.3, 57.0, -41.5, 11.3, -143.5, -21.3, -38.3, 2.3], [57.0, 41.5, -11.3, -143.5, 21.3, 38.3, 2.3, 57.0, -41.5, 11.3, -143.5, -21.3, -38.3, 2.3]], "source": "CUSTOM", "data_type": "json"},
+          "total_time": {"value": "2.0", "source": "CUSTOM", "data_type": "float"}
+        }, "childs": [], "childBoard": []},
+        {"name": "WaitSeconds", "label": "wait_pose", "params": {
+          "duration_sec": {"value": "3.0", "source": "CUSTOM", "data_type": "float"}
+        }, "childs": [], "childBoard": []}
+      ],
+      "childBoard": []
+    }
+  },
+  "nav_and_lift_torso.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "nav_and_lift_seq",
+      "params": {"memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}},
+      "childs": [
+        {"name": "LegJointSdkMove", "label": "torso_upright", "params": {
+          "j0": {"value": "20.0", "source": "CUSTOM", "data_type": "float"},
+          "j1": {"value": "-40.0", "source": "CUSTOM", "data_type": "float"},
+          "j2": {"value": "20.0", "source": "CUSTOM", "data_type": "float"},
+          "j3": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
+          "total_time": {"value": "2.0", "source": "CUSTOM", "data_type": "float"}
+        }, "childs": [], "childBoard": []},
+        {"name": "WheelNavMove", "label": "nav_to_place", "params": {
+          "x": {"value": "-1.7", "source": "CUSTOM", "data_type": "float"},
+          "y": {"value": "-1.0", "source": "CUSTOM", "data_type": "float"},
+          "yaw_deg": {"value": "-90.0", "source": "CUSTOM", "data_type": "float"},
+          "timeout_sec": {"value": "30.0", "source": "CUSTOM", "data_type": "float"}
+        }, "childs": [], "childBoard": []}
+      ],
+      "childBoard": []
+    }
+  },
+  "place_ring.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "place_ring_seq",
+      "params": {"memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}},
+      "childs": [
+        {"name": "PlaceRingMove", "label": "place_ring", "params": {
+          "q_pre":          {"value": "${q_pre}",          "source": "INPUT", "data_type": "list"},
+          "place_target_x": {"value": "${place_target_x}", "source": "INPUT", "data_type": "float"},
+          "place_target_y": {"value": "${place_target_y}", "source": "INPUT", "data_type": "float"},
+          "place_target_z": {"value": "${place_target_z}", "source": "INPUT", "data_type": "float"},
+          "ee_to_tip_z":    {"value": "${ee_to_tip_z}",    "source": "INPUT", "data_type": "float"},
+          "gripper_pre_position": {"value": "${gripper_pre_position}", "source": "INPUT", "data_type": "float"},
+          "robot_yaw_deg":  {"value": "${robot_yaw_deg}",  "source": "INPUT", "data_type": "float"}
+        }, "childs": [], "childBoard": []},
+        {"name": "ArmResetSdkMove", "label": "arm_reset", "params": {}, "childs": [], "childBoard": []}
+      ],
+      "childBoard": []
+    }
+  }
+}

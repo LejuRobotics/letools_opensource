@@ -23,6 +23,14 @@ except ImportError:
     HAS_ROSPY = False
 
 
+def _to_bool(value, default=True):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 def _format_waypoints(wps):
     """将 waypoints 格式化为可读字符串。"""
     if wps is None:
@@ -55,6 +63,8 @@ def _format_waypoints(wps):
         "等待用户按 Enter 确认后才放行后续节点。"
     ),
     params=[
+        {"name": "enable", "type": "bool", "default": "true",
+         "description": "是否启用安全锁；视觉关闭时会跟随 carton_vision_enable 自动跳过"},
         {"name": "left_board_key", "type": "string",
          "default": "timed_grasp_1_left_waypoints",
          "description": "左手 waypoints 的黑板 key"},
@@ -87,6 +97,11 @@ class SafetyLockBoard(BaseAction):
 
     def update(self):
         if self._done:
+            return Status.SUCCESS
+
+        if not self._lock_enabled():
+            self._done = True
+            self.feedback_message = "safety_lock_board disabled"
             return Status.SUCCESS
 
         if _DRY_RUN:
@@ -144,3 +159,15 @@ class SafetyLockBoard(BaseAction):
         self._done = True
         self.feedback_message = "safety_lock_board: user confirmed"
         return Status.SUCCESS
+
+    def _lock_enabled(self) -> bool:
+        enabled = _to_bool(self.params.get("enable", True), True)
+        board_key = str(self.params.get("enable__board_key", "")).strip()
+        if not board_key:
+            return enabled
+        try:
+            self.global_blackboard.register_key(key=board_key, access=py_trees.common.Access.READ)
+            enabled = _to_bool(self.global_blackboard.get(board_key), enabled)
+        except Exception:
+            pass
+        return enabled

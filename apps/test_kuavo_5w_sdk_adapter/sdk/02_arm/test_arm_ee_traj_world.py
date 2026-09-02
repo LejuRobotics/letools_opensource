@@ -90,7 +90,7 @@ def main():
         hardware.initialize()
         # === 脚手架: 前置设置 ===
         from apps.test_kuavo_5w_sdk_adapter._scaffold import factory_setup, factory_teardown
-        factory_setup(hardware, need_arm=True)
+        factory_setup(hardware, need_arm_reset=True)
 
         all_passed &= test_forward_trajectory(hardware)
         all_passed &= test_up_trajectory(hardware)
@@ -101,7 +101,7 @@ def main():
             logger.error("⚠️ 部分测试失败")
 
         # === 脚手架: 后置复位 ===
-        factory_teardown(hardware, need_arm=True)
+        factory_teardown(hardware, need_arm_reset=True)
     finally:
         hardware.shutdown()
     if not all_passed:

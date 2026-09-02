@@ -270,27 +270,6 @@ def main():
         if feedback:
             print(f"[apps] 行为树失败原因: {feedback}")
 
-    # HeadPerceptionPick 在 Debug 模式下把产物摘要写入该键。统一在入口打印，
-    # 无需为了测试输出再增加一个行为树节点。
-    try:
-        from py_trees.common import Access
-
-        blackboard_client.register_key(
-            key="head_perception_debug", access=Access.READ
-        )
-        debug_summary = blackboard_client.get("head_perception_debug")
-        if isinstance(debug_summary, dict):
-            print(
-                "[apps] 感知 Debug 产物: "
-                f"{debug_summary.get('artifact_dir', '(unknown)')}"
-            )
-        blackboard_client.register_key(key="obj_xyz", access=Access.READ)
-        selected_xyz = blackboard_client.get("obj_xyz")
-        if isinstance(selected_xyz, dict):
-            print(f"[apps] 感知抓取点 obj_xyz: {selected_xyz}")
-    except Exception:
-        pass
-
     if args.spin:
         rospy.loginfo("[apps] --spin: 保持节点运行（Ctrl+C 退出）")
         rospy.spin()

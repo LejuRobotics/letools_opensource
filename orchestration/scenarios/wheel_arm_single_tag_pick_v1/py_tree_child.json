@@ -1,0 +1,17 @@
+{
+  "wheel_arm_single_tag_pick_v1.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "wheel_arm_single_tag_pick_v1_subtree",
+      "params": {
+        "memory": {
+          "value": "True",
+          "source": "CUSTOM",
+          "data_type": "string"
+        }
+      },
+      "childs": [],
+      "childBoard": []
+    }
+  }
+}

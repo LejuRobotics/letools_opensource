@@ -201,7 +201,7 @@ source devel/setup.bash
 
 在项目根目录运行以下命令，脚本将自动完成 Submodule 初始化、分支切换、配置生成及 SDK 安装：
 >📌 SDK 版本由仓库自带的 `scripts/kuavo_humanoid_sdk_tools/sdk_version.env` 锁定，
-> 记录当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 `master` / `1.4.4`），
+> 记录当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 `master` / `1.4.5`），
 > 每次 LeTools 发版时同步更新，请下载对应分支与tag的kuavo-ros-opensource，以确保安装到与当前版本匹配的 SDK。
 
 ```bash
@@ -230,7 +230,7 @@ python3 -c 'from kuavo_humanoid_sdk import KuavoRobot; print("SDK Ready!")'
 #### Docker 镜像部署
 
 仓库地址：https://gitcode.com/OpenLET/kuavo-ros-opensource/tree/dev/
-请下载与当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 master / 1.4.4），则将此仓库下的 master分支，tag为1.4.4,下载到本地，git clone -b 1.4.4 https://gitcode.com/OpenLET/kuavo-ros-opensource.git
+请下载与当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 master / 1.4.5），则将此仓库下的 master分支，tag为1.4.5,下载到本地，git clone -b 1.4.5 https://gitcode.com/OpenLET/kuavo-ros-opensource.git
 根据 readme.md 文档跑通 docker 环境，注意 Ubuntu 20.04 需要赋予 **sudo 权限**。
 
 - docker 镜像可以自行查看网上相关配置使用 `./docker/Dockerfile` 构建，或者下载已经编译好的镜像：
@@ -304,10 +304,10 @@ rosservice list | grep mobile_manipulator
 ### 3.3.2 选项 B：连接真机
 
 #### 下位机部署与跑通
-请下载与当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 master / 1.4.4），则将此仓库下的 master分支，tag为1.4.4,下载到本地，git clone -b 1.4.4 https://gitcode.com/OpenLET/kuavo-ros-opensource.git
+请下载与当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 master / 1.4.5），则将此仓库下的 master分支，tag为1.4.5,下载到本地，git clone -b 1.4.5 https://gitcode.com/OpenLET/kuavo-ros-opensource.git
 
 ```bash
-git clone -b 1.4.4 https://gitcode.com/OpenLET/kuavo-ros-opensource.git
+git clone -b 1.4.5 https://gitcode.com/OpenLET/kuavo-ros-opensource.git
 
 # 编译运行
 cd kuavo-ros-opensource  # 仓库目录
@@ -356,9 +356,11 @@ source devel/setup.bash
 
 - `test_kuavo_5w_adapter` — 标准接口（Adapter）测试
 - `test_kuavo_5w_sdk_adapter` — SDK 接口测试
+- `test_kuavo_5w_orchestration` — 行为树节点测试（编排层每个节点一个脚本）
+- `test_kuavo_5w_skills` — 原子技能测试（技能层每个技能一个脚本）
 - `test_camera_adapter` — 相机与视觉测试
 - `jibot_adapter` — 移动底盘测试
-- `test_upper_init` — 行为树编排示例
+- `test_upper_init` — 行为树编排示例（JSON 场景启动器）
 
 推荐示例：
 

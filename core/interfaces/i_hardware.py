@@ -3,7 +3,7 @@ from typing import List, Dict, Optional, Union
 from ..domain.result import Result
 from ..domain.pose import Pose6D
 from ..domain.enums import FrameType, MPCControlMode, ArmSide
-from ..domain.end_effector import DualGripperCommand, GripperCommand, HandFingerCommand
+from ..domain.end_effector import DualGripperCommand, GripperCommand, HandFingerCommand, SG100HandCommand
 from ..domain.chassis_options import MoveToTargetOptions
 
 class IHardware(ABC):
@@ -451,7 +451,7 @@ class IHardware(ABC):
     def control_end_effector(
         self,
         side: ArmSide,
-        cmd: Union[GripperCommand, DualGripperCommand, HandFingerCommand],
+        cmd: Union[GripperCommand, DualGripperCommand, HandFingerCommand, SG100HandCommand],
     ) -> Result:
         """统一控制末端执行器（夹爪或灵巧手）。"""
         pass

@@ -72,10 +72,10 @@ class CalcArmPoseMove(BaseAction):
         box_height = float(self.params.get("box_height", 0.25))
 
         if mode == "box_grasp_step1":
-            height_off = float(self.params.get("box_height_offset", 0))
+            height_off = float(self.params.get("box_height_offset", 0.2))
             pre_open = float(self.params.get("box_pre_open", 0.13))
             close_off = float(self.params.get("box_close_offset", 0.03))
-            width_off = float(self.params.get("box_width_offset", 0))
+            width_off = float(self.params.get("box_width_offset", 0.07))
 
             half_l, half_w = box_length / 2, box_width / 2
             h = box_height + height_off
@@ -84,27 +84,27 @@ class CalcArmPoseMove(BaseAction):
             left_kps = [
                 _keypoint(-half_l - pre_open, h, w, 0, 0, 90),          # 1. 预抓取
                 _keypoint(-half_l + close_off, h, w, 0, 0, 90),       # 2. 并拢
-                _keypoint(-half_l + close_off, h, w + 0.2, 0, 0, 90), # 3. 抬起（箱厚方向 +0.2）
+                _keypoint(-half_l + close_off, h + 0.2, w, 0, 0, 90), # 3. 抬起（箱厚方向 +0.2）
             ]
             right_kps = [
                 _keypoint(half_l + pre_open, h, w, 0, 0, 90),
                 _keypoint(half_l - close_off, h, w, 0, 0, 90),
-                _keypoint(half_l - close_off, h, w + 0.2, 0, 0, 90),
+                _keypoint(half_l - close_off, h + 0.2, w, 0, 0, 90),
             ]
             left_wrench = [list(_ZERO_WRENCH) for _ in left_kps]
             right_wrench = [list(_ZERO_WRENCH) for _ in right_kps]
 
         elif mode == "box_place":
-            pre_place = float(self.params.get("box_pre_place", 0))
+            pre_place = float(self.params.get("box_pre_place", -0.03))
             half_l = box_length / 2
 
             left_kps = [
-                _keypoint(-half_l - pre_place, -0.1, 0.13, 0, 0, 90),        # 1. 打开
-                _keypoint(-half_l - pre_place - 0.1, -0.1, 0.13, 0, 0, 90),  # 2. 撤开
+                _keypoint(-half_l - pre_place, -0.3, 0.13, 0, 0, 90),        # 1. 打开
+                _keypoint(-half_l - pre_place - 0.1, -0.3, 0.13, 0, 0, 90),  # 2. 撤开
             ]
             right_kps = [
-                _keypoint(half_l + pre_place, -0.1, 0.13, 0, 0, 90),
-                _keypoint(half_l + pre_place + 0.1, -0.1, 0.13, 0, 0, 90),
+                _keypoint(half_l + pre_place, -0.3, 0.13, 0, 0, 90),
+                _keypoint(half_l + pre_place + 0.1, -0.3, 0.13, 0, 0, 90),
             ]
             left_wrench = [list(_ZERO_WRENCH) for _ in left_kps]
             right_wrench = [list(_ZERO_WRENCH) for _ in right_kps]

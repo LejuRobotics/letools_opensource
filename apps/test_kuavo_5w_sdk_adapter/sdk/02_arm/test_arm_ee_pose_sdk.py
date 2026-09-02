@@ -170,7 +170,7 @@ def main():
     try:
         hardware.initialize()
         # === 脚手架: 前置设置 ===
-        factory_setup(hardware, need_arm=True)
+        factory_setup(hardware, need_arm_reset=True)
         time.sleep(0.5)
 
         # SDK 单次直调需要手动设置 MPC 模式为 ArmOnly
@@ -203,7 +203,7 @@ def main():
             logger.error("⚠️ 部分测试失败")
 
         # === 脚手架: 后置复位 ===
-        factory_teardown(hardware, need_arm=True)
+        factory_teardown(hardware, need_arm_reset=True)
     finally:
         hardware.shutdown()
     if not all_passed:

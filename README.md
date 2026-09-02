@@ -16,6 +16,7 @@
 > |:---|:---:|
 > | 零基础完整学习教程 | [beginner_tutorial.md](docs/beginner_tutorial.md) |
 > | 启动指南 | [user_guides.md](docs/user_guides.md) |
+> | 常见问题 (FAQ) | [FAQ_常见问题.md](docs/FAQ_常见问题.md) |
 > | 主要身体部位 API 参考 | [upper_body_api.md](adapters/upper_body_api.md) |
 > | 相机与底盘 API 参考 | [camera_chassis_api.md](adapters/camera_chassis_api.md) |
 
@@ -105,7 +106,7 @@ chmod +x scripts/install_sdk.sh
 ```
 
 > 📌 SDK 版本由仓库自带的 `scripts/kuavo_humanoid_sdk_tools/sdk_version.env` 锁定，
-> 记录当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 `master` / `1.4.4`），
+> 记录当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 `master` / `1.4.5`），
 > 每次 LeTools 发版时同步更新，确保用户安装到与当前版本匹配的 SDK。
 
 SDK 安装成功后验证：
@@ -282,11 +283,14 @@ LeTools
 │   ├── test_kuavo_5w_internal/      # 偏底层 ROS API 测试
 │   ├── test_kuavo_5w_adapter/       # Adapter 层硬件测试
 │   ├── test_kuavo_5w_sdk_internal/  # SDK 级测试
+│   ├── test_kuavo_5w_orchestration/ # 行为树节点测试（编排层每个节点一个脚本）
+│   ├── test_kuavo_5w_skills/        # 原子技能测试（技能层每个技能一个脚本）
 │   ├── test_camera_adapter/         # 相机适配器测试
 │   ├── test_camera_internal/        # 相机视觉测试
 │   ├── test_upper_init/             # JSON 行为树启动器
 │   ├── jibot_adapter/               # JiBot 上位机迁移测试（适配器层）
-│   └── jibot_internal/              # JiBot 上位机迁移测试（内部接口）
+│   ├── jibot_internal/              # JiBot 上位机迁移测试（内部接口）
+│   └── jiateng_adapter/             # 嘉腾底盘适配器测试
 ├── infrastructure/              # ROS 基础设施
 │   └── ros_packages/            # catkin 工作空间
 ├── ci_scripts_internal/         # CI/开源构建脚本
@@ -414,17 +418,20 @@ LeTools
 
 `apps` 是新手最适合先看的目录，它不定义框架，而是展示"怎么跑"。
 
-| 路径                                               | 作用                                                  |
-| ------------------------------------------------ | --------------------------------------------------- |
-| `apps/test_upper_init/run_behavior_tree_json.py` | 推荐的 JSON 行为树启动器                                     |
-| `apps/test_kuavo_5w_internal/`                            | 偏底层 ROS API 测试，覆盖底盘、腿部、手臂、定时指令、力控、服务、反馈             |
-| `apps/test_kuavo_5w_adapter/`                        | Adapter 层硬件测试，覆盖标准接口、服务、状态反馈和高级定时命令                 |
-| `apps/test_kuavo_5w_sdk_internal/`                        | SDK 级测试，包含 SDK 初始化、TimedCmd API、低层 SDK、手臂控制研究       |
-| `apps/test_kuavo_5w_sdk_adapter/`                 | 当前推荐的新接口验收测试，按 `sdk/01_head` 到 `sdk/06_feedback` 分类 |
-| `apps/test_camera_adapter/`                      | 相机适配器测试：初始化、图像、深度、点云、TF、RViz、感知                     |
-| `apps/test_camera_internal/`                       | 相机视觉测试：相机启动、AprilTag、RViz 显示                        |
-| `apps/jibot_adapter/`                                    | JiBot 上位机迁移测试（适配器层）：底盘移动、目标点移动、到达检查、速度控制开关          |
-| `apps/jibot_internal/`                                   | JiBot 上位机迁移测试（内部接口）：底盘移动、到达检查等底层脚本                    |
+| 路径                                                      | 作用                                                  |
+| ------------------------------------------------------- | --------------------------------------------------- |
+| `apps/test_upper_init/run_behavior_tree_json.py`        | 推荐的 JSON 行为树启动器                                     |
+| `apps/test_kuavo_5w_internal/`                          | 偏底层 ROS API 测试，覆盖底盘、腿部、手臂、定时指令、力控、服务、反馈             |
+| `apps/test_kuavo_5w_adapter/`                           | Adapter 层硬件测试，覆盖标准接口、服务、状态反馈和高级定时命令                 |
+| `apps/test_kuavo_5w_sdk_internal/`                      | SDK 级测试，包含 SDK 初始化、TimedCmd API、低层 SDK、手臂控制研究       |
+| `apps/test_kuavo_5w_sdk_adapter/`                       | 当前推荐的新接口验收测试，按 `sdk/01_head` 到 `sdk/06_feedback` 分类 |
+| `apps/test_kuavo_5w_orchestration/`                     | 行为树节点测试，编排层每个节点一个验收脚本                              |
+| `apps/test_kuavo_5w_skills/`                            | 原子技能测试，每个技能一个独立验收脚本                                 |
+| `apps/test_camera_adapter/`                             | 相机适配器测试：初始化、图像、深度、点云、TF、RViz、感知                     |
+| `apps/test_camera_internal/`                            | 相机视觉测试：相机启动、AprilTag、RViz 显示                        |
+| `apps/jibot_adapter/`                                   | JiBot 上位机迁移测试（适配器层）：底盘移动、目标点移动、到达检查、速度控制开关          |
+| `apps/jibot_internal/`                                  | JiBot 上位机迁移测试（内部接口）：底盘移动、到达检查等底层脚本                    |
+| `apps/jiateng_adapter/`                                 | 嘉腾底盘适配器测试
 
 ### `infrastructure/` ROS 基础设施
 
@@ -712,6 +719,10 @@ orchestration/nodes/my_action_move.py           # MyActionMove
 ***
 
 ## 💬 常见问题
+
+遇到问题先查阅 **[FAQ_常见问题.md](docs/FAQ_常见问题.md)**，汇总了从飞书反馈表中整理的高频问题及解决方案，涵盖环境搭建、SDK 安装、版本兼容、手臂/底盘/相机控制等 10 大类。
+
+以下是几个最常见的快速解决：
 
 <details>
 <summary>❓ catkin build 报找不到 empy</summary>

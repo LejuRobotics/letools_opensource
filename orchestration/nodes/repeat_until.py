@@ -10,14 +10,24 @@ class RepeatUntil(py_trees.decorators.Decorator):
     """重复成功的子树，直到黑板条件等于期望值。
 
     条件在每个 tick 检查；当条件满足时，即使子树仍在运行也会被中止并返回
-    ``SUCCESS``。子树失败则立即向上传递 ``FAILURE``。
+    ``SUCCESS``。启用 ``wait_for_child_completion`` 后，则等待当前一轮结束，
+    再根据子树结果退出。子树失败则立即向上传递 ``FAILURE``。
     """
 
-    def __init__(self, name, child, condition_key, condition_path="", expected_value=True):
+    def __init__(
+        self,
+        name,
+        child,
+        condition_key,
+        condition_path="",
+        expected_value=True,
+        wait_for_child_completion=False,
+    ):
         super().__init__(name=name, child=child)
         self.condition_key = condition_key
         self.condition_path = condition_path
         self.expected_value = expected_value
+        self.wait_for_child_completion = wait_for_child_completion
         self.blackboard = self.attach_blackboard_client(name=f"{name}_condition")
         self.blackboard.register_key(key=condition_key, access=Access.READ)
 
@@ -30,7 +40,23 @@ class RepeatUntil(py_trees.decorators.Decorator):
             self.feedback_message = f"读取循环条件失败: {exc}"
             return Status.FAILURE
 
-        if condition_value is not _MISSING and condition_value == self.expected_value:
+        condition_met = (
+            condition_value is not _MISSING
+            and condition_value == self.expected_value
+        )
+        if condition_met and self.wait_for_child_completion:
+            if self.decorated.status == Status.FAILURE:
+                self.feedback_message = "子流程失败"
+                return Status.FAILURE
+            if self.decorated.status == Status.SUCCESS:
+                self.feedback_message = (
+                    f"本轮完成且循环条件满足: {self.condition_key}"
+                    f"{self._path_label()} == {self.expected_value!r}"
+                )
+                return Status.SUCCESS
+            self.feedback_message = "循环条件满足，等待本轮完成"
+            return Status.RUNNING
+        if condition_met:
             if self.decorated.status == Status.RUNNING:
                 self.decorated.stop(Status.INVALID)
             self.feedback_message = f"循环条件满足: {self.condition_key}{self._path_label()} == {self.expected_value!r}"

@@ -6,6 +6,7 @@ Aligns with `test_check_arrived.py` by calling `hardware.check_arrived_jibot()`.
 
 from dataclasses import dataclass
 from typing import Optional
+import time
 
 from core.common.logger import get_logger
 from core.domain.result import Result
@@ -62,10 +63,24 @@ class CheckArrivedJibotSkill(SkillBase):
         if self._done:
             return self._result if self._result else Result.ok("Already finished")
 
+        start_ts = time.monotonic()
+        logger.info(
+            "[Perf][check_arrived_jibot_sdk] hardware_call_start task_id=%s blocking=%s timeout=%.3fs",
+            str(self.params.task_id),
+            bool(self.params.blocking),
+            float(self.params.timeout),
+        )
         result = self.hardware.check_arrived_jibot(
             task_id=str(self.params.task_id),
             blocking=bool(self.params.blocking),
             timeout=float(self.params.timeout),
+        )
+        elapsed = time.monotonic() - start_ts
+        logger.info(
+            "[Perf][check_arrived_jibot_sdk] hardware_call_done success=%s elapsed=%.3fs task_id=%s",
+            result.success,
+            elapsed,
+            str(self.params.task_id),
         )
         self._done = True
         self._result = result

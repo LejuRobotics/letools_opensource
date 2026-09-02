@@ -276,7 +276,7 @@ def main():
         logger.info("🎉 状态反馈测试完成")
 
         # === 脚手架: 后置复位 ===
-        factory_teardown(hardware, need_arm=False)
+        factory_teardown(hardware, need_arm_reset=False)
 
     finally:
         hardware.shutdown()

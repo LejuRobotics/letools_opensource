@@ -4,6 +4,7 @@
 订阅 /move_base/amcl_pose，50Hz tick 对比距离，达标开门。
 """
 import math
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -56,6 +57,7 @@ class CheckDistanceToTargetSkill(SkillBase):
         self._done = False
         self._pose = None  # (x, y)
         self._sub = None
+        self._start_ts = None
 
     def _cb(self, msg):
         self._pose = (msg.pose.pose.position.x, msg.pose.pose.position.y)
@@ -66,6 +68,7 @@ class CheckDistanceToTargetSkill(SkillBase):
         self.params = params
         self._done = False
         self._pose = None
+        self._start_ts = time.monotonic()
         from geometry_msgs.msg import PoseWithCovarianceStamped
         self._sub = rospy.Subscriber(_AMCL_TOPIC, PoseWithCovarianceStamped, self._cb, queue_size=1)
         logger.info(f"[check_distance] 订阅 {_AMCL_TOPIC}")
@@ -89,6 +92,14 @@ class CheckDistanceToTargetSkill(SkillBase):
             self._done = True
             self._sub.unregister()
             logger.info(f"[check_distance] ✅ dist={dist:.3f}/{self.params.threshold:.3f}m")
+            logger.info(
+                "[Perf][check_distance_to_target] reached elapsed=%.3fs dist=%.3f threshold=%.3f target=(%.3f,%.3f)",
+                time.monotonic() - self._start_ts if self._start_ts is not None else -1.0,
+                dist,
+                self.params.threshold,
+                self.params.target_x,
+                self.params.target_y,
+            )
             return Result.ok("Reached")
 
         return Result.ok(f"dist={dist:.3f}/{self.params.threshold:.3f}m")

@@ -8,8 +8,8 @@
 - test_center: 头部回到正前方位置（yaw=0°, pitch=0°）
 - test_look_left: 头部向左转 30°（yaw=+30°）
 - test_look_right: 头部向右转 30°（yaw=-30°）
-- test_look_up: 头部向上抬 20°（pitch=+20°）
-- test_look_down: 头部向下低 20°（pitch=-20°）
+- test_look_up: 头部向上抬 20°（pitch=-20°）
+- test_look_down: 头部向下低 20°（pitch=+20°）
 - test_scan_sequence: 头部依次执行左→右→居中扫描动作
 """
 import sys
@@ -62,7 +62,7 @@ def test_look_right(hardware):
 def test_look_up(hardware):
     """抬头 20°"""
     logger.info("=== 测试：抬头 20° ===")
-    result = hardware.control_head_sdk(yaw=0.0, pitch=20.0)
+    result = hardware.control_head_sdk(yaw=0.0, pitch=-20.0)
     if result.success:
         logger.info("✅ 抬头成功")
     else:
@@ -73,7 +73,7 @@ def test_look_up(hardware):
 def test_look_down(hardware):
     """低头 20°"""
     logger.info("=== 测试：低头 20° ===")
-    result = hardware.control_head_sdk(yaw=0.0, pitch=-20.0)
+    result = hardware.control_head_sdk(yaw=0.0, pitch=20.0)
     if result.success:
         logger.info("✅ 低头成功")
     else:

@@ -170,6 +170,11 @@ add_message_files(
   timedPoint.msg
   lbTimedOfflineTraj.msg
   Float32MultiArrayStamped.msg
+
+  # SG100 11-DOF dexterous hand (positions in radians, rad)
+  SG100HandCommand.msg
+  SG100HandState.msg
+  SG100HandFilteredCommand.msg
 )
 
 ## Generate services in the 'srv' folder

@@ -171,6 +171,8 @@ sed -i 's/^MSG_PACKAGES=.*/MSG_PACKAGES="kuavo_msgs ocs2_msgs"/' install.sh
 # 3. 透传格式化后的版本号给 install.sh（它只从 git 重新计算并追加 a0，不读外部环境变量）
 #    在其版本计算处强制覆盖为 setup_sdk.sh 已算好的干净 tag 版本
 sed -i "s|^check_and_format_version \"\\\$BRANCH\" VERSION|VERSION=\"$VERSION_FORMATTED\"|" install.sh
+# 避免 SDK 安装脚本将所有源码改成 777
+sed -i 's|sudo chmod -R a+rwx "$SCRIPT_DIR"|sudo chmod -R a+rX "$SCRIPT_DIR"|' install.sh
 
 # 构建 extras 参数
 EXTRAS_ARG=""

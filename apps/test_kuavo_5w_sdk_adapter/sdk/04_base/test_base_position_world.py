@@ -70,7 +70,7 @@ def main():
         hardware.initialize()
         # === 脚手架: 前置设置 ===
         from apps.test_kuavo_5w_sdk_adapter._scaffold import factory_setup, factory_teardown
-        factory_setup(hardware, need_arm=False)
+        factory_setup(hardware, need_arm_reset=False)
 
         test_move_forward(hardware)
         test_move_lateral(hardware)
@@ -78,7 +78,7 @@ def main():
         logger.info("🎉 底盘位置（世界系，SDK 直调）测试完成")
 
         # === 脚手架: 后置复位 ===
-        factory_teardown(hardware, need_arm=False)
+        factory_teardown(hardware, need_arm_reset=False)
     finally:
         hardware.shutdown()
 

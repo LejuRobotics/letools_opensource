@@ -14,6 +14,7 @@
 import sys
 import time
 from pathlib import Path
+import math
 
 project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
@@ -29,7 +30,8 @@ logger = get_logger(__name__)
 # 镜像规则: J0,J3,J6 保持原值；J1,J2,J4,J5 取负号
 
 # 初始位姿（自然下垂）
-HOME_POSE = [0.0] * 14
+HOME_POSE = [15.00, 0.08, 0.00, -30.00, -0.15, -0.00, 0.56,
+            15.00, -0.08, -0.00, -30.00, 0.15, 0.00, 0.56]
 
 # 展开双臂（双臂张开前伸）— 项目中已验证的展开姿态
 # 来源: test_kuavo_5w/03_arm_control/test_arm_joint.py, test_kuavo_5w_app/03_arm_control/test_arm_joint.py 等
@@ -49,7 +51,14 @@ BEND_POSE = [
 def test_pre_pick(hardware):
     """双臂从自然下垂到展开姿态"""
     logger.info("=== 测试：HOME → 展开双臂（张开前伸） ===")
-    joint_traj = [HOME_POSE, SPREAD_POSE]
+
+    result = hardware.get_arm_joint_positions()  # 返回弧度
+    if not result.success:
+        raise RuntimeError(result.message)
+    current_pose = [math.degrees(q) for q in result.data]
+
+    joint_traj = [current_pose, SPREAD_POSE]
+    # joint_traj = [HOME_POSE, SPREAD_POSE]
     result = hardware.send_arm_joint_traj_sdk(joint_traj=joint_traj, total_time=3.0)
     if result.success:
         logger.info("✅ 展开轨迹成功")
@@ -99,7 +108,7 @@ def main():
         hardware.initialize()
         # === 脚手架: 前置设置 ===
         from apps.test_kuavo_5w_sdk_adapter._scaffold import factory_setup, factory_teardown
-        factory_setup(hardware, need_arm=True)
+        factory_setup(hardware, need_arm_reset=True)
 
         all_passed &= test_pre_pick(hardware)
         all_passed &= test_pick(hardware)
@@ -110,7 +119,7 @@ def main():
             logger.error("⚠️ 部分测试失败")
 
         # === 脚手架: 后置复位 ===
-        factory_teardown(hardware, need_arm=True)
+        factory_teardown(hardware, need_arm_reset=True)
     finally:
         hardware.shutdown()
     if not all_passed:

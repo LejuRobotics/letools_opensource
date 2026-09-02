@@ -29,27 +29,18 @@ from apps.test_kuavo_5w_sdk_adapter._scaffold import factory_setup, factory_tear
 logger = get_logger(__name__)
 
 
-def _get_torso_initial_pose():
-    """获取躯干初始位姿（直接调用ROS服务）"""
-    import rospy
-    from kuavo_msgs.srv import getLbTorsoInitialPose, getLbTorsoInitialPoseRequest
+def _get_torso_initial_pose(hardware):
+    """获取躯干初始位姿（走 adapter 接口，符合分层架构）
 
-    try:
-        rospy.wait_for_service('/mobile_manipulator_get_torso_initial_pose', timeout=5.0)
-        service_client = rospy.ServiceProxy(
-            '/mobile_manipulator_get_torso_initial_pose', getLbTorsoInitialPose
-        )
-        req = getLbTorsoInitialPoseRequest()
-        req.getFromService = True
-        response = service_client(req)
-        if response.success:
-            return list(response.torsoPose)
-        else:
-            logger.error("无法获取躯干初始位姿")
-            return None
-    except Exception as e:
-        logger.error(f"获取躯干初始位姿失败: {e}")
-        return None
+    委托 hardware.get_torso_initial_pose()（TorsoControlMixin，内部调用同一
+    /mobile_manipulator_get_torso_initial_pose 服务），返回
+    {'position': [x, y, z], 'euler': [yaw, pitch, roll]}。
+    """
+    result = hardware.get_torso_initial_pose()
+    if result.success:
+        return result.data
+    logger.error(f"获取躯干初始位姿失败: {result.message}")
+    return None
 
 
 def test_base_plus_arm(hardware):
@@ -182,7 +173,7 @@ def test_chassis_torso_arm_ee(hardware):
     """底盘 + 躯干 + 双臂EE 四规划器组合运动 (planner 0+2+6+7)"""
     logger.info("=== 测试：底盘 + 躯干 + 双臂EE 四规划器组合（同步） ===")
 
-    initial_torso_pos = _get_torso_initial_pose()
+    initial_torso_pos = _get_torso_initial_pose(hardware)
     if initial_torso_pos is None:
         logger.error("  无法获取躯干初始位姿，跳过测试")
         return
@@ -217,8 +208,8 @@ def test_chassis_torso_arm_ee(hardware):
 
     for name, desire_time, base_pose, torso_rel, left_pose, right_pose in test_cases:
         lx, lz, az, ay = torso_rel
-        abs_x = initial_torso_pos[0] + lx
-        abs_z = initial_torso_pos[2] + lz
+        abs_x = initial_torso_pos['position'][0] + lx
+        abs_z = initial_torso_pos['position'][2] + lz
         torso_pose = [abs_x, abs_z, az, ay]
 
         logger.info(f"  {name}: desire_time={desire_time}s, torso_abs=[{abs_x:.3f}, {abs_z:.3f}, {az:.2f}, {ay:.2f}]")
@@ -241,7 +232,7 @@ def test_torso_arm_ee(hardware):
     """躯干 + 双臂EE 三规划器组合运动 (planner 2+6+7)"""
     logger.info("=== 测试：躯干 + 双臂EE 三规划器组合（同步） ===")
 
-    initial_torso_pos = _get_torso_initial_pose()
+    initial_torso_pos = _get_torso_initial_pose(hardware)
     if initial_torso_pos is None:
         logger.error("  无法获取躯干初始位姿，跳过测试")
         return
@@ -275,8 +266,8 @@ def test_torso_arm_ee(hardware):
 
     for name, desire_time, torso_rel, left_pose, right_pose in test_cases:
         lx, lz, az, ay = torso_rel
-        abs_x = initial_torso_pos[0] + lx
-        abs_z = initial_torso_pos[2] + lz
+        abs_x = initial_torso_pos['position'][0] + lx
+        abs_z = initial_torso_pos['position'][2] + lz
         torso_pose = [abs_x, abs_z, az, ay]
 
         logger.info(f"  {name}: desire_time={desire_time}s, torso_abs=[{abs_x:.3f}, {abs_z:.3f}, {az:.2f}, {ay:.2f}]")
@@ -305,7 +296,7 @@ def main():
     })
     try:
         hardware.initialize()
-        factory_setup(hardware, need_arm=True)
+        factory_setup(hardware, need_arm_reset=True)
 
         test_base_plus_arm(hardware)
         test_base_plus_leg(hardware)
@@ -315,7 +306,7 @@ def main():
         test_torso_arm_ee(hardware)
         logger.info("🎉 多指令并发测试完成")
 
-        factory_teardown(hardware, need_arm=True)
+        factory_teardown(hardware, need_arm_reset=True)
     finally:
         hardware.shutdown()
 

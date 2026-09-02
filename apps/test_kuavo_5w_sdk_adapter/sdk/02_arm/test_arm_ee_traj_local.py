@@ -21,15 +21,17 @@ from adapters.hardware.factory import HardwareFactory
 
 logger = get_logger(__name__)
 
-DEFAULT_POSE = [0.3, 0.25, 0.5, 0.0, 0.0, 0.0, 1.0]
-FORWARD_POSE = [0.5, 0.25, 0.5, 0.0, 0.0, 0.0, 1.0]
+DEFAULT_POSE_LEFT = [0.3, 0.25, 0.5, 0.0, 0.0, 0.0, 1.0]
+DEFAULT_POSE_RIGHT = [0.3, -0.25, 0.5, 0.0, 0.0, 0.0, 1.0]
+FORWARD_POSE_LEFT = [0.5, 0.25, 0.5, 0.0, 0.0, 0.0, 1.0]
+FORWARD_POSE_RIGHT = [0.5, -0.25, 0.5, 0.0, 0.0, 0.0, 1.0]
 
 
 def test_forward_trajectory(hardware):
     """双臂前伸轨迹（局部系）"""
     logger.info("=== 测试：双臂末端前伸轨迹 (LOCAL) ===")
-    left_traj = [DEFAULT_POSE, FORWARD_POSE]
-    right_traj = [[0.3, -0.25, 0.5, 0, 0, 0, 1], [0.5, -0.25, 0.5, 0, 0, 0, 1]]
+    left_traj = [DEFAULT_POSE_LEFT, FORWARD_POSE_LEFT]
+    right_traj = [DEFAULT_POSE_RIGHT, FORWARD_POSE_RIGHT]
     result = hardware.send_arm_ee_traj_sdk(
         left_traj=left_traj, right_traj=right_traj, total_time=3.0, frame='base_link'
     )
@@ -44,8 +46,8 @@ def test_forward_trajectory(hardware):
 def test_return_trajectory(hardware):
     """返回默认位姿"""
     logger.info("=== 测试：返回默认位姿 (LOCAL) ===")
-    left_traj = [FORWARD_POSE, DEFAULT_POSE]
-    right_traj = [[0.6, -0.25, 0.5, 0, 0, 0, 1], [0.3, -0.25, 0.5, 0, 0, 0, 1]]
+    left_traj = [FORWARD_POSE_LEFT, DEFAULT_POSE_LEFT]
+    right_traj = [FORWARD_POSE_RIGHT, DEFAULT_POSE_RIGHT]
     result = hardware.send_arm_ee_traj_sdk(
         left_traj=left_traj, right_traj=right_traj, total_time=3.0, frame='base_link'
     )
@@ -71,7 +73,7 @@ def main():
         hardware.initialize()
         # === 脚手架: 前置设置 ===
         from apps.test_kuavo_5w_sdk_adapter._scaffold import factory_setup, factory_teardown
-        factory_setup(hardware, need_arm=True)
+        factory_setup(hardware, need_arm_reset=True)
 
         all_passed &= test_forward_trajectory(hardware)
         all_passed &= test_return_trajectory(hardware)
@@ -81,7 +83,7 @@ def main():
             logger.error("⚠️ 部分测试失败")
 
         # === 脚手架: 后置复位 ===
-        factory_teardown(hardware, need_arm=True)
+        factory_teardown(hardware, need_arm_reset=True)
     finally:
         hardware.shutdown()
     if not all_passed:

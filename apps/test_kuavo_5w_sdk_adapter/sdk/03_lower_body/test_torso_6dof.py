@@ -134,7 +134,7 @@ def main():
     try:
         hardware.initialize()
         # 注意：跳过躯干重置，避免后仰
-        factory_setup(hardware, need_arm=False, need_torso_reset=False)
+        factory_setup(hardware, need_arm_reset=False, need_torso_reset=False)
         time.sleep(0.5)
         
         # 初始位姿（可根据实际情况调整或从硬件读取）
@@ -154,7 +154,7 @@ def main():
         
         logger.info("🎉 躯干 6DOF（SDK 直调）测试完成")
     finally:
-        factory_teardown(hardware, need_arm=False)
+        factory_teardown(hardware, need_arm_reset=False)
         hardware.shutdown()
 
 

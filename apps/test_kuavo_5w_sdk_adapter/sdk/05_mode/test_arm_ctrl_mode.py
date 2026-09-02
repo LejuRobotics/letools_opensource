@@ -85,7 +85,7 @@ def main():
         hardware.initialize()
 
         # === 脚手架: 前置设置 ===
-        factory_setup(hardware, need_arm=False, need_torso_reset=True)
+        factory_setup(hardware, need_arm_reset=False, need_torso_reset=True)
 
         test_keep_pose(hardware)
         test_auto_swing(hardware)
@@ -93,7 +93,7 @@ def main():
         test_invalid_mode(hardware)
 
         # === 脚手架: 后置复位 ===
-        factory_teardown(hardware, need_arm=False)
+        factory_teardown(hardware, need_arm_reset=False)
 
         logger.info("🎉 手臂控制模式测试完成")
     finally:

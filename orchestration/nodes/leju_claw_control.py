@@ -30,6 +30,12 @@ def _is_dry_run() -> bool:
     description="通过通用硬件接口控制左、右或双侧乐聚二指夹爪",
     params=[
         {
+            "name": "enabled",
+            "type": "bool",
+            "default": True,
+            "description": "False 时跳过夹爪控制并直接返回 SUCCESS",
+        },
+        {
             "name": "command",
             "type": "json",
             "default": [[0.0, 0.0], 50.0, 1.0],
@@ -62,7 +68,14 @@ class LejuClawControl(BaseAction):
 
     def update(self):
         try:
-            raw_command = self.params.get(
+            enabled = self._as_bool(
+                self._param("enabled", True), "enabled"
+            )
+            if not enabled:
+                self.feedback_message = "夹爪控制已禁用，跳过当前节点"
+                return Status.SUCCESS
+
+            raw_command = self._param(
                 "command", [[0.0, 0.0], 50.0, 1.0]
             )
             command_key = str(self.params.get("command_key", "")).strip()
@@ -106,6 +119,18 @@ class LejuClawControl(BaseAction):
         except Exception as exc:
             self.feedback_message = f"gripper control failed: {exc}"
             return Status.FAILURE
+
+    def _param(self, key: str, default=None):
+        """优先从 READ_BOARD 绑定键读取，保留嵌套 JSON 对象。"""
+        board_key = str(
+            self.params.get(f"{key}__board_key", "")
+        ).strip()
+        if not board_key:
+            return self.params.get(key, default)
+        self.global_blackboard.register_key(key=board_key, access=Access.READ)
+        if not self.global_blackboard.exists(board_key):
+            raise ValueError(f"黑板不存在夹爪参数键: {board_key}")
+        return self.global_blackboard.get(board_key)
 
     @classmethod
     def _parse_command(cls, raw) -> DualGripperCommand:
@@ -227,6 +252,21 @@ class LejuClawControl(BaseAction):
         if not math.isfinite(value) or not 0.0 <= value <= 100.0:
             raise ValueError("左右位置必须为 -1 或 [0,100]")
         return value
+
+    @staticmethod
+    def _as_bool(raw, name):
+        """兼容 JSON 布尔值和行为树编辑器产生的布尔字符串。"""
+        if isinstance(raw, bool):
+            return raw
+        if isinstance(raw, str):
+            value = raw.strip().lower()
+            if value in ("true", "1", "yes"):
+                return True
+            if value in ("false", "0", "no"):
+                return False
+        if isinstance(raw, (int, float)) and raw in (0, 1):
+            return bool(raw)
+        raise ValueError(f"{name} 必须是布尔值")
 
     @staticmethod
     def _bounded(raw, name: str, minimum: float, maximum: float) -> float:

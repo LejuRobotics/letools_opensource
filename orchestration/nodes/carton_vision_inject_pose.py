@@ -24,6 +24,14 @@ except ImportError:
     HAS_ROSPY = False
 
 
+def _to_bool(value, default=True):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 @define_manifest(
     label="视觉位姿注入",
     category=["perception", "vision"],
@@ -33,6 +41,8 @@ except ImportError:
         "构造两段 waypoints(接近+抓取)写入黑板，覆盖 timed_grasp 的静态值。"
     ),
     params=[
+        {"name": "enable", "type": "bool", "default": "true",
+         "description": "是否启用视觉位姿检测；关闭时不调用视觉服务，直接使用 board 中静态 waypoints"},
         {"name": "left_board_key", "type": "string",
          "default": "timed_grasp_1_left_waypoints",
          "description": "左手 waypoints 写入的黑板 key"},
@@ -112,6 +122,14 @@ class CartonVisionInjectPose(BaseAction):
     def update(self):
         if self._done:
             return Status.SUCCESS if self._success else Status.FAILURE
+
+        if not self._vision_enabled():
+            self._done = True
+            self._success = True
+            self.feedback_message = "carton_vision_inject: disabled, using static waypoints"
+            if HAS_ROSPY:
+                rospy.loginfo("[CartonVisionInjectPose] 视觉检测已关闭，使用 board 静态 waypoints")
+            return Status.SUCCESS
 
         if _DRY_RUN:
             self._done = True
@@ -218,6 +236,18 @@ class CartonVisionInjectPose(BaseAction):
         self._success = True
         return Status.SUCCESS
 
+    def _vision_enabled(self) -> bool:
+        enabled = _to_bool(self.params.get("enable", True), True)
+        board_key = str(self.params.get("enable__board_key", "")).strip()
+        if not board_key:
+            return enabled
+        try:
+            self.global_blackboard.register_key(key=board_key, access=py_trees.common.Access.READ)
+            enabled = _to_bool(self.global_blackboard.get(board_key), enabled)
+        except Exception:
+            pass
+        return enabled
+
     def _inject_top_carton_fields(self, result, data) -> None:
         """把 /infer_top_carton_ids 返回的 message 解析为不满垛摘要并写入黑板。
 
@@ -226,9 +256,7 @@ class CartonVisionInjectPose(BaseAction):
 
         解析失败时仅告警，不影响主流程（保持与现有视觉失败回退一致的容错哲学）。
         """
-        if str(self.params.get("enable_top_carton_fields", "true")).lower() not in (
-            "1", "true", "yes",
-        ):
+        if not _to_bool(self.params.get("enable_top_carton_fields", True), True):
             return
 
         message = ""

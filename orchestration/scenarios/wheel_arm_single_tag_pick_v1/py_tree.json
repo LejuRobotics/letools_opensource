@@ -1,0 +1,149 @@
+{
+  "tree": {
+    "name": "Sequence",
+    "label": "wheel_arm_single_tag_pick_v1",
+    "params": {
+      "memory": {
+        "value": "True",
+        "source": "CUSTOM",
+        "data_type": "string"
+      }
+    },
+    "childs": [
+      {
+        "name": "NodeInjectSingleTag",
+        "label": "inject_tag",
+        "params": {
+          "tag_id": {
+            "value": "${pick_tag_id}",
+            "source": "INPUT",
+            "data_type": "int"
+          },
+          "pose_in_odom": {
+            "value": "${virtual_tag_pose_in_odom}",
+            "source": "INPUT",
+            "data_type": "list"
+          },
+          "use_virtual_tag": {
+            "value": "${use_virtual_tag}",
+            "source": "INPUT",
+            "data_type": "bool"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "NodeSourceTagToArmGoalSingleTag",
+        "label": "tag_to_joint_goal",
+        "params": {
+          "tag_id": {
+            "value": "${pick_tag_id}",
+            "source": "INPUT",
+            "data_type": "int"
+          },
+          "box_width": {
+            "value": "${box_width}",
+            "source": "INPUT",
+            "data_type": "float"
+          },
+          "box_behind_tag": {
+            "value": "${box_behind_tag}",
+            "source": "INPUT",
+            "data_type": "float"
+          },
+          "box_beneath_tag": {
+            "value": "${box_beneath_tag}",
+            "source": "INPUT",
+            "data_type": "float"
+          },
+          "box_left_tag": {
+            "value": "${box_left_tag}",
+            "source": "INPUT",
+            "data_type": "float"
+          },
+          "hand_pitch_degree": {
+            "value": "${hand_pitch_degree}",
+            "source": "INPUT",
+            "data_type": "float"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "NodeWheelArmSingleTag",
+        "label": "execute_bimanual_joint",
+        "params": {
+          "total_time": {
+            "value": "3.0",
+            "source": "CUSTOM",
+            "data_type": "float"
+          },
+          "timeout_sec": {
+            "value": "30.0",
+            "source": "CUSTOM",
+            "data_type": "float"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "ArmResetSdkMove",
+        "label": "arm_reset",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      }
+    ],
+    "childBoard": []
+  },
+  "interface": {
+    "inputs": [
+      {
+        "internal_name": "pick_tag_id",
+        "external_key": "pick_tag_id",
+        "type": "int"
+      },
+      {
+        "internal_name": "box_width",
+        "external_key": "box_width",
+        "type": "float"
+      },
+      {
+        "internal_name": "box_behind_tag",
+        "external_key": "box_behind_tag",
+        "type": "float"
+      },
+      {
+        "internal_name": "box_beneath_tag",
+        "external_key": "box_beneath_tag",
+        "type": "float"
+      },
+      {
+        "internal_name": "box_left_tag",
+        "external_key": "box_left_tag",
+        "type": "float"
+      },
+      {
+        "internal_name": "hand_pitch_degree",
+        "external_key": "hand_pitch_degree",
+        "type": "float"
+      },
+      {
+        "internal_name": "virtual_tag_pose_in_odom",
+        "external_key": "virtual_tag_pose_in_odom",
+        "type": "list"
+      },
+      {
+        "internal_name": "use_virtual_tag",
+        "external_key": "use_virtual_tag",
+        "type": "bool"
+      }
+    ],
+    "outputs": [],
+    "custom": [],
+    "process": []
+  }
+}

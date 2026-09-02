@@ -85,12 +85,12 @@ def main():
     try:
         hardware.initialize()
         from apps.test_kuavo_5w_sdk_adapter._scaffold import factory_setup, factory_teardown
-        factory_setup(hardware, need_arm=True)
+        factory_setup(hardware, need_arm_reset=True)
         test_set_trajectory(hardware)
         test_enable(hardware)
         test_disable(hardware)
         logger.info("🎉 离线轨迹测试完成")
-        factory_teardown(hardware, need_arm=True)
+        factory_teardown(hardware, need_arm_reset=True)
     finally:
         hardware.shutdown()
 

@@ -91,7 +91,7 @@ def main():
     })
     try:
         hardware.initialize()
-        factory_setup(hardware, need_arm=True)
+        factory_setup(hardware, need_arm_reset=True)
 
         test_disable_empty_detect(hardware)
         test_apply_weight_force(hardware)
@@ -99,7 +99,7 @@ def main():
         test_restore_empty_detect(hardware)
 
         logger.info("🎉 手臂力控测试完成")
-        factory_teardown(hardware, need_arm=True)
+        factory_teardown(hardware, need_arm_reset=True)
     finally:
         hardware.shutdown()
 

@@ -66,8 +66,17 @@ def _make_odom_to_base():
         {"name": "gripper_effort", "type": "float", "default": "1.0", "description": "夹爪力矩(A)"},
         {"name": "debug_break", "type": "bool", "default": "false", "description": "调试：轨迹下发前暂停等待 Enter"},
         {"name": "cmd_interval", "type": "float", "default": "0.5", "description": "相邻关键点指令间隔秒数（避免运控 main loop busy）"},
-        {"name": "prep_only", "type": "bool", "default": "false", "description": "只执行预抓取准备位（BASE 系固定 (0.4,±0.35,0.13), pitch=-90°），不走关键点轨迹"},
+        {"name": "prep_only", "type": "bool", "default": "false",
+         "description": "只执行预抓取准备位（BASE 系写死位姿），不走 Tag 关键点轨迹"},
         {"name": "prep_time", "type": "float", "default": "2.0", "description": "预抓取准备位执行时长(s)"},
+        {"name": "prep_left_pose", "type": "json", "default": "[0.4,0.35,0.13,0,-90,0]",
+         "description": "prep_only 左臂 BASE 位姿 [x,y,z,yaw,pitch,roll]（米/度）"},
+        {"name": "prep_right_pose", "type": "json", "default": "[0.4,-0.35,0.13,0,-90,0]",
+         "description": "prep_only 右臂 BASE 位姿 [x,y,z,yaw,pitch,roll]（米/度）"},
+        {"name": "max_keypoints", "type": "int", "default": "0",
+         "description": "最多执行前 N 个关键点；0 表示全部。并行前伸时用 1（只走抓取预张点，不夹爪）"},
+        {"name": "max_reach_xy", "type": "float", "default": "0",
+         "description": "base系水平伸距上限(m)；>0 时按计算方向等比缩放 xy，保留 z/姿态，避免超臂展抽动"},
     ],
     inputs=[
         {"name": "arm_pose_and_wrench", "type": "object", "required": True, "default_key": "ArmPoseAndWrench",
@@ -99,6 +108,22 @@ class MoveArmBaseTargetPoseMove(BaseAction):
         r = R.from_quat([p[3], p[4], p[5], p[6]])
         roll, pitch, yaw = r.as_euler("xyz")
         return [p[0], p[1], p[2], math.degrees(yaw), math.degrees(pitch), math.degrees(roll)]
+
+    @staticmethod
+    def _parse_pose6(raw, default):
+        """解析 [x,y,z,yaw,pitch,roll]（yaw/pitch/roll 为度）。"""
+        import ast
+        if raw is None:
+            return list(default)
+        if isinstance(raw, (list, tuple)) and len(raw) >= 6:
+            return [float(x) for x in raw[:6]]
+        try:
+            parsed = ast.literal_eval(str(raw))
+            if isinstance(parsed, (list, tuple)) and len(parsed) >= 6:
+                return [float(x) for x in parsed[:6]]
+        except Exception:
+            pass
+        return list(default)
 
     def _control_gripper(self, hw, close: bool):
         position = float(self.params.get("gripper_position", 100.0)) if close else 0.0
@@ -136,20 +161,27 @@ class MoveArmBaseTargetPoseMove(BaseAction):
             self._success = True
             return
 
-        # prep_only 模式：只执行预抓取准备位，不读关键点、不走轨迹
+        # prep_only 模式：只执行写死 BASE 预抓取位，不读关键点、不走 Tag 轨迹
         if self._prep_only:
             hw = get_shared_hardware()
-            prep_l = Pose6D(x=0.4, y=0.35, z=0.13, roll=0.0, pitch=math.radians(-90), yaw=0.0)
-            prep_r = Pose6D(x=0.4, y=-0.35, z=0.13, roll=0.0, pitch=math.radians(-90), yaw=0.0)
-            ql = prep_l.to_quaternion()
-            qr = prep_r.to_quaternion()
-            prep_lp = [prep_l.x, prep_l.y, prep_l.z, ql[0], ql[1], ql[2], ql[3]]
-            prep_rp = [prep_r.x, prep_r.y, prep_r.z, qr[0], qr[1], qr[2], qr[3]]
-            print(f"[MoveArmBaseTargetPoseMove] 预抓取准备位(prep_only): L=({prep_lp[0]:.3f},{prep_lp[1]:.3f},{prep_lp[2]:.3f})", flush=True)
+            lp = self._parse_pose6(
+                self.params.get("prep_left_pose"), [0.4, 0.35, 0.13, 0.0, -90.0, 0.0])
+            rp = self._parse_pose6(
+                self.params.get("prep_right_pose"), [0.4, -0.35, 0.13, 0.0, -90.0, 0.0])
+            # TimedCmd: [x,y,z,yaw,pitch,roll]（度）
+            left_cmd = [lp[0], lp[1], lp[2], lp[3], lp[4], lp[5]]
+            right_cmd = [rp[0], rp[1], rp[2], rp[3], rp[4], rp[5]]
+            print(
+                f"[MoveArmBaseTargetPoseMove] 预抓取准备位(prep_only BASE): "
+                f"L=({left_cmd[0]:.3f},{left_cmd[1]:.3f},{left_cmd[2]:.3f}) "
+                f"R=({right_cmd[0]:.3f},{right_cmd[1]:.3f},{right_cmd[2]:.3f}) "
+                f"pitch={left_cmd[4]:.1f}°",
+                flush=True,
+            )
             result = hw.send_timed_multi_commands(
                 [
-                    {"planner_index": 6, "desire_time": float(self.params.get("prep_time", 2.0)), "cmd_vec": self._quat_point_to_cmd_deg(prep_lp)},
-                    {"planner_index": 7, "desire_time": float(self.params.get("prep_time", 2.0)), "cmd_vec": self._quat_point_to_cmd_deg(prep_rp)},
+                    {"planner_index": 6, "desire_time": float(self.params.get("prep_time", 2.0)), "cmd_vec": left_cmd},
+                    {"planner_index": 7, "desire_time": float(self.params.get("prep_time", 2.0)), "cmd_vec": right_cmd},
                 ],
                 is_sync=True,
             )
@@ -207,8 +239,30 @@ class MoveArmBaseTargetPoseMove(BaseAction):
             left_traj.append(_to_traj_point(lk))
             right_traj.append(_to_traj_point(rk))
 
-        # 单关键点时重复一次（TimedCmd 单命令本身支持单点）
-        if len(left_traj) == 1:
+        max_kps = int(self.params.get("max_keypoints", 0) or 0)
+        if max_kps > 0:
+            left_traj = left_traj[:max_kps]
+            right_traj = right_traj[:max_kps]
+            print(f"[MoveArmBaseTargetPoseMove] max_keypoints={max_kps}，仅执行前 {len(left_traj)} 点", flush=True)
+
+        max_reach_xy = float(self.params.get("max_reach_xy", 0) or 0)
+        if max_reach_xy > 0:
+            for side, traj in (("L", left_traj), ("R", right_traj)):
+                for i, p in enumerate(traj):
+                    xy = math.hypot(p[0], p[1])
+                    if xy > max_reach_xy:
+                        scale = max_reach_xy / xy
+                        old = (p[0], p[1], p[2])
+                        p[0] *= scale
+                        p[1] *= scale
+                        print(
+                            f"[MoveArmBaseTargetPoseMove] {side}{i} 水平伸距 {xy:.3f}m → "
+                            f"{max_reach_xy:.3f}m，pos {old} → ({p[0]:.3f},{p[1]:.3f},{p[2]:.3f})",
+                            flush=True,
+                        )
+
+        # 仅在「完整轨迹恰好 1 点」时复制；max_keypoints=1 的预伸只发一次，避免连发抽动
+        if len(left_traj) == 1 and max_kps <= 0:
             left_traj.insert(0, list(left_traj[0]))
             right_traj.insert(0, list(right_traj[0]))
 
@@ -262,6 +316,7 @@ class MoveArmBaseTargetPoseMove(BaseAction):
             print(f"[MoveArmBaseTargetPoseMove] kp{i}: 调 send_timed_multi_commands(planner 6/7, {total_time}s)", flush=True)
             result = hw.send_timed_multi_commands(commands, is_sync=True)
             print(f"[MoveArmBaseTargetPoseMove] kp{i} 返回 success={result.success}", flush=True)
+            _time.sleep(3)
             if not result.success:
                 self.feedback_message = f"关键点 {i} 移动失败: {result.message}"
                 self._done = True
@@ -270,7 +325,8 @@ class MoveArmBaseTargetPoseMove(BaseAction):
             # is_sync 的"完成"是服务侧确认
             if i < len(left_traj) - 1:
                 import time as _time
-                _time.sleep(float(self.params.get("cmd_interval", 0.5)))
+#                _time.sleep(float(self.params.get("cmd_interval", 0.5)))
+                _time.sleep(3)
 
         # 夹爪动作：轨迹执行完成后按索引触发
         close_indices = self._parse_indices(self.params.get("gripper_close_indices"))

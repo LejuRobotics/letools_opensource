@@ -6,6 +6,7 @@ Aligns with `test_leg_joint.py` by calling `hardware.send_leg_joint_sdk(joint_an
 
 from dataclasses import dataclass, field
 from typing import List, Optional
+import time
 
 from core.common.logger import get_logger
 from core.domain.result import Result
@@ -73,9 +74,22 @@ class LegJointSdkSkill(SkillBase):
             self._done = True
             return Result.fail("Hardware does not implement send_leg_joint_sdk()")
 
+        start_ts = time.monotonic()
+        logger.info(
+            "[Perf][leg_joint_sdk] hardware_call_start angles=%s total_time=%.3fs",
+            list(self.params.joint_angles),
+            float(self.params.total_time),
+        )
         result = fn(
             joint_angles=list(self.params.joint_angles),
             total_time=float(self.params.total_time),
+        )
+        elapsed = time.monotonic() - start_ts
+        logger.info(
+            "[Perf][leg_joint_sdk] hardware_call_done success=%s elapsed=%.3fs expected=%.3fs",
+            result.success,
+            elapsed,
+            float(self.params.total_time),
         )
         self._done = True
         if result.success:

@@ -26,7 +26,7 @@
 #### 📦 1.1 Docker 镜像部署
 
 仓库地址：https://gitcode.com/OpenLET/kuavo-ros-opensource/tree/dev/
-请下载与当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 master / 1.4.4），则将此仓库下的 master分支，tag为1.4.4,下载到本地，git clone -b 1.4.4 https://gitcode.com/OpenLET/kuavo-ros-opensource.git
+请下载与当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 master / 1.4.5），则将此仓库下的 master分支，tag为1.4.5,下载到本地，git clone -b 1.4.5 https://gitcode.com/OpenLET/kuavo-ros-opensource.git
 
 根据 readme.md 文档跑通 docker 环境，注意 Ubuntu 20.04 需要赋予 **sudo 权限**。
 
@@ -139,7 +139,7 @@ source devel/setup.bash
 
 新开一个终端，在项目根目录运行以下命令，脚本将自动完成 Submodule 初始化、分支切换、配置生成及 SDK 安装：
 >📌 SDK 版本由仓库自带的 `scripts/kuavo_humanoid_sdk_tools/sdk_version.env` 锁定，
-> 记录当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 `master` / `1.4.4`），
+> 记录当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 `master` / `1.4.5`），
 > 每次 LeTools 发版时同步更新，请下载对应分支与tag的kuavo-ros-opensource，以确保安装到与当前版本匹配的 SDK。
 
 ```bash
@@ -193,10 +193,10 @@ source devel/setup.bash
 
 ```bash
 # 首先 source 一下环境变量
-cd LeTools/infrastructure/ros_packages
+cd ~/letools_opensource/infrastructure/ros_packages
 source devel/setup.bash
 # 这里记得用系统环境所在的 py 环境也就是 ros 所在，有虚拟环境记得做选择
-cd LeTools/apps/test_kuavo_5w_sdk_adapter/sdk/01_head
+cd ~/letools_opensource/apps/test_kuavo_5w_sdk_adapter/sdk/01_head
 python3 test_head_control.py
 ```
 

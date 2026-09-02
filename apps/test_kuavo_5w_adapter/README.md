@@ -1,4 +1,4 @@
-﻿# Kuavo 5-W 适配器层标准接口测试 (Tier 2)
+# Kuavo 5-W 适配器层标准接口测试 (Tier 2)
 
 > 📋 [apps/ 测试套件总览](../README.md) · [源脚本 → T1 → T2 → T3 → T4 映射表](../TEST_SCRIPT_MAPPING.md)
 
@@ -10,10 +10,10 @@
 
 | 层级 | 目录 | 接口方式 | 目的 |
 |------|------|---------|------|
-| T1 | `test_kuavo_5w/` | rospy 直调 ROS 话题/服务 | 底层基准：ROS 通信正确性 |
-| **T2 (本目录)** | `test_kuavo_5w_app/` | `LejuWheeledArmHardware` 标准接口 | 适配器层：标准方法验证 |
-| T3 | `test_kuavo_5w_sdk/` | KuavoHumanoid SDK 原生 API | SDK 可用性验证 |
-| T4 | `test_kuavo_5w_refactored/` | `HardwareFactory` → `_sdk`/`_timed` 方法 | Factory 封装验证 |
+| T1 | `test_kuavo_5w_internal/` | rospy 直调 ROS 话题/服务 | 底层基准：ROS 通信正确性 |
+| **T2 (本目录)** | `test_kuavo_5w_adapter/` | `LejuWheeledArmHardware` 标准接口 | 适配器层：标准方法验证 |
+| T3 | `test_kuavo_5w_sdk_internal/` | KuavoHumanoid SDK 原生 API | SDK 可用性验证 |
+| T4 | `test_kuavo_5w_sdk_adapter/` | `HardwareFactory` → `_sdk`/`_timed` 方法 | Factory 封装验证 |
 
 ### 职责边界
 
@@ -58,23 +58,20 @@
 对应命令示例：
 
 ```bash
-# 1. 无 ROS 预检
-python3 apps/test_kuavo_5w_app/verify_phase1_standard_methods.py
-
 # 2. 底盘速度，本体系
-python3 apps/test_kuavo_5w_app/01_base_control/test_cmd_vel_base.py
+python3 apps/test_kuavo_5w_adapter/01_base_control/test_cmd_vel_base.py
 
 # 3. MPC 模式服务
-python3 apps/test_kuavo_5w_app/06_services/test_set_mpc_mode.py
+python3 apps/test_kuavo_5w_adapter/06_services/test_set_mpc_mode.py
 
 # 4. 腿部关节
-python3 apps/test_kuavo_5w_app/02_lower_body/test_leg_joint.py
+python3 apps/test_kuavo_5w_adapter/02_lower_body/test_leg_joint.py
 
 # 5. 手臂关节
-python3 apps/test_kuavo_5w_app/03_arm_control/test_arm_joint.py
+python3 apps/test_kuavo_5w_adapter/03_arm_control/test_arm_joint.py
 
 # 6. 状态反馈
-python3 apps/test_kuavo_5w_app/07_debug_feedback/verify_state_data.py
+python3 apps/test_kuavo_5w_adapter/07_debug_feedback/verify_state_data.py
 ```
 
 ### 什么时候看哪个文档
@@ -106,18 +103,18 @@ T2 脚本失败时，不要马上怀疑上层业务逻辑，可以按下面顺�
 ```
 
 ---
+<!-- AUTO-GENERATED:START directory-tree -->
 ## 目录结构
 
 ```
-apps/test_kuavo_5w_app/
+apps/test_kuavo_5w_adapter/
 ├── README.md
 ├── __init__.py
 ├── _scaffold.py                          # 适配器层脚手架 (adapter_setup/teardown)
+├── run_test.sh                            # 批量测试入口
 ├── MPC_MODE_GUIDE.md                     # MPC 模式使用指南
-│
-├── test_base_control.py                  # ⚠️ 旧版，已拆分为 01_base_control/
-├── test_arm_control.py                   # ⚠️ 旧版，已拆分为 03_arm_control/
-├── verify_phase1_standard_methods.py     # 预检脚本 (无ROS)
+├── config/
+│   └── backend_config.yaml               # 后端配置
 │
 ├── 01_base_control/                      # 底盘控制 (4) ✅
 │   ├── test_cmd_vel_base.py
@@ -135,7 +132,7 @@ apps/test_kuavo_5w_app/
 │   ├── test_arm_ee_local.py
 │   └── test_arm_ee_joint.py
 │
-├── 04_timed_commands/                    # 标准接口的时序验证 (10) ⚠️
+├── 04_timed_commands/                    # 时序指令 (10) 🚫 架构违规
 │   ├── test_cmd_vel_sequence.py
 │   ├── test_cmd_pose_sequence.py
 │   ├── test_leg_joint_sequence.py
@@ -147,21 +144,25 @@ apps/test_kuavo_5w_app/
 │   ├── test_ruckig_params.py
 │   └── test_ruckig_simple.py
 │
-├── 05_force_control/                     # ❌ 空目录 (仅 __init__.py)
+├── 05_force_control/                     # 力控 (1) ✅
+│   └── test_force_control.py
 │
-├── 06_services/                          # 服务调用 (2) ✅
+├── 06_services/                          # 服务调用 (3) ✅
 │   ├── test_set_mpc_mode.py
-│   └── test_enable_quick_mode.py
+│   ├── test_enable_quick_mode.py
+│   └── test_set_arm_ctrl_mode.py
 │
-├── 07_debug_feedback/                    # 调试反馈 (1 test + 2 诊断)
-│   ├── diagnose_ros_topics.py
+├── 07_debug_feedback/                    # 调试反馈 (3) ✅
 │   ├── test_complete_state_feedback.py
+│   ├── diagnose_ros_topics.py
 │   └── verify_state_data.py
 │
-└── config/                               # 配置文件
-    └── backend_config.yaml
+└── 08_end_effector/                      # 末端执行器 (1) ✅
+    └── test_sg100_hand.py                # SG100 11-DOF 灵巧手
 ```
+<!-- AUTO-GENERATED:END directory-tree -->
 
+<!-- AUTO-GENERATED:START completion-table -->
 ## 完成状态
 
 | 模块 | 脚本数 | 状态 | 说明 |
@@ -169,41 +170,36 @@ apps/test_kuavo_5w_app/
 | 01_base_control | 4 | ✅ | 底盘控制全部实现 |
 | 02_lower_body | 2 | ✅ | 下肢+躯干全部实现 |
 | 03_arm_control | 4 | ⚠️ | 已实现，存在超时问题待修复 |
-| 04_timed_commands | 10 | 🚫 | **架构违规**（全部使用 `_timed` 方法，违反 T2 约束），保留不动，由 T3+T4 覆盖 |
-| 05_force_control | 0 | ❌ | 唯一未实现的模块 |
-| 06_services | 2 | ✅ | 服务调用全部实现 |
-| 07_debug_feedback | 1 test + 2 诊断 | ✅ | 反馈订阅全部实现 |
-| **维护脚本** | **13** | | 参与覆盖率、baseline、修复范围 |
-| 根目录 legacy 旧版 | 2 | ⚠️ | 已拆分为子目录，保留兼容，不参与覆盖率 |
-| **架构违规** | **10** | 🚫 | `04_timed_commands/`，由 T3+T4 覆盖 |
+| 04_timed_commands | 10 | 🚫 | **架构违规**（使用 `_timed` 方法，违反 T2 约束），保留不动，由 T3+T4 覆盖 |
+| 05_force_control | 1 | ✅ | 力控基础实现 |
+| 06_services | 3 | ✅ | 服务调用全部实现 |
+| 07_debug_feedback | 3 | ✅ | 反馈订阅 + 诊断工具全部实现 |
+| 08_end_effector | 1 | ✅ | SG100 灵巧手适配器层测试 |
+| **总计** | **28** | | 18 合规 + 10 架构违规 |
+
+> 统计口径：排除 `__init__.py` 和 `_scaffold.py`，统计其余全部 `.py` 文件。
+<!-- AUTO-GENERATED:END completion-table -->
 
 ### `04_timed_commands/` 架构违规说明
 
-T2 的 `04_timed_commands/` 下全部 10 个脚本均使用 `_timed` 后缀方法（`send_*_timed()`），违反 T2 层 "只测试标准接口方法（无后缀），不涉及 `_timed`/`_sdk` 方法" 的架构约束。
+T2 的 `04_timed_commands/` 下 10 个脚本中，9 个使用 `_timed` 后缀方法（`send_*_timed()`），违反 T2 层 "只测试标准接口方法（无后缀），不涉及 `_timed`/`_sdk` 方法" 的架构约束。`test_ruckig_simple.py` 例外，使用标准方法但误放此目录。
 
 这些脚本保留不动，**不纳入 T2 的修复范围**。对应的 TimedCmd 功能由 T3（SDK 原生验证）+ T4（Factory 封装验证）完整覆盖。
-
-### 根目录旧版脚本
-
-| 文件 | 说明 |
-|------|------|
-| `test_base_control.py` | 旧版底盘控制（已拆分为 `01_base_control/` 4 个细粒度脚本） |
-| `test_arm_control.py` | 旧版手臂控制（已拆分为 `03_arm_control/` 4 个细粒度脚本） |
-| `verify_phase1_standard_methods.py` | 预检脚本，无 ROS 环境可用 |
-
-这些旧版脚本保留用于兼容，新开发和测试应使用子目录中的细粒度脚本。
 
 ## 运行方式
 
 ```bash
 # 单个脚本
-python3 apps/test_kuavo_5w_app/01_base_control/test_cmd_vel_base.py
+python3 apps/test_kuavo_5w_adapter/01_base_control/test_cmd_vel_base.py
 
 # pytest 运行
-pytest apps/test_kuavo_5w_app/01_base_control/test_cmd_vel_base.py -v
+pytest apps/test_kuavo_5w_adapter/01_base_control/test_cmd_vel_base.py -v
 
 # 模块批量
-python3 -m unittest discover -s apps/test_kuavo_5w_app/01_base_control -p "test_*.py"
+python3 -m unittest discover -s apps/test_kuavo_5w_adapter/01_base_control -p "test_*.py"
+
+# 批量测试脚本
+./apps/test_kuavo_5w_adapter/run_test.sh
 ```
 
 ## 测试脚本模板
@@ -211,7 +207,7 @@ python3 -m unittest discover -s apps/test_kuavo_5w_app/01_base_control -p "test_
 ```python
 import unittest
 from adapters.hardware.leju_wheeled.hardware import LejuWheeledArmHardware
-from apps.test_kuavo_5w_app._scaffold import adapter_setup, adapter_teardown
+from apps.test_kuavo_5w_adapter._scaffold import adapter_setup, adapter_teardown
 from core.domain.enums import MPCControlMode
 
 class TestExample(unittest.TestCase):
@@ -239,6 +235,5 @@ class TestExample(unittest.TestCase):
 
 ---
 
-**最后更新**: 2026-05-30
-**状态**: 25/25 子目录脚本已实现 🔄，唯一缺口：`05_force_control/` (空目录)
-
+**最后更新**: 2026-08-11
+**状态**: 28/28 脚本已实现（18 合规 + 10 架构违规保留）

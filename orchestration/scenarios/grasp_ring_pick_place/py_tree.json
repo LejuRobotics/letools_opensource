@@ -1,0 +1,71 @@
+{
+  "tree": {
+    "name": "Sequence",
+    "label": "grasp_ring_pick_place",
+    "params": {"memory": {"value": "True", "source": "CUSTOM", "data_type": "string"}},
+    "childs": [
+      {"name": "pre_grasp.json", "label": "pre_grasp", "params": {
+        "torso_joints":  {"value": "${torso_joints}",  "source": "INPUT", "data_type": "list"},
+        "q_pre":         {"value": "${q_pre}",         "source": "INPUT", "data_type": "list"},
+        "gripper_pre_position": {"value": "${gripper_pre_position}", "source": "INPUT", "data_type": "float"}
+      }, "childs": [], "childBoard": []},
+      {"name": "inference_control.json", "label": "inference_control", "params": {
+        "inference_config_path":   {"value": "${inference_config_path}",   "source": "INPUT", "data_type": "string"},
+        "policy_type":             {"value": "${policy_type}",             "source": "INPUT", "data_type": "string"},
+        "pretrained_path":         {"value": "${pretrained_path}",         "source": "INPUT", "data_type": "string"},
+        "task_prompt":             {"value": "${task_prompt}",             "source": "INPUT", "data_type": "string"},
+        "max_episode_steps":       {"value": "${max_episode_steps}",       "source": "INPUT", "data_type": "int"},
+        "device":                  {"value": "${device}",                  "source": "INPUT", "data_type": "string"},
+        "inference_env":           {"value": "${inference_env}",           "source": "INPUT", "data_type": "string"},
+        "gripper_pre_position":    {"value": "${gripper_pre_position}",    "source": "INPUT", "data_type": "float"},
+        "gripper_close_threshold": {"value": "${gripper_close_threshold}", "source": "INPUT", "data_type": "float"},
+        "gripper_hold_frames":     {"value": "${gripper_hold_frames}",     "source": "INPUT", "data_type": "int"},
+        "post_close_steps":        {"value": "${post_close_steps}",        "source": "INPUT", "data_type": "int"}
+      }, "childs": [], "childBoard": []},
+      {"name": "pose_after_grasp.json", "label": "pose_after_grasp", "params": {
+        "q_place": {"value": "${q_place}", "source": "INPUT", "data_type": "list"}
+      }, "childs": [], "childBoard": []},
+      {"name": "nav_and_lift_torso.json", "label": "nav_and_lift", "params": {
+        "place_target_x": {"value": "${place_target_x}", "source": "INPUT", "data_type": "float"},
+        "place_target_y": {"value": "${place_target_y}", "source": "INPUT", "data_type": "float"}
+      }, "childs": [], "childBoard": []},
+      {"name": "place_ring.json", "label": "place_ring", "params": {
+        "place_target_x": {"value": "${place_target_x}", "source": "INPUT", "data_type": "float"},
+        "place_target_y": {"value": "${place_target_y}", "source": "INPUT", "data_type": "float"},
+        "place_target_z": {"value": "${place_target_z}", "source": "INPUT", "data_type": "float"},
+        "gripper_pre_position": {"value": "${gripper_pre_position}", "source": "INPUT", "data_type": "float"},
+        "gripper_effort": {"value": "${gripper_effort}", "source": "INPUT", "data_type": "float"}
+      }, "childs": [], "childBoard": []}
+    ],
+    "childBoard": []
+  },
+  "interface": {
+    "inputs": [
+      {"internal_name": "torso_joints",          "external_key": "torso_joints",          "type": "list"},
+      {"internal_name": "q_pre",                 "external_key": "q_pre",                 "type": "list"},
+      {"internal_name": "q_place",              "external_key": "q_place",              "type": "list"},
+      {"internal_name": "grasp_offset_z",        "external_key": "grasp_offset_z",        "type": "float"},
+      {"internal_name": "pre_grasp_offset_z",    "external_key": "pre_grasp_offset_z",    "type": "float"},
+      {"internal_name": "ee_to_tip_z",           "external_key": "ee_to_tip_z",           "type": "float"},
+      {"internal_name": "gripper_pre_position",  "external_key": "gripper_pre_position",  "type": "float"},
+      {"internal_name": "gripper_close_position", "external_key": "gripper_close_position", "type": "float"},
+      {"internal_name": "gripper_effort",        "external_key": "gripper_effort",        "type": "float"},
+      {"internal_name": "ring_name",             "external_key": "ring_name",             "type": "string"},
+      {"internal_name": "inference_config_path", "external_key": "inference_config_path", "type": "string"},
+      {"internal_name": "policy_type",           "external_key": "policy_type",           "type": "string"},
+      {"internal_name": "pretrained_path",       "external_key": "pretrained_path",       "type": "string"},
+      {"internal_name": "task_prompt",           "external_key": "task_prompt",           "type": "string"},
+      {"internal_name": "max_episode_steps",     "external_key": "max_episode_steps",     "type": "int"},
+      {"internal_name": "device",                "external_key": "device",                "type": "string"},
+      {"internal_name": "inference_env",         "external_key": "inference_env",         "type": "string"},
+      {"internal_name": "gripper_close_threshold", "external_key": "gripper_close_threshold", "type": "float"},
+      {"internal_name": "gripper_hold_frames",   "external_key": "gripper_hold_frames",   "type": "int"},
+      {"internal_name": "post_close_steps",      "external_key": "post_close_steps",      "type": "int"},
+      {"internal_name": "place_target_x",       "external_key": "place_target_x",       "type": "float"},
+      {"internal_name": "place_target_y",       "external_key": "place_target_y",       "type": "float"},
+      {"internal_name": "place_target_z",       "external_key": "place_target_z",       "type": "float"},
+      {"internal_name": "robot_yaw_deg",        "external_key": "robot_yaw_deg",        "type": "float"}
+    ],
+    "outputs": [], "custom": [], "process": []
+  }
+}

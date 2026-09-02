@@ -4,30 +4,56 @@
 
 本目录包含相机适配器（CameraAdapter）和感知适配器（PerceptionAdapter）的测试脚本，用于验证适配器层的功能正确性。
 
+<!-- AUTO-GENERATED:START directory-tree -->
 ## 目录结构
 
 ```
 apps/test_camera_adapter/
-├── README.md                       # 本文件
-├── e2e_camera_perception.py        # 端到端验证（CameraAdapter + PerceptionAdapter 完整链路）
-├── test_perception_adapter.py      # 感知适配器综合测试
+├── README.md                            # 本文件
+├── e2e_camera_perception.py            # 端到端验证（CameraAdapter + PerceptionAdapter 完整链路）
+├── test_perception_adapter.py          # 感知适配器综合测试
 │
 │   # CameraAdapter 单项测试（按功能拆分，可独立运行）
-├── test_camera_init.py             # 初始化 + launch 启动
-├── test_camera_tf.py               # TF 静态变换节点检查
-├── test_camera_rviz.py             # rviz 启动/不启动
-├── test_camera_frame.py            # RGB 帧获取
-├── test_camera_depth.py            # 深度图获取 + 话题数据校验
-├── test_camera_pointcloud.py       # 点云获取 + 话题数据校验
-├── test_camera_status.py           # 相机状态查询
-├── test_camera_shutdown.py         # 资源清理
+├── test_camera_init.py                 # 初始化 + launch 启动
+├── test_camera_tf.py                   # TF 静态变换节点检查
+├── test_camera_rviz.py                 # rviz 启动/不启动
+├── test_camera_frame.py                # RGB 帧获取
+├── test_camera_depth.py                # 深度图获取 + 话题数据校验
+├── test_camera_pointcloud.py           # 点云获取 + 话题数据校验
+├── test_camera_status.py              # 相机状态查询
+├── test_camera_shutdown.py             # 资源清理
 │
 │   # PerceptionAdapter 单项测试
-├── test_perception_init.py         # 初始化 + 依赖注入
-├── test_perception_frame.py        # 相机数据委托（get_camera_frame 等）
-├── test_perception_apriltag.py     # AprilTag 检测 + 话题 publisher 校验
-└── test_perception_shutdown.py     # 资源清理
+├── test_perception_init.py             # 初始化 + 依赖注入
+├── test_perception_frame.py            # 相机数据委托（get_camera_frame 等）
+├── test_perception_apriltag.py         # AprilTag 检测 + 话题 publisher 校验
+└── test_perception_shutdown.py         # 资源清理
 ```
+<!-- AUTO-GENERATED:END directory-tree -->
+
+<!-- AUTO-GENERATED:START completion-table -->
+## 脚本清单
+
+| 分类 | 脚本 | 说明 | 支持 --reuse |
+|------|------|------|:------------:|
+| **端到端** | `e2e_camera_perception.py` | CameraAdapter + PerceptionAdapter 完整链路 | ❌ |
+| **PerceptionAdapter 综合** | `test_perception_adapter.py` | 感知适配器综合测试 | ✅ |
+| **CameraAdapter** | `test_camera_init.py` | 初始化 + launch 启动 | ❌（测的就是 init） |
+| | `test_camera_tf.py` | TF 静态变换节点检查 | ✅ |
+| | `test_camera_rviz.py` | rviz 启动/不启动 | ✅ |
+| | `test_camera_frame.py` | RGB 帧获取 | ✅ |
+| | `test_camera_depth.py` | 深度图获取 + 话题数据校验 | ✅ |
+| | `test_camera_pointcloud.py` | 点云获取 + 话题数据校验 | ✅ |
+| | `test_camera_status.py` | 相机状态查询 | ✅ |
+| | `test_camera_shutdown.py` | 资源清理 | ❌（测的就是 shutdown） |
+| **PerceptionAdapter** | `test_perception_init.py` | 初始化 + 依赖注入 | ❌ |
+| | `test_perception_frame.py` | 相机数据委托（get_camera_frame 等） | ✅（仅 camera 部分） |
+| | `test_perception_apriltag.py` | AprilTag 检测 + 话题 publisher 校验 | ❌ |
+| | `test_perception_shutdown.py` | 资源清理 | ❌ |
+| **总计** | **14 个脚本** | 8 CameraAdapter + 5 PerceptionAdapter + 1 端到端 | 7 个支持 |
+
+> 统计口径：根目录下全部 `.py` 文件（13 个 `test_*.py` + 1 个 `e2e_*.py`），无子目录。
+<!-- AUTO-GENERATED:END completion-table -->
 
 ## 测试内容
 

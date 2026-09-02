@@ -84,12 +84,16 @@ class BehaviorTreeController:
                     self.bt_core.tick()
                     if self.bt_instance and hasattr(self.bt_instance, "root") and self.bt_instance.root:
                         new_root_status = self.bt_instance.root.status
+                        previous_root_status = self.last_root_status
+                        # 先保存本次 tick 的状态，保证终态分支 break 后调用者仍能
+                        # 获得 SUCCESS/FAILURE，而不是上一次的 RUNNING。
+                        self.last_root_status = new_root_status
                         _terminal = (
                             py_trees.common.Status.SUCCESS,
                             py_trees.common.Status.FAILURE,
                         )
                         if new_root_status in _terminal:
-                            if self.last_root_status not in _terminal:
+                            if previous_root_status not in _terminal:
                                 self.current_iteration += 1
                                 if HAS_ROSPY:
                                     rospy.loginfo(
@@ -107,7 +111,7 @@ class BehaviorTreeController:
                                 self.running_flag = False
                                 break
                         elif (
-                            self.last_root_status == py_trees.common.Status.RUNNING
+                            previous_root_status == py_trees.common.Status.RUNNING
                             and new_root_status is not None
                             and new_root_status != py_trees.common.Status.RUNNING
                         ):
@@ -115,7 +119,6 @@ class BehaviorTreeController:
                             if self.max_iterations > 0 and self.current_iteration >= self.max_iterations:
                                 self.running_flag = False
                                 break
-                        self.last_root_status = new_root_status
                 if rate is not None:
                     rate.sleep()
                 else:

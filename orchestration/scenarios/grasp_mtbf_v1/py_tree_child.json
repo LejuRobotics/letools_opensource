@@ -84,7 +84,7 @@
           "params": {
             "offset_x": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
             "offset_y": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
-            "offset_z": {"value": "0.25", "source": "CUSTOM", "data_type": "float"},
+            "offset_z": {"value": "0.1", "source": "CUSTOM", "data_type": "float"},
             "control_base": {"value": "false", "source": "CUSTOM", "data_type": "string"},
             "leg_mode": {"value": "target", "source": "CUSTOM", "data_type": "string"},
             "tag_id": {"value": "${target_tag_id}", "source": "INPUT", "data_type": "int"},
@@ -112,7 +112,8 @@
             "mode": {"value": "box_grasp_step1", "source": "CUSTOM", "data_type": "string"},
             "box_length": {"value": "${box_length}", "source": "INPUT", "data_type": "float"},
             "box_width": {"value": "${box_width}", "source": "INPUT", "data_type": "float"},
-            "box_height": {"value": "${box_height}", "source": "INPUT", "data_type": "float"}
+            "box_height": {"value": "${box_height}", "source": "INPUT", "data_type": "float"},
+            "box_height_offset": {"value": "${box_height_offset}", "source": "INPUT", "data_type": "float"}
           },
           "childs": []
         },
@@ -125,7 +126,8 @@
             "gripper_position": {"value": "${gripper_position}", "source": "INPUT", "data_type": "int"},
             "gripper_effort": {"value": "${gripper_effort}", "source": "INPUT", "data_type": "float"},
             "tag_id": {"value": "${target_tag_id}", "source": "INPUT", "data_type": "int"},
-            "debug_break": {"value": "true", "source": "CUSTOM", "data_type": "bool"}
+            "debug_break": {"value": "true", "source": "CUSTOM", "data_type": "bool"},
+            "max_keypoints": {"value": "3", "source": "CUSTOM", "data_type": "int"}
           },
           "childs": []
         },
