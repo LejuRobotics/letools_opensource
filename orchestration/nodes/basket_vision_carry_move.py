@@ -8,9 +8,10 @@ from py_trees.common import Status
 from core.domain.end_effector import SG100HandCommand, SG100_JOINT_COUNT
 from core.domain.enums import ArmSide
 SG100_OPEN = [0.0, -2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-SG100_OPENN = [0.0, -2.0, 0.0, 0.0, 0.0,3.0, 0.0, 3.0, 0.0, 0.0, 3.0]
-SG100_HALF = [1.5, -2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 3.0, 0.0, 0.0, 3.0]
-SG100_CLOSE = [1.5, -1.0, 2.0, 0.0, 0.0, 3.0, 0.0, 3.0, 0.0, 0.0, 3.0]
+SG100_OPENN = [0.0, -2.0, 0.0, 1.5, 1.5, 3.0, 1.5, 3.0, 0.0, 1.5, 3.0]
+SG100_HALF = [1.5, -3.0, -0.5, 1.5, 1.5, 1.3, 1.5, 1.3, 0.0, 1.5, 1.3]
+SG100_CLOSE = [1.5, -3.0, -0.5, 1.5, 1.5, 3.0, 1.5, 3.0, 0.0, 1.5, 3.0]
+SG100_CLOSES = [1.5, -2.0, 2.0, 1.5, 1.5, 3.0, 1.5, 3.0, 0.0, 1.5, 3.0]
 from orchestration.nodes.boxcarry import StableBasketDetector, build_plan, print_plan, validate_plan
 from orchestration.nodes.base_node import BaseAction
 from orchestration.shared_hardware import get_shared_hardware
@@ -126,22 +127,45 @@ class BasketVisionCarryMove(BaseAction):
         import time
         _require_success(hardware.control_end_effector(
                     ArmSide.LEFT, SG100HandCommand(positions=SG100_OPEN)), "左SG100手松开")
-        time.sleep(3.0)
-        prefix_steps = (
-            ("send_left_arm_ee_local_timed", (plan.left_out,), 7.0, "左臂绕行"),
-            ("send_left_arm_ee_local_timed", (plan.left_grasp,), 7.0, "左臂抓取位"),
-        )
+        time.sleep(1.0)
+        _require_success(hardware.control_end_effector(
+                                    ArmSide.LEFT, SG100HandCommand(positions=SG100_HALF)), "左SG100手夹紧")
+        time.sleep(1.0)
+        # _require_success(
+        #     hardware.send_left_arm_ee_local_timed(plan.left_out, desire_time=5.0),
+        #     "左臂绕行",
+        # )
+        # time.sleep(5.5)
 
+        # # 新增：绕行后、抓取位前的“手部动作”
+        # _require_success(
+        #     hardware.control_end_effector(
+        #         ArmSide.LEFT, SG100HandCommand(positions=SG100_OPENN),
+        #     ),
+        #     "左SG100手部动作",
+        # )
+        # time.sleep(1.0)
+
+        # # 左臂抓取位
+        # _require_success(
+        #     hardware.send_left_arm_ee_local_timed(plan.left_grasp, desire_time=5.0),
+        #     "左臂抓取位",
+        # )
+        # time.sleep(5.5)
+        prefix_steps = (
+            ("send_left_arm_ee_local_timed", (plan.left_out,), 2.0, "左臂绕行"),
+            ("send_left_arm_ee_local_timed", (plan.left_grasp,), 2.0, "左臂抓取位"),
+        )
+        
         for method, poses, duration, label in prefix_steps:
             _require_success(getattr(hardware, method)(*poses, desire_time=duration), label)
-            time.sleep(duration + 1.0)
+            time.sleep(duration + 0.5)
 
-        _require_success(hardware.control_end_effector(
-                            ArmSide.LEFT, SG100HandCommand(positions=SG100_HALF)), "左SG100手夹紧")
-        time.sleep(3.0)
-        _require_success(hardware.control_end_effector(
-                    ArmSide.LEFT, SG100HandCommand(positions=SG100_CLOSE)), "左SG100手夹紧")
-        time.sleep(3.0)
+        
+        
+        # _require_success(hardware.control_end_effector(
+        #                     ArmSide.LEFT, SG100HandCommand(positions=SG100_CLOSE)), "左SG100手夹紧")
+       
         if getattr(plan, "use_whole_body_ik", False):
             _require_success(hardware.send_single_arm_whole_body_ik_timed(
                 True, plan.left_up, desire_time=7.0), "左臂整身IK提起")
@@ -151,35 +175,42 @@ class BasketVisionCarryMove(BaseAction):
             time.sleep(8.0)
         else:
             _require_success(hardware.send_left_arm_ee_local_timed(
-                plan.left_up, desire_time=7.0), "左臂提起")
-            time.sleep(8.0)
+                plan.left_up, desire_time=4.0), "左臂提起")
+            time.sleep(3.5)
+            _require_success(hardware.control_end_effector(
+                                ArmSide.LEFT, SG100HandCommand(positions=SG100_CLOSE)), "左SG100手夹紧")
+            time.sleep(1.0)
             _require_success(hardware.send_left_arm_ee_local_timed(
-                plan.left_pull, desire_time=7.0), "左臂拉出")
-            time.sleep(8.0)
-        suffix_steps = (
-            ("send_right_arm_ee_local_timed", (plan.right_out,), 8.0, "右臂绕行"),
-            ("send_right_arm_ee_local_timed", (plan.right_grasp,), 7.0, "右臂抓取位"),
-        )
+                plan.left_pull, desire_time=4.0), "左臂拉出")
+            time.sleep(2.5)
 
+        _require_success(hardware.control_end_effector(
+                                    ArmSide.RIGHT, SG100HandCommand(positions=SG100_OPENN)), "右SG100手夹紧")
+        time.sleep(1.0)
+        _require_success(hardware.control_end_effector(
+                    ArmSide.RIGHT, SG100HandCommand(positions=SG100_HALF)), "右SG100手夹紧")
+        
+        suffix_steps = (
+            ("send_right_arm_ee_local_timed", (plan.right_out,), 2.5, "右臂绕行"),
+             ("send_right_arm_ee_local_timed", (plan.right_out2,), 2, "右臂抓取位"),
+            ("send_right_arm_ee_local_timed", (plan.right_grasp,), 2.5, "右臂抓取位"),
+        )
+        
         for method, poses, duration, label in suffix_steps:
             result = getattr(hardware, method)(*poses, desire_time=duration)
             _require_success(result, label)
-            time.sleep(duration + 1.0)
-        _require_success(hardware.control_end_effector(
-                            ArmSide.RIGHT, SG100HandCommand(positions=SG100_OPENN)), "右SG100手夹紧")
-        time.sleep(3.0)
-        _require_success(hardware.control_end_effector(
-                    ArmSide.RIGHT, SG100HandCommand(positions=SG100_HALF)), "右SG100手夹紧")
-        time.sleep(3.0)
-        _require_success(hardware.control_end_effector(
-                    ArmSide.RIGHT, SG100HandCommand(positions=SG100_CLOSE)), "右SG100手夹紧")
-        time.sleep(3.0)
+            time.sleep(duration + 0.5)
+        
+        
         dual_method = (hardware.send_dual_arm_whole_body_ik_timed
                        if getattr(plan, "use_whole_body_ik", False)
                        else hardware.send_arm_ee_local_timed)
         _require_success(dual_method(plan.chest_up_left, plan.chest_up_right,
-                                     desire_time=7.0), "双臂抬起")
-        time.sleep(8.0)
+                                     desire_time=2.0), "双臂抬起")
+        time.sleep(2.5)
+        # _require_success(hardware.control_end_effector(
+        #                     ArmSide.RIGHT, SG100HandCommand(positions=SG100_CLOSE)), "右SG100手夹紧")
+        # time.sleep(1.0)
         _require_success(dual_method(plan.chest_left, plan.chest_right,
-                                     desire_time=8.0), "搬到导航保持位")
-        time.sleep(9.0)
+                                     desire_time=1.0), "搬到导航保持位")
+        time.sleep(1.5)

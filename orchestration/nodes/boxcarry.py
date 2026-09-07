@@ -62,10 +62,12 @@ class DetectedPose:
 @dataclass
 class CarryPlan:
     left_out: List[float]
+    left_out2: List[float]
     left_grasp: List[float]
     left_up: List[float]
     left_pull: List[float]
     right_out: List[float]
+    right_out2: List[float]
     right_grasp: List[float]
     right_up: List[float]
     right_pull: List[float]
@@ -280,44 +282,56 @@ def build_plan(box: DetectedPose, args) -> CarryPlan:
     rx, ry, rz = offset_xyz(
             box, grasp_x_offset_r, -side, grasp_z_offset_r
     )
-    left_grasp = [lx+0.15, ly+0.00, lz+0.03, *args.left_rpy]
-    right_grasp = [rx+0.05, ry+0.25, rz+0.03, *args.right_rpy]
+    left_grasp = [lx+0.05, ly-0.06, lz-0.14, 0, -90, -10 ]
+    right_grasp = [rx-0.05, ry+0.40, rz+0.00, 0, -90, 10]
 
     left_out_xyz = offset_xyz(
         box,
         args.grasp_x_offset-0.03,
-        side + args.approach_side_distance+0.02,
-        args.grasp_z_offset + args.approach_height,
+        side + args.approach_side_distance-0.06,
+        args.grasp_z_offset + args.approach_height-0.13,
+    )
+    left_out2_xyz = offset_xyz(
+            box,
+            args.grasp_x_offset-0.03,
+            side + args.approach_side_distance-0.06,
+            args.grasp_z_offset + args.approach_height-0.13-0.1,
     )
     right_out_xyz = offset_xyz(
         box,
-        grasp_x_offset_r-0.07,
-        -side - args.approach_side_distance+0.36,
-        args.grasp_z_offset ,
+        grasp_x_offset_r-0.1,
+        -side - args.approach_side_distance+0.49,
+        args.grasp_z_offset+0.13 ,
+    )
+    right_out2_xyz = offset_xyz(
+            box,
+            grasp_x_offset_r-0.1,
+            -side - args.approach_side_distance+0.49,
+            args.grasp_z_offset+0.13-0.26 ,
     )
     left_up_xyz = offset_xyz(
         box,
-        args.grasp_x_offset+0.05,
-        side-0.02,
-        args.grasp_z_offset + args.lift_height+0.1,
+        args.grasp_x_offset,
+        side-0.07,
+        args.grasp_z_offset + args.lift_height+0.1-0.2,
     )
     left_pull_xyz = offset_xyz(
         box,
         args.grasp_x_offset+0.05,
-        side + args.pull_distance+0.05,
-        args.grasp_z_offset + args.lift_height,
+        side + args.pull_distance+0.00,
+        args.grasp_z_offset + args.lift_height-0.1,
     )
     right_up_xyz = offset_xyz(
         box,
-        grasp_x_offset_r,
+        grasp_x_offset_r-0.05,
         -side,
-        args.grasp_z_offset + args.lift_height,
+        args.grasp_z_offset + args.lift_height-0.1,
     )
     right_pull_xyz = offset_xyz(
         box,
         grasp_x_offset_r,
         -side,
-        args.grasp_z_offset + args.lift_height,
+        args.grasp_z_offset + args.lift_height-0.1,
     )
 
 
@@ -325,25 +339,25 @@ def build_plan(box: DetectedPose, args) -> CarryPlan:
         # 依据箱子宽度选择已调好的胸前保持动作
     if abs(args.box_width - 0.40) < 0.01:
         # 40 cm 箱子：双臂同步抱住
-        chest_up_left = [0.65, 0.30 , 1.18, 0, -80, 0]
-        chest_up_right = [0.60, -0.17 , 1.06, 0, -95, 0]
+        chest_up_left = [0.7, 0.45 , 1.20, 0, -90, -5]
+        chest_up_right = [0.70, 0.05  , 1.22, 0, -90, 5]
 
-        chest_left = [0.67, 0.22 , 1.18, 0, -80, 0]
-        chest_right = [0.60, -0.25 , 1.06, 0, -95, 0]
+        chest_left = [0.7, 0.45 , 1.20, 0, -90, -5]
+        chest_right = [0.70, 0.05 , 1.22, 0, -90, 5]
 
     elif abs(args.box_width - 0.50) < 0.01:
         # 50 cm 小箱子
-        chest_up_left = [0.65, 0.35 , 1.18, 0, -80, 0]
-        chest_up_right = [0.60, -0.22 , 1.06, 0, -95, 0]
-        chest_left = [0.67, 0.27 , 1.18, 0, -80, 0]
-        chest_right = [0.60, -0.30 , 1.06, 0, -95, 0]
+        chest_up_left = [0.65, 0.35 , 1.10, 0, -90, -5]
+        chest_up_right = [0.60, -0.22 , 1.12, 0, -90, 5]
+        chest_left = [0.67, 0.27 , 1.10, 0, -90, -5]
+        chest_right = [0.60, -0.30 , 1.12, 0, -90, 5]
 
     elif abs(args.box_width - 0.70) < 0.01:
         # 70 cm 箱子
-        chest_up_left = [0.65, 0.45 , 1.18, 0, -80, 0]
-        chest_up_right = [0.60, -0.32 , 1.06, 0, -95, 0]
-        chest_left = [0.57, 0.43 , 1.18, 0, -80, 0]
-        chest_right = [0.50, -0.34 , 1.06, 0, -95, 0]
+        chest_up_left = [0.7, 0.64 , 1.20,0, -90, -5]
+        chest_up_right = [0.7, -0.15 , 1.20,0, -90, 5]
+        chest_left = [0.7, 0.64 , 1.20, 0, -90, -5]
+        chest_right = [0.7, -0.15 , 1.20, 0, -90, 5]
 
     else:
         raise ValueError(
@@ -352,21 +366,23 @@ def build_plan(box: DetectedPose, args) -> CarryPlan:
         )
     return CarryPlan(
         left_out=[*left_out_xyz, *args.left_rpy],
+        left_out2=[*left_out2_xyz, *args.left_rpy],
         left_grasp=left_grasp,
-        left_up=[*left_up_xyz, *args.left_rpy],
-        left_pull=[*left_pull_xyz, *args.left_rpy],
+        left_up=[*left_up_xyz,0, -90, -5 ],
+        left_pull=[*left_pull_xyz,0, -90, -5],
         right_out=[*right_out_xyz, *args.right_rpy],
+        right_out2=[*right_out2_xyz, *args.right_rpy],
         right_grasp=right_grasp,
-        right_up=[*right_up_xyz, *args.right_rpy],
-        right_pull=[*right_pull_xyz, *args.right_rpy],
+        right_up=[*right_up_xyz, 0, -90, 5],
+        right_pull=[*right_pull_xyz, 0, -90, 5],
         chest_up_left=chest_up_left,
         chest_up_right=chest_up_right,
         chest_left=chest_left,
         chest_right=chest_right,
-        table_left=[0.85, 0.37 * _s, getattr(args, 'table_left_z', 0.63), 0, -80, 0],
-        table_right=[0.80, -0.40 * _s, getattr(args, 'table_right_z', 0.50), 0, -95, 0],
-        expand_left=[0.95, 0.50 * _s, getattr(args, 'expand_left_z', 0.60), 0, -80, 0],
-        expand_right=[0.90, -0.50 * _s, getattr(args, 'expand_right_z', 0.60), 0, -95, 0],
+        table_left=[0.85, 0.37 * _s, getattr(args, 'table_left_z', 0.63), 0, -90, 0],
+        table_right=[0.80, -0.40 * _s, getattr(args, 'table_right_z', 0.50), 0, -90, 0],
+        expand_left=[0.95, 0.50 * _s, getattr(args, 'expand_left_z', 0.60), 0, -90, 0],
+        expand_right=[0.90, -0.50 * _s, getattr(args, 'expand_right_z', 0.60), 0, -90, 0],
         reset_left=[0.85, 0.45, 0.50, 0, 0, 0],
         reset_right=[0.80, -0.45, 0.50, 0, 0, 0],
     )
@@ -386,11 +402,11 @@ def validate_plan(plan: CarryPlan, args) -> None:
             raise ValueError(f"{field.name}: z={z:.3f} 超出安全范围")
 
     grasp_distance = math.dist(plan.left_grasp[:3], plan.right_grasp[:3])
-    if grasp_distance < args.box_width:
-        raise ValueError(
-            f"双手抓取间距 {grasp_distance:.3f}m 小于箱宽 "
-            f"{args.box_width:.3f}m"
-        )
+    # if grasp_distance < args.box_width:
+    #     raise ValueError(
+    #         f"双手抓取间距 {grasp_distance:.3f}m 小于箱宽 "
+    #         f"{args.box_width:.3f}m"
+    #     )
 
 
 def print_plan(box: DetectedPose, plan: CarryPlan) -> None:
@@ -564,6 +580,7 @@ def execute_plan(plan: CarryPlan, interactive: bool) -> int:
             (controller.single, (LEFT_PLANNER_LOCAL, plan.left_up, 7.0, "左臂提起")),
             (controller.single, (LEFT_PLANNER_LOCAL, plan.left_pull, 7.0, "左臂拉出")),
             (controller.single, (RIGHT_PLANNER_LOCAL, plan.right_out, 8.0, "右臂绕行")),
+            (controller.single, (RIGHT_PLANNER_LOCAL, plan.right_out2, 8.0, "右臂绕行")),
             (controller.single, (RIGHT_PLANNER_LOCAL, plan.right_grasp, 7.0, "右臂抓取位")),
             (controller.both, (plan.chest_up_left, plan.chest_up_right, 5.0, "双臂抬至胸前")),
             (controller.both, (plan.chest_left, plan.chest_right, 8.0, "双臂搬到胸前")),

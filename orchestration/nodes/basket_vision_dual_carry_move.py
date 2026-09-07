@@ -10,8 +10,8 @@ from core.domain.enums import ArmSide
 from core.domain.end_effector import SG100HandCommand, SG100_JOINT_COUNT
 SG100_OPEN = [0.0, -2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 SG100_OPENN = [0.0, -2.0, 0.0, 0.0, 0.0,3.0, 0.0, 3.0, 0.0, 0.0, 3.0]
-SG100_HALF = [1.5, -2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 3.0, 0.0, 0.0, 3.0]
-SG100_CLOSE = [1.5, -1.0, 2.0, 0.0, 0.0, 3.0, 0.0, 3.0, 0.0, 0.0, 3.0]
+SG100_HALF = [1.5, -3.0, 0.0, 1.5, 1.5, 1.3, 1.5, 1.3, 0.0, 1.5, 1.3]
+SG100_CLOSE = [1.5, -2.0, 1.5, 1.5, 1.5, 3.0, 1.5, 3.0, 0.0, 1.5, 3.0]
 
 @define_manifest(
     label="basket_vision 双手同步抬箱搬运",
@@ -30,24 +30,24 @@ class BasketVisionDualCarryMove(BasketVisionCarryMove):
         # [dx, dy, dz, droll, dpitch, dyaw]
         # xyz 单位：米；rpy 单位：度
         TUNE = {
-            "left_out":    [0.00, 0.13, 0.00, 0, 0, 0],
-            "right_out":   [0.00, -0.13, 0.00, 0, 0, 0],
+            "left_out":    [0.00, -0.05, 0.08, 0, 0, 0],
+            "right_out":   [0.00, -0.25, -0.07, 0, 0, 0],
 
-            "left_grasp":  [0.00, 0.06, -0.03, 0, 0, 0],
-            "right_grasp": [0.04, -0.06, -0.08, 0, 0, 0],
+            "left_grasp":  [0.00, 0.00, 0.03, 0, 0, 0],
+            "right_grasp": [0.00, -0.20, -0.04, 0, 0, 0],
 
-            "left_up":     [0.00, 0.00, 0.00, 0, 0, 0],
-            "right_up":    [0.00, 0.00, 0.00, 0, 0, 0],
+            "left_up":     [0.00, 0.00, 0.03, 0, 0, 0],
+            "right_up":    [-0.05, 0.18, 0.03, 0, 0, 0],
 
             "left_pull":   [0.00, 0.00, 0.00, 0, 0, 0],
             "right_pull":  [0.00, 0.00, 0.00, 0, 0, 0],
 
-            "chest_up_left":  [0.00, 0.00, 0.00, 0, 0, 0],
-            "chest_up_right": [0.00, 0.00, 0.00, 0, 0, 0],
+            "chest_up_left":  [0.00, -0.20, 0.00, 0, 0, 0],
+            "chest_up_right": [0.00, -0.20, 0.00, 0, 0, 0],
 
             # 最后一下“搬到导航保持位”在这里调
-            "chest_left":  [0.00, 0.03, 0.00, 0, 0, 0],
-            "chest_right": [0.00, -0.03, 0.00, 0, 0, 0],
+            "chest_left":  [0.00, -0.2, 0.00, 0, 0, 0],
+            "chest_right": [0.00, -0.2, 0.00, 0, 0, 0],
         }
 
         def tuned(pose, name):
@@ -80,18 +80,31 @@ class BasketVisionDualCarryMove(BasketVisionCarryMove):
             ),
             "左SG100手张开",
         )
+        _require_success(
+            hardware.control_end_effector(
+                ArmSide.LEFT, SG100HandCommand(positions=SG100_HALF)
+            ),
+            "左SG100手半握",
+        )
+        time.sleep(1.0)
+        _require_success(
+            hardware.control_end_effector(
+                ArmSide.RIGHT, SG100HandCommand(positions=SG100_HALF)
+            ),
+            "右SG100手半握",
+        )
         # _require_success(
         #     hardware.control_end_effector(
         #         ArmSide.RIGHT, SG100HandCommand(positions=SG100_OPENN)
         #     ),
         #     "右SG100手张开",
         # )
-        time.sleep(2.0)
+        time.sleep(1.0)
 
         # 2. 双臂同步绕行、到达抓取位
         approach_steps = (
-            (left_out, right_out, 8.0, "双臂同步绕行"),
-            (left_grasp, right_grasp, 7.0, "双臂同步抓取"),
+            (left_out, right_out, 3.0, "双臂同步绕行"),
+            (left_grasp, right_grasp, 3.0, "双臂同步抓取"),
         )
         for left, right, duration, label in approach_steps:
             _require_success(
@@ -100,51 +113,21 @@ class BasketVisionDualCarryMove(BasketVisionCarryMove):
                 ),
                 label,
             )
-            time.sleep(duration + 1.0)
+            time.sleep(duration + 0.5)
 
-        _require_success(
-                    hardware.control_end_effector(
-                        ArmSide.RIGHT, SG100HandCommand(positions=SG100_OPENN)
-                    ),
-                    "右SG100手张开",
-                )
+        
         # 3. 两只手均到抓取位后，先半握、再夹紧
-        _require_success(
-            hardware.control_end_effector(
-                ArmSide.LEFT, SG100HandCommand(positions=SG100_HALF)
-            ),
-            "左SG100手半握",
-        )
-        time.sleep(2.0)
-        _require_success(
-            hardware.control_end_effector(
-                ArmSide.RIGHT, SG100HandCommand(positions=SG100_HALF)
-            ),
-            "右SG100手半握",
-        )
-        time.sleep(2.0)
+        
+        # time.sleep(1.0)
 
-        _require_success(
-            hardware.control_end_effector(
-                ArmSide.LEFT, SG100HandCommand(positions=SG100_CLOSE)
-            ),
-            "左SG100手夹紧",
-        )
-        time.sleep(2.0)
-        _require_success(
-            hardware.control_end_effector(
-                ArmSide.RIGHT, SG100HandCommand(positions=SG100_CLOSE)
-            ),
-            "右SG100手夹紧",
-        )
-        time.sleep(2.0)
+        
 
         # 4. 已夹紧后才允许提起、拉出、抱到胸前
         carry_steps = (
-            (left_up, right_up, 7.0, "双臂同步提起"),
+            (left_up, right_up, 2.0, "双臂同步提起"),
             # (plan.left_pull, plan.right_pull, 7.0, "双臂同步拉出"),
-            (chest_up_left, chest_up_right, 5.0, "双臂同步抬至胸前"),
-            (chest_left, chest_right, 8.0, "搬到导航保持位"),
+            # (chest_up_left, chest_up_right, 5.0, "双臂同步抬至胸前"),
+            # (chest_left, chest_right, 8.0, "搬到导航保持位"),
         )
         for left, right, duration, label in carry_steps:
             method = (
@@ -157,3 +140,17 @@ class BasketVisionDualCarryMove(BasketVisionCarryMove):
                 label,
             )
             time.sleep(duration + 1.0)
+        # _require_success(
+        #     hardware.control_end_effector(
+        #         ArmSide.LEFT, SG100HandCommand(positions=SG100_CLOSE)
+        #     ),
+        #     "左SG100手夹紧",
+        # )
+        # time.sleep(1.0)
+        # _require_success(
+        #     hardware.control_end_effector(
+        #         ArmSide.RIGHT, SG100HandCommand(positions=SG100_CLOSE)
+        #     ),
+        #     "右SG100手夹紧",
+        # )
+        # time.sleep(1.0)

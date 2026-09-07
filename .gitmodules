@@ -2,3 +2,7 @@
 	path = drivers/leju/kuavo_humanoid_sdk
 	url = https://gitcode.com/OpenLET/kuavo-ros-opensource.git
 	branch = dev
+[submodule "LeTools-Learning"]
+	path = LeTools-Learning
+	url = https://github.com/LejuRobotics/LeTools-Learning
+	branch = main

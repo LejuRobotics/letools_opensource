@@ -130,7 +130,6 @@ apps/_migration_analysis/
 .remember/
 .headroom/
 .serena/
-ci_scripts/
 .git.backup/
 
 # local debug scratch dir (carlos)

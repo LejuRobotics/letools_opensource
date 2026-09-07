@@ -293,7 +293,7 @@ LeTools
 │   └── jiateng_adapter/             # 嘉腾底盘适配器测试
 ├── infrastructure/              # ROS 基础设施
 │   └── ros_packages/            # catkin 工作空间
-├── ci_scripts_internal/         # CI/开源构建脚本
+├── ci_scripts/         # CI/开源构建脚本
 ├── config/                      # 配置文件
 ├── scripts/                     # 安装与运行脚本
 └── docs/                        # 文档

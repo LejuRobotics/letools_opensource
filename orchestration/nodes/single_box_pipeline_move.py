@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
-"""单箱动作调试：6D识别 -> 固定抓取策略 -> 放置（可选）-> 停止。
+"""单箱动作调试：固定 6D 位姿 -> 固定抓取策略 -> 放置（可选）-> 停止。
 
 该节点不调用视觉规划器。操作者手动将底盘开到目标作业点后，节点直接调用
-6D 位姿服务，并按 ``grasp_mode`` 执行指定的抓取策略。
+固定的 ``base_link`` 6D 位姿，并按 ``grasp_mode`` 执行指定的抓取策略。
 
 调试模式 (debug_step_mode=true):
   每步执行前暂停，等待用户按 Enter 确认，按 q 退出。
 
 原地测试模式 (skip_navigation=true):
   跳过所有底盘导航，机器人在原地不动。
-  只跑：6D位姿识别 -> 轨迹规划 -> 机械臂抓取 -> 机械臂放置。
+  只跑：固定6D位姿 -> 轨迹规划 -> 机械臂抓取 -> 机械臂放置。
 
 安全等级:
   Level 0: skip_navigation=true + execute_grasp=false → 原地纯视觉+轨迹验证
@@ -20,11 +20,11 @@
 
 import math
 import os
+from dataclasses import replace
 
 import rospy
 from py_trees.common import Status
 
-from basket_vision.sdk.basket_vision_client import BasketVisionClient
 from boxcarry import DetectedPose, build_plan, validate_plan
 from core.domain.chassis_options import MoveToTargetOptions
 from orchestration.nodes.base_node import BaseAction
@@ -32,6 +32,12 @@ from orchestration.nodes.basket_place_after_nav_move import BasketPlaceAfterNavM
 from orchestration.nodes.basket_vision_carry_move import BasketVisionCarryMove
 from orchestration.nodes.basket_vision_dual_carry_move import BasketVisionDualCarryMove
 from orchestration.nodes.basket_vision_right_carry_move import BasketVisionRightCarryMove
+from orchestration.nodes.basket_vision_small_box_carry_move import (
+    BasketVisionSmallBoxLeftCarryMove,
+    BasketVisionSmallBoxRightCarryMove,
+    SMALL_BOX_GRASP_MODES,
+    SMALL_BOX_WIDTH_M,
+)
 from orchestration.shared_hardware import get_shared_hardware
 from orchestration.utils.manifest_decorators import define_manifest
 
@@ -41,15 +47,32 @@ _EXECUTORS = {
     "left_lift_right_carry": BasketVisionCarryMove._execute,
     "right_lift_left_carry": BasketVisionRightCarryMove._execute,
     "dual_lift_carry": BasketVisionDualCarryMove._execute,
+    "small_box_left_lift_right_carry": BasketVisionSmallBoxLeftCarryMove._execute,
+    "small_box_right_lift_left_carry": BasketVisionSmallBoxRightCarryMove._execute,
+}
+
+# 单箱静态测试使用的固定箱体 6D 位姿（base_link 坐标系）。
+# 单位：m / deg；如需换点，直接修改此处，而不是 board.json。
+FIXED_BOX_6D_POSE = {
+    "x": 0.738,
+    #0.738
+    "y": -0.06,
+    "z": 0.654,
+    #0.654
+    ###0.784
+    "roll_deg": 0.0,
+    "pitch_deg": 0.0,
+    "yaw_deg": 0.0,
+    "detection_id": 0,
 }
 
 
 @define_manifest(
-    label="单箱动作调试：6D识别->固定抓取策略->放置",
+    label="单箱动作调试：固定6D位姿->固定抓取策略->放置",
     category=["perception", "motion", "chassis", "arm"],
     tree_type="depalletize_bin",
     description=(
-        "操作者手动定位后，直接调用 6D 位姿服务，按固定抓取策略执行，"
+        "操作者手动定位后，直接使用配置中的固定 6D 位姿，按固定抓取策略执行，"
         "完成抓取、导航到放置点并放下后立即停止。"
         "skip_navigation=true 时跳过所有底盘导航，原地测试。"
     ),
@@ -61,7 +84,7 @@ class SingleBoxPipelineMove(BaseAction):
     调试模式开关 (在 board.json 中配置):
       skip_navigation=true   → 跳过所有底盘导航，机器人原地不动
       debug_step_mode=true   → 每步暂停，按 Enter 继续 / q 退出
-      execute_grasp=false    → 只验证导航+视觉+轨迹，不发手臂指令
+      execute_grasp=false    → 只验证导航+固定点位+轨迹，不发手臂指令
       execute_place=false    → 不发放置指令
     """
 
@@ -121,59 +144,80 @@ class SingleBoxPipelineMove(BaseAction):
         p = self.params
         hardware = get_shared_hardware()
 
-        # ---- 步骤 1: 确认 TF 连通 ----
+        # ---- 步骤 1: 校验固定 6D 抓取位姿 ----
         rospy.loginfo("=" * 60)
-        rospy.loginfo("[单箱测试] 步骤 1/6: 确认 TF 连通")
-        self._debug_pause("步骤 1/6: 确认 TF 连通 (base_link -> camera)")
-        self._wait_camera_tf()
+        rospy.loginfo("[单箱测试] 步骤 1/8: 读取固定 6D 抓取位姿")
+        self._debug_pause("步骤 1/8: 确认固定 6D 抓取位姿")
+        fixed_detected = self._fixed_6d_pose(p)
 
-        # ---- 步骤 2: 使用手动指定的抓取策略 ----
+        # ---- 步骤 2: 读取手动抓取策略与导航库 ----
         rospy.loginfo("=" * 60)
-        rospy.loginfo("[单箱测试] 步骤 2/6: 读取手动抓取策略（不调用视觉规划器）")
-        mode = str(p.get("grasp_mode", "dual_lift_carry"))
+        rospy.loginfo("[单箱测试] 步骤 2/8: 读取手动抓取策略与导航库")
+        mode = str(p.get("grasp_mode", "small_box_left_lift_right_carry"))
         if mode not in _EXECUTORS:
             raise ValueError("手动 grasp_mode 无效: %s" % mode)
+        if (mode in SMALL_BOX_GRASP_MODES
+                and abs(float(p.get("box_width", 0.0)) - SMALL_BOX_WIDTH_M) >= 0.01):
+            raise ValueError(
+                "40cm 小箱动作要求 box_width=%.2f，当前为 %.3f"
+                % (SMALL_BOX_WIDTH_M, float(p.get("box_width", 0.0)))
+            )
         step = {"target_index": int(p.get("manual_target_index", 0))}
         action = {
             "grasp_mode": mode,
             "box_layer": int(p.get("box_layer", 1)),
         }
-        rospy.loginfo("  手动策略: mode=%s, box_layer=%d, 6D目标序号=%d",
-                      mode, action["box_layer"], step["target_index"])
+        rospy.loginfo("  手动策略: mode=%s, box_layer=%d", mode, action["box_layer"])
+        if self._skip_nav:
+            nav_key, detect_nav_pose, grasp_nav_pose = None, None, None
+        else:
+            nav_key, detect_nav_pose, grasp_nav_pose = self._resolve_nav_poses(p)
 
-        # ---- 步骤 3: 导航到抓取作业点 ----
+        # ---- 步骤 3: 导航到对应的远距离检测点 ----
         rospy.loginfo("=" * 60)
         if self._skip_nav:
-            rospy.loginfo("[单箱测试] 步骤 3/6: 跳过导航 (原地测试模式)")
+            rospy.loginfo("[单箱测试] 步骤 3/8: 跳过导航到检测点 (原地测试)")
         else:
-            nav_pose = {
-                "x": float(p["grasp_nav_x"]),
-                "y": float(p["grasp_nav_y"]),
-                "theta_deg": float(p["grasp_nav_theta_deg"]),
-            }
-            rospy.loginfo("[单箱测试] 步骤 3/6: 导航到手动抓取点 (%.3f, %.3f)",
-                          nav_pose["x"], nav_pose["y"])
-            self._debug_pause("步骤 3/6: 导航到抓取点 -> 确认底盘到达")
-            self._navigate_to(hardware, nav_pose, "single_box_grasp")
+            rospy.loginfo("[单箱测试] 步骤 3/8: 导航到检测点 [%s] (%.3f, %.3f)",
+                          nav_key, detect_nav_pose["x"], detect_nav_pose["y"])
+            self._debug_pause("步骤 3/8: 导航到检测点 -> 确认底盘到达")
+            self._navigate_to(hardware, detect_nav_pose, "single_box_detect")
 
-        # ---- 步骤 4: 6D 位姿识别 + 轨迹规划 ----
+        # ---- 步骤 4: 使用固定 6D 位姿（不调用识别服务）----
         rospy.loginfo("=" * 60)
-        rospy.loginfo("[单箱测试] 步骤 4/6: 6D 位姿识别与轨迹规划 (模式=%s)", mode)
-        self._debug_pause("步骤 4/6: 调用 6D 位姿服务 -> 生成抓取轨迹")
-        plan = self._detect_6d_and_plan(step, action, p)
-        rospy.loginfo("  6D 位姿: pos=(%.3f,%.3f,%.3f) rpy=(%.1f,%.1f,%.1f)",
+        rospy.loginfo("[单箱测试] 步骤 4/8: 使用固定 6D 位姿，不调用识别服务")
+        self._debug_pause("步骤 4/8: 使用固定 6D 位姿")
+        detected = fixed_detected
+        detected = self._apply_pose_offset(detected)
+
+        # ---- 步骤 5: 导航到对应抓取点 ----
+        rospy.loginfo("=" * 60)
+        if self._skip_nav:
+            rospy.loginfo("[单箱测试] 步骤 5/8: 跳过导航到抓取点 (原地测试)")
+        else:
+            rospy.loginfo("[单箱测试] 步骤 5/8: 导航到抓取点 [%s] (%.3f, %.3f)",
+                          nav_key, grasp_nav_pose["x"], grasp_nav_pose["y"])
+            self._debug_pause("步骤 5/8: 导航到抓取点 -> 确认底盘到达")
+            self._navigate_to(hardware, grasp_nav_pose, "single_box_grasp")
+
+        # ---- 步骤 6: 使用固定 6D 位姿规划 ----
+        rospy.loginfo("=" * 60)
+        rospy.loginfo("[单箱测试] 步骤 6/8: 使用固定 6D 位姿规划轨迹 (模式=%s)", mode)
+        self._debug_pause("步骤 6/8: 固定 6D 位姿 -> 生成抓取轨迹")
+        plan = self._plan_from_pose(detected, action, p)
+        rospy.loginfo("  抓取位姿: pos=(%.3f,%.3f,%.3f) rpy=(%.1f,%.1f,%.1f)",
                       plan.grasp_pose.x, plan.grasp_pose.y, plan.grasp_pose.z,
                       math.degrees(plan.grasp_pose.roll),
                       math.degrees(plan.grasp_pose.pitch),
                       math.degrees(plan.grasp_pose.yaw))
 
-        # ---- 步骤 5: 执行抓取 ----
+        # ---- 步骤 7: 执行抓取 ----
         rospy.loginfo("=" * 60)
-        rospy.loginfo("[单箱测试] 步骤 5/6: 执行抓取 (模式=%s)", mode)
+        rospy.loginfo("[单箱测试] 步骤 7/8: 执行抓取 (模式=%s)", mode)
         grasp_enabled = bool(p.get("execute_grasp", False))
         if grasp_enabled:
             self._debug_pause(
-                "步骤 5/6: [真机] 执行抓取动作 (模式=%s) - 请确认安全!" % mode
+                "步骤 7/8: [真机] 执行抓取动作 (模式=%s) - 请确认安全!" % mode
             )
             _EXECUTORS[mode](plan, hardware)
             rospy.loginfo("抓取完成，箱体保持夹持")
@@ -184,18 +228,18 @@ class SingleBoxPipelineMove(BaseAction):
                 "如需真机执行，请将 execute_grasp 设为 true"
             )
 
-        # ---- 步骤 6: 导航到放置点并放下 ----
+        # ---- 步骤 8: 导航到放置点并放下 ----
         rospy.loginfo("=" * 60)
         place_enabled = bool(p.get("execute_place", True))
         if self._skip_nav:
-            rospy.loginfo("[单箱测试] 步骤 6/6: 跳过导航到放置点 (原地测试模式)")
+            rospy.loginfo("[单箱测试] 步骤 8/8: 跳过导航到放置点 (原地测试)")
             rospy.loginfo("  目标放置点: (%.3f, %.3f, theta=%.1f) -> %s",
                           p["place_x"], p["place_y"], p["place_theta_deg"],
                           "放下复位" if place_enabled else "跳过放置")
         else:
-            rospy.loginfo("[单箱测试] 步骤 6/6: 导航到放置点并放下")
+            rospy.loginfo("[单箱测试] 步骤 8/8: 导航到放置点并放下")
             self._debug_pause(
-                "步骤 6/6: 导航到放置点 (%.3f, %.3f) -> %s" % (
+                "步骤 8/8: 导航到放置点 (%.3f, %.3f) -> %s" % (
                     p["place_x"], p["place_y"],
                     "放下复位" if place_enabled else "跳过放置"
                 )
@@ -209,7 +253,6 @@ class SingleBoxPipelineMove(BaseAction):
 
         rospy.loginfo("=" * 60)
         rospy.loginfo("单箱测试完成！")
-
     def _navigate_to(self, hardware, pose, label):
         options = MoveToTargetOptions(
             avoid_enabled=bool(self.params.get("nav_avoid_enabled", False)),
@@ -253,51 +296,87 @@ class SingleBoxPipelineMove(BaseAction):
         finally:
             tf_listener.unregister()
 
-    def _detect_6d_and_plan(self, step, action, p):
-        client = BasketVisionClient({
-            "basket_pose_service": p.get("basket_pose_service",
-                                         "/infer_basket_pose"),
-            "timeout": float(p.get("detection_timeout", 20.0)),
-            "save_images": bool(p.get("save_vision_images", True)),
-        })
-        rospy.loginfo("  调用 6D 位姿服务: %s", p.get("basket_pose_service"))
-        result = client.infer_basket_pose()
-        if not result.success or not result.data.get("baskets"):
-            raise RuntimeError("6D 位姿识别失败: %s" % result.message)
-        target_index = int(step.get("target_index", step.get("basket_index", 0)))
-        baskets = result.data["baskets"]
-        if target_index < 0 or target_index >= len(baskets):
-            raise IndexError("6D 目标序号越界: %d/%d" % (target_index, len(baskets)))
-        pose = baskets[target_index]["pose6d"]
-        rospy.loginfo("  识别到箱子 #%d: pos=(%.3f,%.3f,%.3f) rpy=(%.1f,%.1f,%.1f)",
-                      int(step.get("basket_id", target_index)),
-                      pose.x, pose.y, pose.z,
-                      math.degrees(pose.roll), math.degrees(pose.pitch),
-                      math.degrees(pose.yaw))
-        mode = str(action.get("grasp_mode", ""))
-
-        if mode == "dual_lift_carry":
-            # 双臂同步搬运：XYZ 固定，姿态角仍采用视觉识别结果
-            target_x = 0.812
-            target_y = -0.060
-            target_z = 0.801
-
-            rospy.loginfo(
-                "  双臂模式使用固定抓取点: x=%.3f, y=%.3f, z=%.3f",
-                target_x, target_y, target_z
+    def _resolve_nav_poses(self, p):
+        nav_table = dict(p.get("nav_pose_table", {}))
+        detect_table = dict(p.get("detect_pose_table", {}))
+        nav_key = str(p.get("nav_pose_key", "front.face_0.zone_1"))
+        if nav_key.startswith("${") and nav_key.endswith("}"):
+            raise RuntimeError(
+                "nav_pose_key 未被黑板解析，当前值=%s。单箱流程必须使用 full_pipeline_board.json 启动"
+                "（bash start_single_box_pipeline.sh 已内置该黑板），不能使用默认 board.json。" % nav_key
             )
-        else:
-            # 左先抬 / 右先抬：使用视觉完整位置
-            target_x = pose.x
-            target_y = pose.y
-            target_z = pose.z
 
-        detected = DetectedPose(
-            target_x, target_y, target_z,
-            pose.roll, pose.pitch, pose.yaw,
-            int(step.get("basket_id", target_index)),
-            "camera_color_optical_frame", "base_link",
+        if nav_key not in nav_table:
+            raise KeyError("导航点未在 nav_pose_table 中配置: %s" % nav_key)
+        if nav_key not in detect_table:
+            raise KeyError("检测点未在 detect_pose_table 中配置: %s" % nav_key)
+
+        grasp = nav_table[nav_key]
+        detect = detect_table[nav_key]
+
+        detect_nav_pose = {
+            "x": float(detect["x"]),
+            "y": float(detect["y"]),
+            "theta_deg": float(detect["theta_deg"]),
+        }
+        grasp_nav_pose = {
+            "x": float(grasp["x"]),
+            "y": float(grasp["y"]),
+            "theta_deg": float(grasp["theta_deg"]),
+        }
+
+        rospy.loginfo("  导航键: %s", nav_key)
+        rospy.loginfo("  检测点: (%.3f, %.3f, %.1f deg)",
+                      detect_nav_pose["x"], detect_nav_pose["y"],
+                      detect_nav_pose["theta_deg"])
+        rospy.loginfo("  抓取点: (%.3f, %.3f, %.1f deg)",
+                      grasp_nav_pose["x"], grasp_nav_pose["y"],
+                      grasp_nav_pose["theta_deg"])
+        return nav_key, detect_nav_pose, grasp_nav_pose
+
+    def _fixed_6d_pose(self, _p):
+        """使用代码中固化的 ``base_link`` 系 6D 位姿，不调用视觉服务。
+
+        角度字段使用度：``roll_deg``、``pitch_deg``、``yaw_deg``，以免与
+        ``DetectedPose`` 内部使用的弧度混淆。
+        """
+        raw = FIXED_BOX_6D_POSE
+        required = ("x", "y", "z", "roll_deg", "pitch_deg", "yaw_deg")
+        missing = [key for key in required if key not in raw]
+        if missing:
+            raise ValueError("fixed_6d_pose 缺少字段: %s" % ", ".join(missing))
+        pose = DetectedPose(
+            float(raw["x"]), float(raw["y"]), float(raw["z"]),
+            math.radians(float(raw["roll_deg"])),
+            math.radians(float(raw["pitch_deg"])),
+            math.radians(float(raw["yaw_deg"])),
+            int(raw.get("detection_id", 0)), "base_link", "base_link",
         )
+        rospy.loginfo(
+            "  固定箱体 #%d: pos=(%.3f,%.3f,%.3f) rpy=(%.1f,%.1f,%.1f)",
+            pose.detection_id, pose.x, pose.y, pose.z,
+            math.degrees(pose.roll), math.degrees(pose.pitch), math.degrees(pose.yaw),
+        )
+        return pose
+
+    def _apply_pose_offset(self, detected):
+        """给检测到的 base_link 位姿加固定 xyz 偏移后送入轨迹规划。"""
+        offset = list(self.params.get("detected_pose_offset", [0.0, 0.0, 0.0]))
+        dx = float(offset[0]) if len(offset) > 0 else 0.0
+        dy = float(offset[1]) if len(offset) > 1 else 0.0
+        dz = float(offset[2]) if len(offset) > 2 else 0.0
+        adjusted = replace(detected, x=detected.x + dx, y=detected.y + dy, z=detected.z + dz)
+        rospy.loginfo("  固定偏移: dx=%.3f, dy=%.3f, dz=%.3f -> pos=(%.3f,%.3f,%.3f)",
+                      dx, dy, dz, adjusted.x, adjusted.y, adjusted.z)
+        return adjusted
+
+    def _plan_from_pose(self, detected, action, p):
+        """根据检测到的 base_link 位姿直接生成抓取轨迹。"""
+        rospy.loginfo("  抓取点 base_link 系位姿: pos=(%.3f,%.3f,%.3f) rpy=(%.1f,%.1f,%.1f)",
+                      detected.x, detected.y, detected.z,
+                      math.degrees(detected.roll), math.degrees(detected.pitch),
+                      math.degrees(detected.yaw))
+
         args = BasketVisionCarryMove(
             "single_box_plan", "单箱轨迹规划", "", p
         )._make_args()
@@ -308,7 +387,6 @@ class SingleBoxPipelineMove(BaseAction):
         validate_plan(plan, args)
         rospy.loginfo("  轨迹规划完成，已通过安全校验")
         return plan
-
     def _execute_place(self, hardware, p):
         if not bool(p.get("execute_place", True)):
             rospy.loginfo("  execute_place=false，跳过放置")

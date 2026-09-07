@@ -1,29 +1,20 @@
 # -*- coding: utf-8 -*-
-"""全流程：导航观测点 -> 视觉规划 -> 导航抓取点 -> 6D位姿识别 -> 抓取 -> 导航放置点 -> 放下。
+"""机器人版本：两层顶部多箱识别、批量规划、直接抓取搬运。
 
-完整流程：
-  1. 调用视觉规划器获取抓取序列
-  2. 对序列中每个抓取步骤：
-     a. 导航到抓取作业点
-     b. 确认底盘到达
-     c. 6D 位姿识别（调用 /infer_basket_pose）
-     d. 将 6D 位姿作为机械臂轨迹规划终点，生成抓取轨迹
-     e. 执行抓取动作
-     f. 导航到放置点
-     g. 确认底盘到达
-     h. 执行放下、撤离和复位
+直接替换机器人原 ``full_pipeline_vision_grasp_move.py``。
+不再调用视觉规划器、检测点或 ``/infer_basket_pose``：每个观测面只调用一次
+``/infer_top_basket_ids``，用其确认箱子数量和索引；轨迹规划使用按层、按抓取模式
+指定的固定抓取基准位姿。
 """
 
-import json
 import math
 import os
 import time
+from dataclasses import dataclass, replace
 
 import rospy
-from py_trees.common import Status
-from rosservice import get_service_class_by_name
+from py_trees.common import Access, Status
 
-from collections import defaultdict
 from basket_vision.sdk.basket_vision_client import BasketVisionClient
 from boxcarry import DetectedPose, build_plan, validate_plan
 from core.domain.chassis_options import MoveToTargetOptions
@@ -43,115 +34,53 @@ _EXECUTORS = {
     "dual_lift_carry": BasketVisionDualCarryMove._execute,
 }
 
+# 顶部服务仍用于确认当前面识别到的箱子数量，以及 detected_index 的有效性。
+# 但不直接使用其 pose6d 规划：实机标定后的固定基准点由这里统一管理。
+# 单位：m / rad。
+_LAYER1_FIXED_GRASP_POSE = (0.738, -0.060, 0.854)
+_LAYER2_LEFT_FIRST_FIXED_GRASP_POSE = (0.738, -0.060, 0.654)
+_LAYER2_RIGHT_FIRST_FIXED_GRASP_POSE = (0.688, -0.060, 0.624)
 
-def _message_dict(value):
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str):
-        decoded = json.loads(value)
-        if not isinstance(decoded, dict):
-            raise ValueError("规划步骤 JSON 必须是对象")
-        return decoded
-    slots = getattr(value, "__slots__", ())
-    return {name: getattr(value, name) for name in slots}
+# 机器人已安装小箱/第二层大箱动作时，自动支持；没有这些文件也不会影响基本左右先抬模式。
+try:
+    from orchestration.nodes.basket_vision_small_box_carry_move import (
+        BasketVisionSmallBoxLeftCarryMove, BasketVisionSmallBoxRightCarryMove,
+    )
+    _EXECUTORS.update({
+        "small_box_left_lift_right_carry": BasketVisionSmallBoxLeftCarryMove._execute,
+        "small_box_right_lift_left_carry": BasketVisionSmallBoxRightCarryMove._execute,
+    })
+except ImportError:
+    pass
+try:
+    from orchestration.nodes.basket_vision_layer2_large_box_carry_move import (
+        BasketVisionLayer2LargeBoxLeftCarryMove,
+        BasketVisionLayer2LargeBoxRightCarryMove,
+    )
+    _EXECUTORS.update({
+        "layer2_large_box_left_lift_right_carry": BasketVisionLayer2LargeBoxLeftCarryMove._execute,
+        "layer2_large_box_right_lift_left_carry": BasketVisionLayer2LargeBoxRightCarryMove._execute,
+    })
+except ImportError:
+    pass
 
 
-# def _decode_sequence(response):
-#     """兼容 sequence 数组、JSON 字符串以及 data/result JSON。"""
-#     value = getattr(response, "sequence", None)
-#     if value is None:
-#         for name in ("data", "result", "json_result", "decision_json"):
-#             candidate = getattr(response, name, None)
-#             if candidate:
-#                 value = candidate
-#                 break
-#     if isinstance(value, str):
-#         value = json.loads(value)
-#     if isinstance(value, dict):
-#         value = value.get("sequence", [])
-#     if value is None:
-#         return []
-#     return [_message_dict(item) for item in list(value)]
-
-def _decode_sequence(response):
-    """兼容 TriggerResponse(message=JSON字符串) 等格式。"""
-    # 1) TriggerResponse: message 字段包含 JSON 字符串
-    value = getattr(response, "message", None)
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-            if isinstance(parsed, dict) and "sequence" in parsed:
-                value = parsed
-        except Exception:
-            pass
-    # 2) 直接属性 sequence
-    if not isinstance(value, dict) or "sequence" not in value:
-        value = getattr(response, "sequence", None)
-    # 3) 常见字段名
-    if value is None or (isinstance(value, dict) and "sequence" not in value):
-        for name in ("json_result", "data", "result", "decision_json"):
-            candidate = getattr(response, name, None)
-            if candidate:
-                if isinstance(candidate, str):
-                    try:
-                        candidate = json.loads(candidate)
-                    except Exception:
-                        pass
-                if isinstance(candidate, dict) and "sequence" in candidate:
-                    value = candidate
-                    break
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except Exception:
-            pass
-    if isinstance(value, dict):
-        value = value.get("sequence", [])
-    if not value:
-        return []
-    return [_message_dict(item) for item in list(value)]
-
-def _nav_key(step, default_side="front"):
-    """从规划步骤提取导航键，格式如 'front.face_0.zone_1'。"""
-    direct = step.get("nav_pose_key") or step.get("nav_key")
-    if direct:
-        return str(direct)
-    result = step.get("result", {})
-    if isinstance(result, dict):
-        side = step.get("side", result.get("side", default_side))
-        face = step.get("face", step.get("face_id", result.get("face", result.get("face_id"))))
-        zone = step.get("zone", step.get("zone_id", result.get("zone", result.get("zone_id"))))
-    else:
-        side = step.get("side", default_side)
-        face = step.get("face", step.get("face_id"))
-        zone = step.get("zone", step.get("zone_id"))
-    if face is None or zone is None:
-        raise ValueError("规划步骤缺少 nav_pose_key，且无法从 side/face/zone 生成")
-    face = str(face)
-    zone = str(zone)
-    if not face.startswith("face_"):
-        face = "face_%s" % face
-    if not zone.startswith("zone_"):
-        zone = "zone_%s" % zone
-    return "%s.%s.%s" % (side, face, zone)
+@dataclass
+class _Job:
+    name: str
+    config: dict
+    plan: object
 
 
 @define_manifest(
-    label="全流程：观测->规划->导航->6D->抓取->放置",
+    label="两层顶部识别批量抓取搬运",
     category=["perception", "motion", "chassis", "arm"],
     tree_type="depalletize_bin",
-    description=(
-        "完整单箱搬箱流程：导航到观测点后调用视觉规划器，"
-        "按返回序列逐点导航、6D识别、抓取、搬运到放置点并放下"
-    ),
+    description="每面一次顶部多箱6D识别，批量规划后直接抓取、放置和下一箱循环",
     params=[], inputs=[], outputs=[],
 )
 class FullPipelineGraspMove(BaseAction):
-    """全流程视觉规划-导航-6D抓取-导航-放置节点。
-
-    参数从 board.json 黑板读取，与现有 py_tree 接口兼容。
-    每一步都有清晰的日志输出，便于调试和监控。
-    """
+    """替代机器人旧单箱检测点流程的两层批量流程。"""
 
     def __init__(self, name, label, namespace, params):
         super().__init__(name, label, namespace, params)
@@ -164,363 +93,431 @@ class FullPipelineGraspMove(BaseAction):
         if self._status is not None:
             return self._status
         if _DRY_RUN:
-            self.feedback_message = "dry-run 全流程视觉抓取放置"
+            self.feedback_message = "dry-run 两层顶部批量抓取"
             self._status = Status.SUCCESS
             return self._status
         try:
             self._run()
-            self.feedback_message = "全流程完成"
+            self.feedback_message = "两层顶部批量抓取完成"
             self._status = Status.SUCCESS
         except Exception as exc:
-            self.feedback_message = "全流程失败: %s" % exc
+            self.feedback_message = "两层顶部批量抓取失败: %s" % exc
             rospy.logerr(self.feedback_message)
             self._status = Status.FAILURE
         return self._status
 
-    # ==================================================================
-    # 主流程
-    # ==================================================================
     def _run(self):
-        p = self.params
+        jobs_by_layer = self._board_value("top_basket_jobs_by_layer", {})
+        if not isinstance(jobs_by_layer, dict) or not jobs_by_layer:
+            raise ValueError("缺少 top_basket_jobs_by_layer 配置")
+        if bool(self.params.get("execute_motion", False)) and bool(self.params.get("skip_navigation", False)):
+            raise ValueError("真机 execute_motion=true 时 skip_navigation 必须为 false")
+
         hardware = get_shared_hardware()
+        for raw_layer in self._board_value("layer_execution_order", [1, 2]):
+            layer = int(raw_layer)
+            side_jobs = jobs_by_layer.get(str(layer), jobs_by_layer.get(layer))
+            if not isinstance(side_jobs, dict):
+                raise KeyError("top_basket_jobs_by_layer 缺少第 %d 层" % layer)
+            for side in ("front", "rear"):
+                specs = side_jobs.get(side, [])
+                if specs:
+                    self._run_one_side(hardware, layer, side, specs)
 
-        # ---- 步骤 1: 确认 TF 连通 ----
-        rospy.loginfo("=" * 60)
-        rospy.loginfo("[步骤 1/8] 确认 TF 连通: base_link -> camera_color_optical_frame")
+    def _run_one_side(self, hardware, layer, side, specs):
+        # 从正面切到背面前，先收回腰部到相机识别姿态；识别完成后会由
+        # _move_to_layer_ready_pose() 重新抬到当前层的抓取预备位。
+        if side == "rear":
+            self._move_to_observation_torso(hardware, side)
+        self._navigate_to(hardware, self._observation_pose(side), "layer%d_%s_observe" % (layer, side))
         self._wait_camera_tf()
+        baskets = self._infer_top_baskets()
+        jobs = self._build_all_jobs(layer, side, specs, baskets)
+        rospy.loginfo("第%d层%s面：%d 个箱子已全部完成分类、补偿和轨迹校验", layer, side, len(jobs))
 
-        # ---- 步骤 2: 调用视觉规划器 ----
-        rospy.loginfo("=" * 60)
-        rospy.loginfo("[步骤 2/8] 调用视觉规划器: %s", p.get("binplanner_service_name"))
-        sequence = self._call_vision_planner(p)
-        rospy.loginfo("视觉规划器返回 %d 个抓取步骤", len(sequence))
-        if not sequence:
-            rospy.loginfo("视觉规划器返回空序列，无需抓取")
+        if not bool(self.params.get("execute_motion", False)):
+            rospy.logwarn("execute_motion=false：只做识别与批量规划校验，不发送任何运动指令")
             return
+        # 在腰臂动作前先验证所有导航键，避免抬升后才发现配置缺失。
+        for job in jobs:
+            self._nav_pose(job.config["nav_pose_key"])
+            self._place_pose(job.config)
 
-        nav_table = dict(p.get("nav_pose_table", {})) or {
-            "front.face_0.zone_1": { "x": 1.731, "y": 0.607, "theta_deg": -90.0 },
-            "front.face_0.zone_2": { "x": 1.207, "y": 0.627, "theta_deg": -90.0 },
-            "front.face_1.zone_2": { "x": 0.307, "y": 0.016, "theta_deg": -1.0 },
-            "front.face_2.zone_1": { "x": 1.731, "y": 0.607, "theta_deg": -90.0 },
-            "rear.face_0.zone_1": { "x": 1.731, "y": -1.152, "theta_deg": 90.0 },
-            "rear.face_0.zone_2": { "x": 1.227, "y": -1.102, "theta_deg": 90.0 },
-            "rear.face_1.zone_2": { "x": 0.267, "y": -0.452, "theta_deg": 0.0 },
-            "rear.face_2.zone_1": { "x": 1.731, "y": -1.152, "theta_deg": 90.0 },
-        }
-        action_library = dict(p.get("grasp_action_library", {})) or {
-            "front.face_0.zone_1": { "grasp_mode": "left_lift_right_carry", "box_layer": 1 ,"box_width": 0.70},
-            "front.face_0.zone_2": { "grasp_mode": "dual_lift_carry", "box_layer": 1 ,"box_width": 0.40},
-            "front.face_1.zone_2": { "grasp_mode": "left_lift_right_carry", "box_layer": 1 ,"box_width": 0.50},
-            "front.face_2.zone_1": { "grasp_mode": "left_lift_right_carry", "box_layer": 1 ,"box_width": 0.70},
-            "rear.face_0.zone_1": { "grasp_mode": "left_lift_right_carry", "box_layer": 1 ,"box_width": 0.70},
-            "rear.face_0.zone_2": { "grasp_mode": "dual_lift_carry", "box_layer": 1,"box_width": 0.40 },
-            "rear.face_1.zone_2": { "grasp_mode": "right_lift_left_carry", "box_layer": 1 ,"box_width": 0.50},
-            "rear.face_2.zone_1": { "grasp_mode": "right_lift_left_carry", "box_layer": 1 ,"box_width": 0.70},
-        }
-
-        key_occurrences = defaultdict(int)
-        remap_by_occurrence = {
-            ("front.face_1.zone_2", 2): "front.face_0.zone_2",
-            ("rear.face_1.zone_2", 2): "rear.face_0.zone_2",
-        }
-        visited_nav_keys = set()
-        # ---- 对每个抓取步骤执行完整流程 ----
-        for index, step in enumerate(sequence):
-            rospy.loginfo("=" * 60)
-            rospy.loginfo(">>> 处理第 %d/%d 个箱子 <<<", index + 1, len(sequence))
-
-            # key = _nav_key(step, default_side=p.get("nav_side", "front"))
-            source_key = _nav_key(
-                step, default_side=p.get("nav_side", "front")
-            )
-            key_occurrences[source_key] += 1
-            occurrence = key_occurrences[source_key]
-
-            key = remap_by_occurrence.get(
-                (source_key, occurrence), source_key
-            )
-            rospy.loginfo(
-                "  原规划键=%s，第%d次；实际导航/抓取键=%s",
-                source_key, occurrence, key,
-            )
-                        # 同一最终导航点只停留一次。
-            # 注意：这里使用重映射后的 key，而不是 source_key。
-            if key in visited_nav_keys:
+        self._move_to_layer_ready_pose(hardware, layer)
+        nav_key_occurrences = {}
+        for index, job in enumerate(jobs):
+            configured_nav_key = str(job.config["nav_pose_key"])
+            occurrence = nav_key_occurrences.get(configured_nav_key, 0) + 1
+            nav_key_occurrences[configured_nav_key] = occurrence
+            actual_nav_key = self._remap_nav_key_for_occurrence(configured_nav_key, occurrence)
+            grasp_nav_pose = self._nav_pose(actual_nav_key)
+            if actual_nav_key != configured_nav_key:
                 rospy.loginfo(
-                    "  跳过第 %d/%d 个箱子：原规划键=%s，第%d次；"
-                    "目标点=%s 已处理过",
-                    index + 1, len(sequence),
-                    source_key, occurrence, key,
+                    "%s: 第%d次使用 %s，二次重定位导航到 %s；抓取动作仍使用原导航点动作库配置",
+                    job.name, occurrence, configured_nav_key, actual_nav_key,
                 )
-                continue
+            self._navigate_to(hardware, grasp_nav_pose, "grasp_%s" % job.name)
+            if bool(self.params.get("execute_grasp", False)):
+                _EXECUTORS[job.config["grasp_mode"]](job.plan, hardware)
 
-            visited_nav_keys.add(key)
-            if key not in nav_table:
-                raise KeyError("导航点未在 nav_pose_table 中配置: %s" % key)
-            if key not in action_library:
-                raise KeyError("导航点动作未在 grasp_action_library 中配置: %s" % key)
-
-            action = action_library[key]
-            mode = action.get("grasp_mode") if isinstance(action, dict) else action
-            if mode not in _EXECUTORS:
-                raise ValueError("导航点 %s 的抓取模式无效: %s" % (key, mode))
-
-            nav_pose = nav_table[key]
-            rospy.loginfo("  导航键: %s", key)
-
-            # 根据面决定箱子宽度：正面/背面(face_0)用0.6m，侧面(face_1/face_2)用0.4m
-
-            rospy.loginfo("  抓取模式: %s", mode)
-            rospy.loginfo("  抓取模式: %s", mode)
-            rospy.loginfo("  导航坐标: x=%.3f, y=%.3f, theta=%.1f deg",
-                          nav_pose["x"], nav_pose["y"], nav_pose["theta_deg"])
-
-            # ---- 步骤 3: 导航到抓取作业点 ----
-            rospy.loginfo("[步骤 3/8] 导航到抓取作业点: %s", key)
-            self._navigate_to(hardware, nav_pose, "grasp_%d" % index)
-
-            # ---- 步骤 4: 确认底盘到达抓取点 ----
-            rospy.loginfo("[步骤 4/8] 确认底盘到达抓取点")
-
-            # ---- 步骤 5: 6D 位姿识别 ----
-            rospy.loginfo("[步骤 5/8] 6D 位姿识别: 调用 %s", p.get("basket_pose_service"))
-            plan = self._detect_6d_and_plan(step, action, p)
-
-            # ---- 步骤 6: 执行抓取（6D位姿作为轨迹终点） ----
-            rospy.loginfo("[步骤 6/8] 执行抓取: 模式=%s, 层数=%d",
-                          mode, action.get("box_layer", 1))
-            rospy.loginfo("  6D 位姿: x=%.3f, y=%.3f, z=%.3f, roll=%.1f, pitch=%.1f, yaw=%.1f",
-                          plan.grasp_pose.x, plan.grasp_pose.y, plan.grasp_pose.z,
-                          math.degrees(plan.grasp_pose.roll),
-                          math.degrees(plan.grasp_pose.pitch),
-                          math.degrees(plan.grasp_pose.yaw))
-            # if not bool(p.get("execute_grasp", False)):
-            #     raise RuntimeError(
-            #         "轨迹规划验证通过，但 execute_grasp=false；安全停止。"
-            #         "如需真机执行，请将 execute_grasp 设为 true"
-            #     )
-            if not bool(p.get("execute_grasp", False)):
-                rospy.loginfo("  execute_grasp=false，跳过抓取，继续下一个箱子")
-                continue
-            _EXECUTORS[mode](plan, hardware)
-            rospy.loginfo("抓取完成，箱体保持夹持，双臂进入导航保持位")
-
-            # ---- 步骤 7: 导航到放置点 ----
-            rospy.loginfo("[步骤 7/8] 导航到放置点")
-            self._navigate_to(hardware, {
-                "x": p["place_x"],
-                "y": p["place_y"],
-                "theta_deg": p["place_theta_deg"],
-            }, "place_%d" % index)
-
-            # ---- 步骤 8: 放下箱体 ----
-            rospy.loginfo("[步骤 8/8] 放下箱体并复位")
-            box_width = float(action.get("box_width", p.get("box_width", 0.40)))
-            self._execute_place(hardware, p, box_width)
-
-            rospy.loginfo(">>> 第 %d/%d 个箱子完成 <<<", index + 1, len(sequence))
-
-        rospy.loginfo("=" * 60)
-        rospy.loginfo("全流程完成！共处理 %d 个箱子", len(sequence))
-
-    # ==================================================================
-    # 导航
-    # ==================================================================
-    def _navigate_to(self, hardware, pose, label):
-        """导航到目标点并阻塞等待到达。"""
-        options = MoveToTargetOptions(
-            avoid_enabled=bool(self.params.get("nav_avoid_enabled", False)),
-            avoid_distance=float(self.params.get("nav_avoid_distance", 0.5)),
-            linear_velocity=float(self.params.get("nav_linear_velocity", 0.3)),
-            angular_velocity=float(self.params.get("nav_angular_velocity", 0.5)),
-            position_threshold=float(self.params.get("nav_position_threshold", 0.08)),
-            angle_threshold=float(self.params.get("nav_angle_threshold", 0.1)),
-            allow_rotation=bool(self.params.get("nav_allow_rotation", True)),
-        )
-        result = hardware.base_move_to_target_jibot(
-            float(pose["x"]), float(pose["y"]),
-            math.radians(float(pose["theta_deg"])),
-            options=options,
-        )
-        if not result.success or not result.data or not result.data.get("task_id"):
-            raise RuntimeError("%s 导航下发失败: %s" % (label, result.message))
-
-        rospy.loginfo("  导航任务已下发: task_id=%s", result.data["task_id"])
-        rospy.sleep(1)
-        arrived = hardware.check_arrived_jibot(
-            str(result.data["task_id"]),
-            blocking=True,
-            timeout=float(self.params.get("nav_arrival_timeout_sec", 120.0)),
-        )
-        if not arrived.success or not (arrived.data or {}).get("arrived", False):
-            msg = getattr(arrived, "message", "") or ""
-            if "interrupted" in str(msg).lower():
-                rospy.logwarn("  导航被中断，重试一次...")
-                time.sleep(2.0)
-                result2 = hardware.base_move_to_target_jibot(
-                    float(pose["x"]), float(pose["y"]),
-                    math.radians(float(pose["theta_deg"])),
-                    options=options,
+                # 只有实际抓住箱子后，才需要退出垛体、前往放置点和执行放置。
+                self._navigate_to(
+                    hardware,
+                    self._post_grasp_retreat_pose(grasp_nav_pose),
+                    "retreat_%s" % job.name,
                 )
-                if not result2.success or not result2.data or not result2.data.get("task_id"):
-                    raise RuntimeError("%s 重试导航下发失败: %s" % (label, result2.message))
-                arrived2 = hardware.check_arrived_jibot(
-                    str(result2.data["task_id"]),
-                    blocking=True,
-                    timeout=float(self.params.get("nav_arrival_timeout_sec", 120.0)),
-                )
-                if not arrived2.success or not (arrived2.data or {}).get("arrived", False):
-                    raise RuntimeError("%s 重试后仍未到达: %s" % (label, arrived2.message))
+                self._navigate_to(hardware, self._place_pose(job.config), "place_%s" % job.name)
+                if bool(self.params.get("execute_place", False)):
+                    self._execute_place(hardware, float(job.config.get("box_width", self.params.get("box_width", 0.70))))
+                else:
+                    rospy.loginfo("execute_place=false：跳过 %s 的放置/撤离/复位动作", job.name)
             else:
-                raise RuntimeError("%s 未到达: %s" % (label, arrived.message))
-        rospy.loginfo("  已到达目标点")
+                rospy.loginfo("execute_grasp=false：跳过 %s 的抓取、后退、放置及放置导航", job.name)
+            if index < len(jobs) - 1:
+                # 放置后只回本层预备位，直接去下一抓取点；不再前往检测点。
+                self._move_to_layer_ready_pose(hardware, layer)
 
-    # ==================================================================
-    # 视觉规划器
-    # ==================================================================
-    def _call_vision_planner(self, p):
-        """调用视觉规划器服务，返回抓取步骤序列。"""
-        service_name = str(p.get("binplanner_service_name",
-                                 "/lingbot/run_decide_with_stack_pose"))
-        timeout = float(p.get("binplanner_timeout_sec", 120.0))
+    def _infer_top_baskets(self):
+        client = BasketVisionClient({
+            "top_basket_service": self.params.get("top_basket_service", "/infer_top_basket_ids"),
+            "timeout": float(self.params.get("top_detection_timeout_s", 20.0)),
+            "save_images": bool(self.params.get("save_vision_images", True)),
+        })
+        result = client.infer_top_basket()
+        baskets = (getattr(result, "data", None) or {}).get("baskets", [])
+        if not getattr(result, "success", False) or not baskets:
+            raise RuntimeError("/infer_top_basket_ids 失败: %s" % getattr(result, "message", "无箱体"))
+        return baskets
 
-        # 设置规划器请求参数
-        rospy.set_param(service_name + "/request/front_x",
-                        float(p.get("decide_front_x", 1.05)))
-        rospy.set_param(service_name + "/request/front_y",
-                        float(p.get("decide_front_y", -0.15)))
-        rospy.set_param(service_name + "/request/yaw_deg",
-                        float(p.get("decide_yaw_deg", 0.0)))
+    def _build_all_jobs(self, layer, side, specs, baskets):
+        jobs, used = [], set()
+        for ordinal, config in enumerate(specs):
+            for key in ("detected_index", "nav_pose_key"):
+                if key not in config:
+                    raise ValueError("第%d层%s面任务%d缺少 %s" % (layer, side, ordinal, key))
+            # 抓取模式、箱宽和层动作参数由导航点动作库决定；视觉任务只负责
+            # detected_index、导航点和位姿补偿，不可直接覆盖抓取模式。
+            config = self._config_from_nav_pose(config, layer, side, ordinal)
+            index = int(config["detected_index"])
+            if index in used or index < 0 or index >= len(baskets):
+                raise ValueError("第%d层%s面 detected_index=%d 无效或重复；服务返回%d个箱子" % (layer, side, index, len(baskets)))
+            if (config["grasp_mode"] not in _EXECUTORS
+                    and bool(self.params.get("execute_grasp", False))):
+                raise ValueError("机器人未安装或未注册抓取模式: %s" % config["grasp_mode"])
+            used.add(index)
+            # fixed = self._fixed_pose_for_job(layer, config, index)
+            use_vision_pose = self._bool_board_value(
+                "use_vision_grasp_pose",
+                False,
+            )
 
-        rospy.loginfo("  等待视觉规划器服务: %s (timeout=%.1fs)", service_name, timeout)
-        rospy.wait_for_service(service_name, timeout=timeout)
+            if use_vision_pose:
+                # 使用 /infer_top_basket_ids 返回的第 index 个 6D 位姿
+                pose6d = baskets[index].get("pose6d")
+                if pose6d is None:
+                    raise ValueError(
+                        "顶部服务第%d项没有 pose6d，无法使用视觉抓取位姿" % index
+                    )
 
-        service_class = get_service_class_by_name(service_name)
-        if service_class is None:
-            raise RuntimeError("无法解析视觉规划器服务类型: %s" % service_name)
+                source_pose = DetectedPose(
+                    float(pose6d.x),
+                    float(pose6d.y),
+                    float(pose6d.z),
+                    float(pose6d.roll),
+                    float(pose6d.pitch),
+                    float(pose6d.yaw),
+                    index,
+                    "base_link",
+                    "base_link",
+                )
+                pose_source = "vision_pose"
+            else:
+                # 保留你当前的分层固定点逻辑
+                source_pose = self._fixed_pose_for_job(layer, config, index)
+                pose_source = "fixed_pose"
 
-        rospy.loginfo("  调用视觉规划器...")
-        response = rospy.ServiceProxy(service_name, service_class)()
-        sequence = _decode_sequence(response)
-        rospy.loginfo("  视觉规划器返回 %d 个步骤", len(sequence))
-        return sequence
+            adjusted = self._apply_offset(
+                source_pose,
+                config.get("pose_offset", [0, 0, 0, 0, 0, 0]),
+            )
 
-    # ==================================================================
-    # TF 检查
-    # ==================================================================
+            plan = self._plan_from_pose(adjusted, config, layer)
+            name = str(config.get("name", "%s_%d" % (side, index)))
+            rospy.loginfo(
+                "  %s: index=%d class=%s %s -> (%.3f, %.3f, %.3f)",
+                name,
+                index,
+                config.get("class_name", "未分类"),
+                pose_source,
+                adjusted.x,
+                adjusted.y,
+                adjusted.z,
+            )
+            jobs.append(_Job(name, config, plan))
+        return jobs
+
+    def _config_from_nav_pose(self, spec, layer, side, ordinal):
+        """以 nav_pose_key 为唯一动作选择键，合并导航点对应的动作参数。"""
+        library = self._board_value("grasp_action_library", {})
+        if not isinstance(library, dict):
+            raise ValueError("grasp_action_library 必须是字典")
+        nav_key = str(spec["nav_pose_key"])
+        action = library.get(nav_key)
+        if not isinstance(action, dict):
+            raise KeyError("grasp_action_library 缺少导航点 %s（第%d层%s面任务%d）" % (nav_key, layer, side, ordinal))
+        if not action.get("grasp_mode"):
+            raise ValueError("grasp_action_library.%s 缺少 grasp_mode" % nav_key)
+
+        # spec 中的 pose_offset / detected_index 保持任务自身设置；动作相关字段
+        # 统一以导航点动作库为准，避免与视觉任务条目发生两份配置冲突。
+        config = dict(spec)
+        config.update(action)
+        config["nav_pose_key"] = nav_key
+        return config
+
+    def _remap_nav_key_for_occurrence(self, nav_key, occurrence):
+        """支持 ``原导航键#第几次`` 到二次重定位导航键的映射。"""
+        table = self._board_value("nav_key_remap_by_occurrence", {})
+        if table is None:
+            return nav_key
+        if not isinstance(table, dict):
+            raise ValueError("nav_key_remap_by_occurrence 必须是字典")
+        remap_key = "%s#%d" % (nav_key, occurrence)
+        remapped = table.get(remap_key, nav_key)
+        if not isinstance(remapped, str) or not remapped:
+            raise ValueError("nav_key_remap_by_occurrence.%s 必须是非空导航键" % remap_key)
+        return remapped
+
+    @staticmethod
+    def _fixed_pose_for_job(layer, config, detected_index):
+        """按层和左右先抬动作选择固定抓取基准；pose_offset 仍在其后叠加。"""
+        if layer == 1:
+            x, y, z = _LAYER1_FIXED_GRASP_POSE
+        elif layer == 2:
+            grasp_mode = str(config.get("grasp_mode", ""))
+            if grasp_mode == "left_lift_right_carry":
+                x, y, z = _LAYER2_LEFT_FIRST_FIXED_GRASP_POSE
+            elif grasp_mode == "right_lift_left_carry":
+                x, y, z = _LAYER2_RIGHT_FIRST_FIXED_GRASP_POSE
+            else:
+                raise ValueError("第2层不支持的固定抓取模式: %s" % grasp_mode)
+        else:
+            raise ValueError("第%d层没有配置固定抓取基准位姿" % layer)
+        return DetectedPose(x, y, z, 0.0, 0.0, 0.0, detected_index, "base_link", "base_link")
+
+    @staticmethod
+    def _apply_offset(pose, offset):
+        if not isinstance(offset, (list, tuple)) or len(offset) not in (3, 6):
+            raise ValueError("pose_offset 必须是 [dx,dy,dz] 或 [dx,dy,dz,droll_deg,dpitch_deg,dyaw_deg]")
+        value = [float(x) for x in offset] + [0.0] * (6 - len(offset))
+        return replace(pose, x=pose.x + value[0], y=pose.y + value[1], z=pose.z + value[2], roll=pose.roll + math.radians(value[3]), pitch=pose.pitch + math.radians(value[4]), yaw=pose.yaw + math.radians(value[5]))
+
+    def _plan_from_pose(self, pose, config, layer):
+        args = BasketVisionCarryMove("top_plan", "顶部多箱轨迹规划", "", self.params)._make_args()
+        args.box_layer = int(config.get("box_layer", layer))
+        for key in ("box_width", "grasp_x_offset", "grasp_x_offset_right", "grasp_z_offset", "grasp_y_offset", "grasp_y_offset_right", "side_clearance", "approach_side_distance", "approach_height", "lift_height", "pull_distance"):
+            if key in config:
+                setattr(args, key, float(config[key]))
+        plan = build_plan(pose, args)
+        plan.use_whole_body_ik = bool(config.get("use_whole_body_ik", self.params.get("use_whole_body_ik", False)))
+        plan.grasp_pose = pose
+        validate_plan(plan, args)
+        return plan
+
+    def _move_to_layer_ready_pose(self, hardware, layer):
+        table = self._board_value("layer_ready_poses", {})
+        config = table.get(str(layer), table.get(layer)) if isinstance(table, dict) else None
+        if not isinstance(config, dict):
+            raise KeyError("layer_ready_poses 缺少第%d层" % layer)
+        torso = self._torso(config.get("torso"), "layer_ready_poses.%d.torso" % layer)
+        left = self._arm(config.get("left_arm"), "layer_ready_poses.%d.left_arm" % layer)
+        right = self._arm(config.get("right_arm"), "layer_ready_poses.%d.right_arm" % layer)
+        torso_time, arm_time = float(config.get("torso_duration_s", 4.0)), float(config.get("arm_duration_s", 4.0))
+        settle = max(0.0, float(config.get("settle_s", 0.5)))
+        moved_ready_pose = False
+        if bool(self.params.get("execute_torso_ready", True)):
+            result = hardware.send_torso_pose_timed(x=torso["x"], z=torso["z"], yaw=torso["yaw"], pitch=torso["pitch"], desire_time=torso_time)
+            self._wait_result(result, torso_time, settle, "第%d层腰部预备位" % layer)
+            moved_ready_pose = True
+        else:
+            rospy.loginfo("execute_torso_ready=false：跳过第%d层腰部预备位", layer)
+        if bool(self.params.get("execute_arm_ready", True)):
+            result = hardware.send_arm_ee_local_timed(left, right, desire_time=arm_time)
+            self._wait_result(result, arm_time, settle, "第%d层双臂预备位" % layer)
+            moved_ready_pose = True
+        else:
+            rospy.loginfo("execute_arm_ready=false：跳过第%d层双臂预备位", layer)
+        if moved_ready_pose:
+            result = hardware.set_focus_ee(focus_ee=False)
+            if result is None or not getattr(result, "success", False):
+                raise RuntimeError("set_focus_ee(False)失败: %s" % getattr(result, "message", "无返回值"))
+
+    def _move_to_observation_torso(self, hardware, side):
+        """在指定观测面识别前切换到相机标定时的腰部姿态。"""
+        table = self._board_value("observation_torso_poses", {})
+        config = table.get(side) if isinstance(table, dict) else None
+        if config is None:
+            return
+        torso = self._torso(config, "observation_torso_poses.%s" % side)
+        if not bool(self.params.get("execute_motion", False)):
+            rospy.loginfo("execute_motion=false：跳过%s观测腰部姿态", side)
+            return
+        if not bool(self.params.get("execute_torso_ready", True)):
+            rospy.loginfo("execute_torso_ready=false：跳过%s观测腰部姿态", side)
+            return
+        duration = float(config.get("duration_s", 4.0))
+        settle = max(0.0, float(config.get("settle_s", 0.5)))
+        result = hardware.send_torso_pose_timed(
+            x=torso["x"], z=torso["z"], yaw=torso["yaw"], pitch=torso["pitch"],
+            desire_time=duration,
+        )
+        self._wait_result(result, duration, settle, "%s面观测腰部姿态" % side)
+
+    def _navigate_to(self, hardware, pose, label):
+        if not bool(self.params.get("execute_motion", False)):
+            rospy.loginfo("execute_motion=false，跳过导航 %s", label)
+            return
+        if bool(self.params.get("skip_navigation", False)):
+            rospy.logwarn("skip_navigation=true，跳过导航 %s", label)
+            return
+        options = MoveToTargetOptions(avoid_enabled=bool(self.params.get("nav_avoid_enabled", False)), avoid_distance=float(self.params.get("nav_avoid_distance", 0.5)), linear_velocity=float(self.params.get("nav_linear_velocity", 0.3)), angular_velocity=float(self.params.get("nav_angular_velocity", 0.5)), position_threshold=float(self.params.get("nav_position_threshold", 0.08)), angle_threshold=float(self.params.get("nav_angle_threshold", 0.1)), allow_rotation=bool(self.params.get("nav_allow_rotation", True)))
+        retry_count = max(0, int(self.params.get("nav_retry_count", 2)))
+        retry_interval = max(0.0, float(self.params.get("nav_retry_interval_sec", 3.0)))
+        total_attempts = retry_count + 1
+        last_error = "无返回值"
+        for attempt in range(1, total_attempts + 1):
+            result = hardware.base_move_to_target_jibot(float(pose["x"]), float(pose["y"]), math.radians(float(pose["theta_deg"])), options=options)
+            if not getattr(result, "success", False) or not (getattr(result, "data", None) or {}).get("task_id"):
+                last_error = "导航下发失败: %s" % getattr(result, "message", "无返回值")
+            else:
+                arrived = hardware.check_arrived_jibot(str(result.data["task_id"]), blocking=True, timeout=float(self.params.get("nav_arrival_timeout_sec", 120.0)))
+                if getattr(arrived, "success", False) and (getattr(arrived, "data", None) or {}).get("arrived", False):
+                    if attempt > 1:
+                        rospy.loginfo("%s：第%d次导航尝试到达成功", label, attempt)
+                    return
+                last_error = "未到达: %s" % getattr(arrived, "message", "无返回值")
+
+            if attempt < total_attempts:
+                rospy.logwarn("%s：第%d/%d次导航失败（%s），%.1f秒后重试", label, attempt, total_attempts, last_error, retry_interval)
+                time.sleep(retry_interval)
+
+        raise RuntimeError("%s 导航连续%d次失败: %s" % (label, total_attempts, last_error))
+
+    def _observation_pose(self, side):
+        table = self._board_value("observation_pose_table", {})
+        return self._nav(table.get(side), "observation_pose_table.%s" % side)
+
+    def _nav_pose(self, key):
+        table = self._board_value("nav_pose_table", {})
+        if key not in table:
+            raise KeyError("nav_pose_table 缺少 %s" % key)
+        return self._nav(table[key], "nav_pose_table.%s" % key)
+
+    def _place_pose(self, config):
+        key = config.get("place_pose_key")
+        if key:
+            table = self._board_value("place_pose_table", {})
+            if key not in table:
+                raise KeyError("place_pose_table 缺少 %s" % key)
+            return self._nav(table[key], "place_pose_table.%s" % key)
+        return self._nav(self._board_value("place_pose"), "place_pose")
+
+    def _board_value(self, key, default=None):
+        """兼容字典参数被旧版行为树展开后的运行环境。
+
+        新版行为树会把 board 中的字典原样传入 ``self.params``；部分旧版
+        工厂只保留 ``a.b.c`` 形式的叶子参数，使根键变成 ``${a}`` 或缺失。
+        这里优先使用节点参数，必要时回退到全局黑板中的原始 board 值。
+        """
+        missing = object()
+        value = self.params.get(key, missing)
+        unresolved_macro = isinstance(value, str) and value == "${%s}" % key
+        if value is not missing and not unresolved_macro:
+            return value
+        try:
+            self.global_blackboard.register_key(key=key, access=Access.READ)
+            if self.global_blackboard.exists(key):
+                return self.global_blackboard.get(key)
+        except Exception as exc:
+            rospy.logwarn("读取 board 参数 %s 失败: %s", key, exc)
+        return default
+    def _bool_board_value(self, key, default=False):
+        """读取 board 布尔开关，兼容旧树未展开的 ${key} 宏。"""
+        value = self._board_value(key, default)
+
+        if isinstance(value, bool):
+            return value
+
+        if isinstance(value, (int, float)):
+            return bool(value)
+
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+
+            if normalized in ("true", "1", "yes", "on"):
+                return True
+
+            if normalized in ("false", "0", "no", "off", ""):
+                return False
+
+            if normalized == "${%s}" % key:
+                return bool(default)
+
+        raise ValueError("%s 必须是布尔值，实际为 %r" % (key, value))
+    def _post_grasp_retreat_pose(self, grasp_nav_pose):
+        """以抓取导航点朝向为前方，后退到垛体外。"""
+        distance = float(self.params.get("post_grasp_retreat_distance_m", 0.60))
+        if distance < 0.0:
+            raise ValueError("post_grasp_retreat_distance_m 不能小于 0")
+        heading = math.radians(float(grasp_nav_pose["theta_deg"]))
+        return {
+            "x": float(grasp_nav_pose["x"]) - distance * math.cos(heading),
+            "y": float(grasp_nav_pose["y"]) - distance * math.sin(heading),
+            "theta_deg": float(grasp_nav_pose["theta_deg"]),
+        }
+
+    @staticmethod
+    def _nav(value, name):
+        if not isinstance(value, dict) or any(k not in value for k in ("x", "y", "theta_deg")):
+            raise ValueError("%s 必须为 {x,y,theta_deg}" % name)
+        try:
+            pose = {k: float(value[k]) for k in ("x", "y", "theta_deg")}
+        except (TypeError, ValueError):
+            raise ValueError("%s 尚未填写；请填入 x、y、theta_deg 后再启用第二层真机导航" % name)
+        if not all(math.isfinite(item) for item in pose.values()):
+            raise ValueError("%s 包含非有限数值" % name)
+        return pose
+
+    @staticmethod
+    def _torso(value, name):
+        if not isinstance(value, dict) or any(k not in value for k in ("x", "z", "yaw", "pitch")):
+            raise ValueError("%s 必须为 {x,z,yaw,pitch}" % name)
+        return {k: float(value[k]) for k in ("x", "z", "yaw", "pitch")}
+
+    @staticmethod
+    def _arm(value, name):
+        if not isinstance(value, (list, tuple)) or len(value) != 6:
+            raise ValueError("%s 必须为6D末端位姿" % name)
+        return [float(x) for x in value]
+
+    @staticmethod
+    def _wait_result(result, fallback, settle, label):
+        if result is None or not getattr(result, "success", False):
+            raise RuntimeError("%s失败: %s" % (label, getattr(result, "message", "无返回值")))
+        actual = (getattr(result, "data", None) or {}).get("actual_time", fallback)
+        time.sleep(max(0.0, float(actual)) + settle)
+
+    def _execute_place(self, hardware, box_width):
+        place = BasketPlaceAfterNavMove("full_pipeline_place", "全流程放置", "", self.params)
+        place._execute(hardware, box_width=box_width)
+
     def _wait_camera_tf(self):
         import tf2_ros
         target = str(self.params.get("camera_tf_target_frame", "base_link"))
-        source = str(self.params.get("camera_tf_source_frame",
-                                     "camera_color_optical_frame"))
-        timeout = float(self.params.get("camera_tf_timeout_sec", 15.0))
-        tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
-        tf_listener = tf2_ros.TransformListener(tf_buffer)
-        rospy.loginfo("  等待 TF %s -> %s ...", target, source)
+        source = str(self.params.get("camera_tf_source_frame", "camera_color_optical_frame"))
+        buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
+        listener = tf2_ros.TransformListener(buffer)
         try:
-            tf_buffer.lookup_transform(target, source, rospy.Time(0),
-                                       rospy.Duration(timeout))
-            rospy.loginfo("  TF %s -> %s 已连通", target, source)
-        except Exception as exc:
-            raise RuntimeError("TF %s -> %s 等待超时: %s" % (target, source, exc))
+            buffer.lookup_transform(target, source, rospy.Time(0), rospy.Duration(float(self.params.get("camera_tf_timeout_sec", 15.0))))
         finally:
-            tf_listener.unregister()
-
-    # ==================================================================
-    # 6D 位姿识别 + 轨迹规划
-    # ==================================================================
-    def _detect_6d_and_plan(self, step, action, p):
-        """6D 位姿识别，将结果作为机械臂轨迹规划终点。"""
-        client = BasketVisionClient({
-            "basket_pose_service": p.get("basket_pose_service",
-                                         "/infer_basket_pose"),
-            "timeout": float(p.get("detection_timeout", 20.0)),
-            "save_images": bool(p.get("save_vision_images", True)),
-        })
-        rospy.loginfo("  调用 6D 位姿服务: %s", p.get("basket_pose_service"))
-        result = client.infer_basket_pose()
-        if not result.success or not result.data.get("baskets"):
-            raise RuntimeError("6D 位姿识别失败: %s" % result.message)
-
-        target_index = int(step.get("target_index", step.get("basket_index", 0)))
-        baskets = result.data["baskets"]
-        if target_index < 0 or target_index >= len(baskets):
-            raise IndexError("6D 目标序号越界: %d/%d" % (target_index, len(baskets)))
-
-        pose = baskets[target_index]["pose6d"]
-        rospy.loginfo("  识别到箱子 #%d, 6D位姿: pos=(%.3f,%.3f,%.3f) rpy=(%.1f,%.1f,%.1f)",
-                      int(step.get("basket_id", target_index)),
-                      pose.x, pose.y, pose.z,
-                      math.degrees(pose.roll), math.degrees(pose.pitch),
-                      math.degrees(pose.yaw))
-
-        # 将 6D 位姿转换为 DetectedPose，用于轨迹规划
-        mode = str(action.get("grasp_mode", ""))
-
-        if mode == "dual_lift_carry":
-            # 双臂同步搬运：XYZ 固定，姿态角仍采用视觉识别结果
-            target_x = 0.812
-            target_y = -0.060
-            target_z = 0.801
-
-            rospy.loginfo(
-                "  双臂模式使用固定抓取点: x=%.3f, y=%.3f, z=%.3f",
-                target_x, target_y, target_z
-            )
-        else:
-            # 左先抬 / 右先抬：使用视觉完整位置
-            target_x = pose.x
-            target_y = pose.y
-            target_z = pose.z
-
-        detected = DetectedPose(
-            target_x, target_y, target_z,
-            pose.roll, pose.pitch, pose.yaw,
-            int(step.get("basket_id", target_index)),
-            "camera_color_optical_frame", "base_link",
-        )
-
-        # 构建机械臂轨迹规划参数
-        args = BasketVisionCarryMove(
-            "full_pipeline_plan", "全流程轨迹规划", "", p
-        )._make_args()
-        args.box_layer = int(action.get("box_layer", 1)) if isinstance(action, dict) else 1
-
-        args.box_layer = int(action.get("box_layer", 1))
-
-        # 优先使用当前点位的箱子宽度
-        args.box_width = float(
-            action.get("box_width", p.get("box_width", 0.40))
-        )
-
-        rospy.loginfo(
-            "  当前点位动作: mode=%s, box_width=%.2fm",
-            action.get("grasp_mode"),
-            args.box_width,
-        )
-
-
-        # 以 6D 位姿为终点生成抓取轨迹
-        plan = build_plan(detected, args)
-        plan.use_whole_body_ik = bool(p.get("use_whole_body_ik", False))
-        plan.grasp_pose = detected  # 记录 6D 位姿
-
-        # 验证轨迹安全性
-        validate_plan(plan, args)
-        rospy.loginfo("  轨迹规划完成，已通过安全校验")
-        return plan
-
-    # ==================================================================
-    # 放置
-    # ==================================================================
-    def _execute_place(self, hardware, p, box_width):
-        if not bool(p.get("execute_place", True)):
-            rospy.loginfo("  execute_place=false，跳过放置")
-            return
-
-        place = BasketPlaceAfterNavMove(
-            "full_pipeline_place", "全流程放置", "", p
-        )
-        place._execute(hardware, box_width=box_width)
-        rospy.loginfo("  放置与复位完成")
+            listener.unregister()
