@@ -1,5 +1,6 @@
 import copy
 import json
+import traceback
 import os
 import sys
 import threading
@@ -9,6 +10,9 @@ from py_trees.blackboard import Blackboard
 from py_trees.common import ParallelPolicy
 from typing import Dict, Any, Optional, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from core.common.logger import get_logger
+
+logger = get_logger(__name__)
 
 # 可选导入 rospy (在非 ROS 环境下也能工作)
 try:
@@ -65,6 +69,24 @@ class ParamsWrapper:
 
     def __getitem__(self, key: str) -> Any:
         return self.params[key]
+
+    def keys(self):
+        return self.params.keys()
+
+    def items(self):
+        return self.params.items()
+
+    def values(self):
+        return self.params.values()
+
+    def copy(self) -> Dict[str, Any]:
+        return dict(self.params)
+
+    def __iter__(self):
+        return iter(self.params)
+
+    def __len__(self) -> int:
+        return len(self.params)
 
     def __contains__(self, key: str) -> bool:
         return key in self.params
@@ -226,6 +248,7 @@ class BehaviorTreeFactory:
                 rospy.logerr(msg)
             else:
                 print(msg)
+                logger.error(msg)
             return None
         
         # 自动补全 .json 后缀
@@ -652,6 +675,7 @@ class BehaviorTreeFactory:
                         rospy.logwarn(msg)
                     else:
                         print(msg)
+                        logger.warning(msg)
         
         # 递归处理子节点（兼容 children）
         for child in _get_child_configs(tree_config):
@@ -809,6 +833,7 @@ class BehaviorTreeFactory:
                         rospy.loginfo(f"[TreeFactory] 动作组过滤: 跳过 {label} (组 {group_num})")
                     else:
                         print(f"[TreeFactory] 动作组过滤: 跳过 {label} (组 {group_num})")
+                        logger.info("[TreeFactory] 动作组过滤: 跳过 %s (组 %s)", label, group_num)
             else:
                 filtered.append(child)
         tree_config["childs"] = filtered
@@ -882,13 +907,23 @@ class BehaviorTreeFactory:
                     # 支持 board_key 字段：当参数名与黑板键不同时，用 board_key 指定黑板键
                     board_key = value.get("board_key", key)
                     self.global_blackboard.register_key(key=board_key, access=py_trees.common.Access.READ)
+                    # 始终保留绑定关系。ForEach 等前置节点可能在运行时才创建
+                    # 目标键，此时构树阶段黑板上还没有对应值。
+                    parsed_params[f"{key}__board_key"] = board_key
                     if self.global_blackboard.exists(board_key):
                         parsed_params[key] = self.global_blackboard.get(board_key)
-                        # 额外存储 board_key，供节点运行时从黑板重新读取（动态注入）
-                        parsed_params[f"{key}__board_key"] = board_key
                     else:
-                        # 可选：处理缺失的键或使用默认值
-                        pass
+                        # 缺键**必须说出来**：原先静默跳过，节点用代码默认值，而现场
+                        # 以为在用板子上的值 —— 板子上少一行、行为悄悄变了。
+                        # 这里**不抛**：`ForEach` 等前置节点会在运行时才创建键，
+                        # 构树阶段没有它是正常的（节点自己按 `__board_key` 再读）。
+                        # 也**不塞默认值**：节点靠 `params.get(k, 默认值)` 取自己的
+                        # 默认值，塞个 `None` 会把"缺键"变成"给了个 None"，
+                        # 反而让 `_float_or(None, ...)` 报一条假告警。
+                        logger.warning(
+                            "[TreeFactory] READ_BOARD 缺键 %r（节点 %r 的参数 %r）"
+                            " —— 回退到**代码里的默认值**。板子上没有这个键，"
+                            "或者键名拼错了", board_key, namespace or "-", key)
                 else:
                     # 不识别的source或没有source，当作静态值处理
                     parsed_params[key] = value
@@ -962,7 +997,7 @@ class BehaviorTreeFactory:
         "PassThrough", "Count",
         # studio 自定义装饰器（由本工厂特殊处理）
         "Async", "RepeatUntil", "ForEach",
-        "RunIfIndex",
+        "RunIfIndex", "RunIfBlackboard", "RunCheck",
         "PressureDropGuard",
     })
 
@@ -1030,6 +1065,7 @@ class BehaviorTreeFactory:
                     condition_path=condition_path,
                     expected_value=expected_value,
                     wait_for_child_completion=wait_for_child_completion,
+                    check_before_iteration=node_params.get("check_before_iteration", False),
                 )
 
             if node_name == "ForEach":
@@ -1044,6 +1080,27 @@ class BehaviorTreeFactory:
                     child=child_node,
                     source_key=source_key,
                     target_key=target_key,
+                    index_key=node_params.get("index_key", ""),
+                )
+
+            if node_name == "RunIfBlackboard":
+                from orchestration.nodes.run_if_blackboard import RunIfBlackboard
+
+                return RunIfBlackboard(
+                    name=label,
+                    child=child_node,
+                    condition_key=node_params.get("condition_key", ""),
+                    expected_value=node_params.get("expected_value", True),
+                )
+
+            if node_name == "RunCheck":
+                from orchestration.nodes.run_check import RunCheck
+
+                return RunCheck(
+                    name=label,
+                    child=child_node,
+                    condition_key=node_params.get("condition_key", ""),
+                    expected_value=node_params.get("expected_value", True),
                 )
 
             if node_name == "RunIfIndex":
@@ -1174,8 +1231,6 @@ class BehaviorTreeFactory:
         except AttributeError:
             raise ValueError(f"Node class '{node_name}' not found in py_trees.behaviours")
 
-        print(f"node_name = {node_name}")
-        
         return node_class(name=node_name, label=label, namespace=namespace, params=params)
 
     def _build_node_index(self):
@@ -1209,6 +1264,7 @@ class BehaviorTreeFactory:
         """执行行为树的一次tick操作"""
         if not self.tree:
             print("[执行tick失败] 行为树实例未初始化")
+            logger.error("[执行tick失败] 行为树实例未初始化")
             return False
 
         try:
@@ -1225,24 +1281,31 @@ class BehaviorTreeFactory:
                 # 只在第一次遇到时打印警告，避免刷屏
                 if not hasattr(self, '_smt_warning_shown'):
                     print(f"[警告] 检测到 SMT 专用键访问，当前模式下忽略: {e}")
-                    import traceback
                     traceback.print_exc()
+                    logger.warning(
+                        "[警告] 检测到 SMT 专用键访问，当前模式下忽略: %s",
+                        e,
+                        exc_info=True,
+                    )
                     self._smt_warning_shown = True
                 return True  # 继续执行，不中断
             else:
                 # 其他 AttributeError 正常处理
                 print(f"[执行tick出错] {e}")
-                import traceback
                 traceback.print_exc()
+                logger.exception("[执行tick出错] %s", e)
                 return False
         except Exception as e:
             print(f"[执行tick出错] {e}")
+            traceback.print_exc()
+            logger.exception("[执行tick出错] 类型=%s, 信息=%r", type(e).__name__, e)
             return False
 
     def update_bt_state(self):
         """更新行为树状态，打印所有节点的状态"""
         if not self.tree or not self.tree.root:
             print("[Update Failed] Behavior tree is not initialized.")
+            logger.error("[Update Failed] Behavior tree is not initialized.")
             return
 
         # 禁用状态输出
@@ -1288,6 +1351,7 @@ class BehaviorTreeFactory:
             # 检查status是否为FAILURE（可能需要根据实际的Status枚举进行调整）
             if str(node.status) == "Status.FAILURE" or getattr(node.status, "value", None) == 3:  # 3通常是FAILURE的值
                 print(f"[节点失败] {node.name}: {node.status}")
+                logger.error("[节点失败] %s: %s", node.name, node.status)
                 has_failure = True
 
         return has_failure

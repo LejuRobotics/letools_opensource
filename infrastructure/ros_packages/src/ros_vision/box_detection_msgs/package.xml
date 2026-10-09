@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>box_detection_msgs</name>
+  <version>0.1.0</version>
+  <description>箱子顶面四角检测结果的消息定义（fit_box_frame + box_servo_window）。</description>
+  <maintainer email="operator@example.com">operator</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <!-- message_generation 在建的时候生成 Python/C++ 消息类；message_runtime 跑的时候要用。
+       少了这两个 catkin_package() 会直接报错（实测踩过）。 -->
+  <build_depend>message_generation</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>geometry_msgs</build_depend>
+  <exec_depend>message_runtime</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+</package>

@@ -64,7 +64,7 @@ class CheckArrivedJibotSkill(SkillBase):
             return self._result if self._result else Result.ok("Already finished")
 
         start_ts = time.monotonic()
-        logger.info(
+        logger.debug(
             "[Perf][check_arrived_jibot_sdk] hardware_call_start task_id=%s blocking=%s timeout=%.3fs",
             str(self.params.task_id),
             bool(self.params.blocking),
@@ -77,21 +77,16 @@ class CheckArrivedJibotSkill(SkillBase):
         )
         elapsed = time.monotonic() - start_ts
         logger.info(
-            "[Perf][check_arrived_jibot_sdk] hardware_call_done success=%s elapsed=%.3fs task_id=%s",
+            "[Perf][check_arrived_jibot_sdk] hardware_call_done success=%s elapsed=%.3fs task_id=%s arrived=%s status=%d message=%s",
             result.success,
             elapsed,
             str(self.params.task_id),
+            result.data.get("arrived") if result.data else "N/A",
+            result.data.get("status") if result.data else -1,
+            result.data.get("message") if result.data else "N/A",
         )
         self._done = True
         self._result = result
-        if result.success:
-            logger.info(
-                "check_arrived_jibot_sdk: task_id=%s arrived=%s status=%d message=%s",
-                str(self.params.task_id),
-                result.data.get("arrived") if result.data else "N/A",
-                result.data.get("status") if result.data else -1,
-                result.data.get("message") if result.data else "N/A",
-            )
         return result
 
     def on_is_finished(self) -> bool:

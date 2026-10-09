@@ -1,6 +1,6 @@
 # core/interfaces/i_camera.py
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from ..domain.result import Result
 from ..domain.camera import CameraFrame, CameraInfo, PointCloudData, DepthData, CameraStatus
 
@@ -82,3 +82,51 @@ class ICamera(ABC):
     def stop_camera(self, camera_name: str = "camera") -> bool:
         """停止指定相机"""
         pass
+
+
+def unwrap_synchronized_frame(result) -> Tuple[Optional[CameraFrame], str]:
+    """`wait_for_next_synchronized_camera_frame()` 的返回值 → `(帧, 失败原因)`。
+
+    ⚠️ **那个接口返回的是 `Result`，不是 `CameraFrame`**（见上面它的签名）。
+    这一步不能省：`Result` 是普通 dataclass，**没有 `__getattr__` 代理**到 `.data`，
+    所以下面这种写法是**静默必炸**的：
+
+        frame = hw.camera.wait_for_next_synchronized_camera_frame(cam)
+        if frame is None:        # ← 永不成立：Result 恒为真值（实测）
+            ...
+        frame.color_image        # ← AttributeError: 'Result' object has no attribute
+
+    **两个工具都栽在这里过**，而且因此它们的「真机抓帧」路径**从来没有跑通过**：
+
+    - `apps/test_camera_internal/pallet_servo_sim/pick_servo_inputs.py`（`--capture`）
+    - `apps/test_camera_internal/pallet_calibration/pallet_calibrate.py`（标定）
+
+    两边 docstring 都写着"抓一帧"，但 `main()` 都不接异常 → 真机上一按就是 traceback。
+
+    放在**接口旁边**（而不是各工具里各抄一份）还有个实际理由：这段判据只有放在
+    这里才**测得到**。`apps/test_camera_internal/**` 被 CI 的 rsync 排除
+    （`.gitlab-ci.yml` 的 `--exclude='*_internal/'`），放工具旁边的测试永远进不了
+    CI；放这儿，`orchestration/nodes/tests/` 就能用 `-m unit` 钉住它。
+
+    返回 `(None, 原因)` 时**原因一定非空**，调用方直接打日志即可 —— 别再把
+    `error_code` 吞掉（适配器会给出 `RGBD_SYNC_DISABLED` / `CAMERA_NOT_INITIALIZED`
+    / `RGBD_SYNC_TIMEOUT` 这些真正有用的码）。
+    """
+    if result is None:
+        return None, "接口返回了 None（预期是 Result）"
+    if hasattr(result, "color_image"):
+        # 兼容直接返回帧的适配器：这不是契约，但别把能用的东西判死。
+        return result, ""
+    if not hasattr(result, "success"):
+        return None, (f"接口返回了 {type(result).__name__}，既不是 Result "
+                      f"也不是帧 —— 解包不了")
+    if not result.success:
+        msg = str(getattr(result, "message", "") or "（没有 message）")
+        code = getattr(result, "error_code", None)
+        return None, f"{msg}（error_code={code}）" if code else msg
+    frame = getattr(result, "data", None)
+    if frame is None:
+        return None, "Result.success 为真但 data 是 None（接口成功却没给帧）"
+    if not hasattr(frame, "color_image"):
+        return None, f"Result.data 是 {type(frame).__name__}，看着不是相机帧"
+    return frame, ""

@@ -41,7 +41,7 @@
         "params": {"memory": {"value": "True", "source": "CUSTOM"}},
         "childs": [
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
@@ -50,7 +50,7 @@
             "childBoard": []
           },
           {
-            "name": "BaseMoveToTargetJibotMove",
+            "name": "GraspMtbfMoveToTarget",
             "label": "jibot_move",
             "params": {
               "x": {"value": "-0.091", "source": "CUSTOM", "data_type": "float"},
@@ -60,7 +60,7 @@
             "childs": []
           },
           {
-            "name": "CheckArrivedJibotMove",
+            "name": "GraspMtbfCheckArrived",
             "label": "jibot_check_arrived",
             "params": {
               "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
@@ -69,7 +69,7 @@
             "childs": []
           },
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
@@ -123,61 +123,83 @@
         "childBoard": []
       },
       {
-        "name": "Parallel",
-        "label": "prepare_and_approach",
+        "name": "Sequence",
+        "label": "prepare_then_approach",
         "params": {
-          "policy": {"value": "success_on_all", "source": "CUSTOM", "data_type": "string"}
+          "memory": {
+            "value": "True",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
         },
         "childs": [
           {
-            "name": "Async",
-            "label": "raise_arm_async",
+            "name": "GraspMtbfMoveArm",
+            "label": "pre_reach_arm",
             "params": {
-              "tick_hz": {"value": "50.0", "source": "CUSTOM", "data_type": "float"}
-            },
-            "childs": [
-              {
-                "name": "MoveArmBaseTargetPoseMove",
-                "label": "pre_reach_arm",
-                "params": {
-                  "prep_only": {"value": "true", "source": "CUSTOM", "data_type": "bool"},
-                  "prep_time": {"value": "3.0", "source": "CUSTOM", "data_type": "float"},
-                  "prep_left_pose": {
-                    "value": [0.46, 0.35, 1.23, 0, -90, 0],
-                    "source": "CUSTOM",
-                    "data_type": "json"
-                  },
-                  "prep_right_pose": {
-                    "value": [0.46, -0.35, 1.23, 0, -90, 0],
-                    "source": "CUSTOM",
-                    "data_type": "json"
-                  }
-                },
-                "childs": []
+              "prep_only": {
+                "value": "true",
+                "source": "CUSTOM",
+                "data_type": "bool"
+              },
+              "prep_time": {
+                "value": "3.0",
+                "source": "CUSTOM",
+                "data_type": "float"
+              },
+              "prep_left_pose": {
+                "value": [
+                  0.46,
+                  0.35,
+                  1.23,
+                  0,
+                  -90,
+                  0
+                ],
+                "source": "CUSTOM",
+                "data_type": "json"
+              },
+              "prep_right_pose": {
+                "value": [
+                  0.46,
+                  -0.35,
+                  1.23,
+                  0,
+                  -90,
+                  0
+                ],
+                "source": "CUSTOM",
+                "data_type": "json"
               }
-            ],
-            "childBoard": []
+            },
+            "childs": []
           },
           {
-            "name": "Async",
-            "label": "walk_to_tag_async",
+            "name": "walk_to_tag.json",
+            "label": "walk_to_box",
             "params": {
-              "tick_hz": {"value": "50.0", "source": "CUSTOM", "data_type": "float"}
-            },
-            "childs": [
-              {
-                "name": "walk_to_tag.json",
-                "label": "walk_to_box",
-                "params": {
-                  "target_tag_id": {"value": "${pick_tag_id}", "source": "INPUT", "data_type": "int"},
-                  "stand_in_tag_pos": {"value": "${pick_stand_in_tag_pos}", "source": "INPUT", "data_type": "list"},
-                  "stand_in_tag_euler": {"value": "${pick_stand_in_tag_euler}", "source": "INPUT", "data_type": "list"},
-                  "chassis_walk_mode": {"value": "${chassis_walk_mode}", "source": "INPUT", "data_type": "string"}
-                },
-                "childs": []
+              "target_tag_id": {
+                "value": "${pick_tag_id}",
+                "source": "INPUT",
+                "data_type": "int"
+              },
+              "stand_in_tag_pos": {
+                "value": "${pick_stand_in_tag_pos}",
+                "source": "INPUT",
+                "data_type": "list"
+              },
+              "stand_in_tag_euler": {
+                "value": "${pick_stand_in_tag_euler}",
+                "source": "INPUT",
+                "data_type": "list"
+              },
+              "chassis_walk_mode": {
+                "value": "${chassis_walk_mode}",
+                "source": "INPUT",
+                "data_type": "string"
               }
-            ],
-            "childBoard": []
+            },
+            "childs": []
           }
         ],
         "childBoard": []
@@ -228,7 +250,7 @@
         "params": {"memory": {"value": "True", "source": "CUSTOM"}},
         "childs": [
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
@@ -237,7 +259,7 @@
             "childBoard": []
           },
           {
-            "name": "BaseMoveToTargetJibotMove",
+            "name": "GraspMtbfMoveToTarget",
             "label": "jibot_move",
             "params": {
               "x": {"value": "0.269", "source": "CUSTOM", "data_type": "float"},
@@ -247,7 +269,7 @@
             "childs": []
           },
           {
-            "name": "CheckArrivedJibotMove",
+            "name": "GraspMtbfCheckArrived",
             "label": "jibot_check_arrived",
             "params": {
               "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
@@ -256,7 +278,7 @@
             "childs": []
           },
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
@@ -285,7 +307,7 @@
         "params": {"memory": {"value": "True", "source": "CUSTOM"}},
         "childs": [
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
@@ -294,7 +316,7 @@
             "childBoard": []
           },
           {
-            "name": "BaseMoveToTargetJibotMove",
+            "name": "GraspMtbfMoveToTarget",
             "label": "jibot_move",
             "params": {
               "x": {"value": "5.259", "source": "CUSTOM", "data_type": "float"},
@@ -304,7 +326,7 @@
             "childs": []
           },
           {
-            "name": "CheckArrivedJibotMove",
+            "name": "GraspMtbfCheckArrived",
             "label": "jibot_check_arrived",
             "params": {
               "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
@@ -313,7 +335,7 @@
             "childs": []
           },
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
@@ -342,7 +364,7 @@
         "params": {"memory": {"value": "True", "source": "CUSTOM"}},
         "childs": [
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
@@ -351,7 +373,7 @@
             "childBoard": []
           },
           {
-            "name": "BaseMoveToTargetJibotMove",
+            "name": "GraspMtbfMoveToTarget",
             "label": "jibot_move",
             "params": {
               "x": {"value": "5.540", "source": "CUSTOM", "data_type": "float"},
@@ -361,7 +383,7 @@
             "childs": []
           },
           {
-            "name": "CheckArrivedJibotMove",
+            "name": "GraspMtbfCheckArrived",
             "label": "jibot_check_arrived",
             "params": {
               "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
@@ -370,7 +392,7 @@
             "childs": []
           },
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
@@ -394,20 +416,20 @@
         "childBoard": []
       },
       {
-        "name": "CalcLegMove",
+        "name": "GraspMtbfCalcLegMove",
         "label": "recover_leg",
         "params": {
           "offset_x": {"value": "0.15", "source": "CUSTOM", "data_type": "float"},
           "offset_y": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
           "offset_z": {"value": "1.35", "source": "CUSTOM", "data_type": "float"},
-          "control_base": {"value": "false", "source": "CUSTOM", "data_type": "string"},
+          "control_base": {"value": false, "source": "CUSTOM", "data_type": "bool"},
           "leg_mode": {"value": "leg", "source": "CUSTOM", "data_type": "string"},
           "offset_yaw": {"value": "0.0", "source": "CUSTOM", "data_type": "float"}
         },
         "childs": []
       },
       {
-        "name": "MoveArmBaseTargetPoseMove",
+        "name": "GraspMtbfMoveArm",
         "label": "pre_reach_arm",
         "params": {
           "prep_only": {"value": "true", "source": "CUSTOM", "data_type": "bool"},
@@ -480,13 +502,15 @@
         "childBoard": []
       },
       {
-        "name": "CalcLegMove",
-        "label": "crouch_for_grasp",
+        "name": "GraspMtbfCalcLegMove",
+        "label": "crouch_for_place",
         "params": {
           "offset_x": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
           "offset_y": {"value": "-0.5", "source": "CUSTOM", "data_type": "float"},
-          "offset_z": {"value": "0.45", "source": "CUSTOM", "data_type": "float"},
-          "control_base": {"value": "false", "source": "CUSTOM", "data_type": "string"},
+          "offset_z": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
+          "control_base": {"value": false, "source": "CUSTOM", "data_type": "bool"},
+          "fixed_torso_x": {"value": "0.15", "source": "CUSTOM", "data_type": "float"},
+          "total_time": {"value": "5.0", "source": "CUSTOM", "data_type": "float"},
           "leg_mode": {"value": "target", "source": "CUSTOM", "data_type": "string"},
           "tag_id": {"value": "${place_tag_id}", "source": "INPUT", "data_type": "int"},
           "offset_yaw": {"value": "0.0", "source": "CUSTOM", "data_type": "float"}
@@ -533,7 +557,7 @@
         "childBoard": []
       },
       {
-        "name": "ChassisStopMove",
+        "name": "GraspMtbfChassisControl",
         "label": "chassis_stop",
         "params": {
           "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
@@ -542,7 +566,7 @@
         "childBoard": []
       },
       {
-        "name": "BaseMoveRelativeJibotMove",
+        "name": "GraspMtbfRelativeMove",
         "label": "back_away",
         "params": {
           "x": {"value": "-0.5", "source": "CUSTOM", "data_type": "float"},
@@ -552,7 +576,7 @@
         "childs": []
       },
       {
-        "name": "ChassisStopMove",
+        "name": "GraspMtbfChassisControl",
         "label": "chassis_stop",
         "params": {
           "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
@@ -574,13 +598,13 @@
         "childBoard": []
       },
       {
-        "name": "CalcLegMove",
+        "name": "GraspMtbfCalcLegMove",
         "label": "recover_leg",
         "params": {
           "offset_x": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
           "offset_y": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
           "offset_z": {"value": "1.2", "source": "CUSTOM", "data_type": "float"},
-          "control_base": {"value": "false", "source": "CUSTOM", "data_type": "string"},
+          "control_base": {"value": false, "source": "CUSTOM", "data_type": "bool"},
           "leg_mode": {"value": "leg", "source": "CUSTOM", "data_type": "string"},
           "offset_yaw": {"value": "0.0", "source": "CUSTOM", "data_type": "float"}
         },
@@ -605,7 +629,7 @@
         "params": {"memory": {"value": "True", "source": "CUSTOM"}},
         "childs": [
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
@@ -614,7 +638,7 @@
             "childBoard": []
           },
           {
-            "name": "BaseMoveToTargetJibotMove",
+            "name": "GraspMtbfMoveToTarget",
             "label": "jibot_move",
             "params": {
               "x": {"value": "5.259", "source": "CUSTOM", "data_type": "float"},
@@ -624,7 +648,7 @@
             "childs": []
           },
           {
-            "name": "CheckArrivedJibotMove",
+            "name": "GraspMtbfCheckArrived",
             "label": "jibot_check_arrived",
             "params": {
               "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
@@ -633,7 +657,7 @@
             "childs": []
           },
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
@@ -649,7 +673,7 @@
         "params": {"memory": {"value": "True", "source": "CUSTOM"}},
         "childs": [
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
@@ -658,7 +682,7 @@
             "childBoard": []
           },
           {
-            "name": "BaseMoveToTargetJibotMove",
+            "name": "GraspMtbfMoveToTarget",
             "label": "jibot_move",
             "params": {
               "x": {"value": "0.269", "source": "CUSTOM", "data_type": "float"},
@@ -668,7 +692,7 @@
             "childs": []
           },
           {
-            "name": "CheckArrivedJibotMove",
+            "name": "GraspMtbfCheckArrived",
             "label": "jibot_check_arrived",
             "params": {
               "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
@@ -677,7 +701,7 @@
             "childs": []
           },
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }
@@ -693,7 +717,7 @@
         "params": {"memory": {"value": "True", "source": "CUSTOM"}},
         "childs": [
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
@@ -702,7 +726,7 @@
             "childBoard": []
           },
           {
-            "name": "BaseMoveToTargetJibotMove",
+            "name": "GraspMtbfMoveToTarget",
             "label": "jibot_move",
             "params": {
               "x": {"value": "-0.091", "source": "CUSTOM", "data_type": "float"},
@@ -712,7 +736,7 @@
             "childs": []
           },
           {
-            "name": "CheckArrivedJibotMove",
+            "name": "GraspMtbfCheckArrived",
             "label": "jibot_check_arrived",
             "params": {
               "blocking": {"value": "True", "source": "CUSTOM", "data_type": "bool"},
@@ -721,7 +745,7 @@
             "childs": []
           },
           {
-            "name": "ChassisStopMove",
+            "name": "GraspMtbfChassisControl",
             "label": "chassis_stop",
             "params": {
               "enable": { "value": true, "source": "CUSTOM", "data_type": "bool" }

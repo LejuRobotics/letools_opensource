@@ -59,7 +59,7 @@ class VelControlSkill(ISkill):
             import rospy
             
             rate = rospy.Rate(self._params.control_frequency)
-            print("等待接收observation数据...")
+            logger.info("等待接收observation数据...")
             
             wait_timeout = 3.0
             start_wait_time = rospy.Time.now().to_sec()
@@ -85,8 +85,12 @@ class VelControlSkill(ISkill):
             self._initial_yaw = self.get_current_yaw()
             self._target_yaw = self._initial_yaw + self._params.target_yaw_offset
             
-            print(f"开始执行控制序列...")
-            print(f"初始yaw: {math.degrees(self._initial_yaw):.1f}°, 目标yaw: {math.degrees(self._target_yaw):.1f}°")
+            logger.info("开始执行控制序列...")
+            logger.info(
+                "初始yaw: %.1f°, 目标yaw: %.1f°",
+                math.degrees(self._initial_yaw),
+                math.degrees(self._target_yaw),
+            )
             
             start_time = rospy.Time.now().to_sec()
             
@@ -94,7 +98,7 @@ class VelControlSkill(ISkill):
                 current_time = rospy.Time.now().to_sec()
                 
                 if current_time - start_time > self._params.max_duration:
-                    print("控制超时，退出循环")
+                    logger.warning("控制超时，退出循环")
                     break
                 
                 current_yaw = self.get_current_yaw()
@@ -124,7 +128,7 @@ class VelControlSkill(ISkill):
         self._initial_yaw = 0.0
         self._target_yaw = self._params.target_yaw_offset
         
-        print("使用模拟数据执行控制序列...")
+        logger.info("使用模拟数据执行控制序列...")
         
         start_time = rospy.Time.now().to_sec()
         current_sim_yaw = 0.0
@@ -133,7 +137,7 @@ class VelControlSkill(ISkill):
             current_time = rospy.Time.now().to_sec()
             
             if current_time - start_time > self._params.max_duration:
-                print("控制超时，退出循环")
+                logger.warning("控制超时，退出循环")
                 break
             
             current_sim_yaw = min(self._target_yaw, current_sim_yaw + self._params.angular_speed / self._params.control_frequency)
@@ -143,7 +147,7 @@ class VelControlSkill(ISkill):
             self.hardware.publish_cmd_vel(linear_x, linear_y, angular_z)
             
             if abs(self._target_yaw - current_sim_yaw) < self._params.yaw_tolerance:
-                print("旋转完成")
+                logger.info("旋转完成")
                 break
             
             rate.sleep()
@@ -171,7 +175,14 @@ class VelControlSkill(ISkill):
         if abs(yaw_error) > self._params.yaw_tolerance:
             angular_z = self._params.angular_speed if yaw_error > 0 else -self._params.angular_speed
             
-            print(f"旋转中... 当前角度: {math.degrees(current_yaw):.1f}°, 目标: {math.degrees(self._target_yaw):.1f}°, 误差: {math.degrees(yaw_error):.1f}°")
+            # 控制环按 control_frequency（默认 20Hz）调用本函数，逐周期打印会刷屏，
+            # 故降到 DEBUG。
+            logger.debug(
+                "旋转中... 当前角度: %.1f°, 目标: %.1f°, 误差: %.1f°",
+                math.degrees(current_yaw),
+                math.degrees(self._target_yaw),
+                math.degrees(yaw_error),
+            )
         else:
             angular_z = 0.0
             self._rotation_completed = True

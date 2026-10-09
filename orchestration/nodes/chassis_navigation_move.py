@@ -43,6 +43,18 @@ def _is_dry_run():
     ),
     params=[
         {
+            "name": "navigation_config",
+            "type": "json",
+            "default": {},
+            "description": "可选导航配置，包含 enable、目标点、速度和到达阈值",
+        },
+        {
+            "name": "target_key",
+            "type": "string",
+            "default": "pick_point",
+            "description": "navigation_config 中的目标点字段，例如 pick_point",
+        },
+        {
             "name": "enabled",
             "type": "bool",
             "default": True,
@@ -159,19 +171,20 @@ class ChassisNavigationMove(BaseAction):
         self._disabled = False
 
         try:
+            params = self._navigation_params()
             enabled = self._as_bool(
-                self.params.get("enabled", True), "enabled"
+                params.get("enabled", True), "enabled"
             )
             if not enabled:
                 self._disabled = True
                 self.feedback_message = "底盘导航已禁用，跳过当前节点"
                 return
 
-            mode = self._parse_mode(self.params.get("mode", "relative"))
+            mode = self._parse_mode(params.get("mode", "relative"))
             x, y, theta = self._parse_command(
-                self.params.get("command", [0.0, 0.0, 0.0])
+                params.get("command", [0.0, 0.0, 0.0])
             )
-            options = self._parse_options(self.params)
+            options = self._parse_options(params)
             self._timeout = self._positive_number(
                 self.params.get("timeout", 60.0), "timeout"
             )
@@ -334,6 +347,36 @@ class ChassisNavigationMove(BaseAction):
         if mode not in ("relative", "map"):
             raise ValueError("mode 必须为 relative 或 map")
         return mode
+
+    def _navigation_params(self):
+        """兼容普通参数和工厂展平后的导航配置；显式参数优先。"""
+        config = self.params.get("navigation_config", {})
+        if not isinstance(config, dict):
+            raise ValueError("navigation_config 必须是对象")
+        fields = {
+            "enabled": "enable",
+            "command": self.params.get("target_key", "pick_point"),
+            "linear_velocity": "linear_velocity",
+            "angular_velocity": "angular_velocity",
+            "position_threshold": "arrived_position_threshold",
+            "angle_threshold": "arrived_angular_threshold",
+            "allow_rotation": "allow_rotation",
+            "mode": "mode",
+            "avoid_enabled": "avoid_enabled",
+            "avoid_distance": "avoid_distance",
+        }
+        resolved = {}
+        missing = object()
+        for key, field in fields.items():
+            value = self.params.get(
+                key,
+                self.params.get(f"navigation_config.{field}", config.get(field, missing)),
+            )
+            if value is not missing:
+                resolved[key] = value
+        if self.params.get("navigation_config__board_key") and "command" not in resolved:
+            raise ValueError("navigation_config 缺少目标点配置")
+        return resolved
 
     @staticmethod
     def _parse_command(raw):

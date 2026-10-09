@@ -18,7 +18,7 @@ class _FinishOnSecondTick(py_trees.behaviour.Behaviour):
         return Status.SUCCESS if self.tick_count == 2 else Status.RUNNING
 
 
-def test_waits_for_current_iteration_before_exiting():
+def test_waits_for_current_iteration_before_exiting(check_before_iteration=False):
     py_trees.blackboard.Blackboard.clear()
     writer = py_trees.blackboard.Client(name="repeat-until-test-writer")
     writer.register_key(key="loop_status", access=Access.WRITE)
@@ -29,6 +29,7 @@ def test_waits_for_current_iteration_before_exiting():
         condition_key="loop_status",
         condition_path="is_finished",
         wait_for_child_completion=True,
+        check_before_iteration=check_before_iteration,
     )
 
     repeat.tick_once()
@@ -38,6 +39,10 @@ def test_waits_for_current_iteration_before_exiting():
     repeat.tick_once()
     assert repeat.status == Status.SUCCESS
     assert child.tick_count == 2
+
+
+def test_precheck_does_not_interrupt_running_iteration():
+    test_waits_for_current_iteration_before_exiting(check_before_iteration=True)
 
 
 if __name__ == "__main__":

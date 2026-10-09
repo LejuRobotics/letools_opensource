@@ -27,7 +27,7 @@
 sdk_manager/
 ├── base_sdk_manager.py        # 基类：通用功能
 ├── timed_cmd_manager.py       # TimedCmdAPI 管理器
-├── arm_sdk_manager.py         # ArmAPI 管理器
+├── arm_sdk_manager.py         # 手臂 SDK 管理器
 └── low_level_sdk_manager.py   # 底层 SDK 管理器
 ```
 
@@ -219,7 +219,7 @@ manager.shutdown()
 
 ### 3. ArmSDKManager
 
-**职责**: 封装 `ArmAPI`，支持连续轨迹控制
+**职责**: 直调 `robot_sdk.control.*`，支持连续轨迹控制
 
 **特点**:
 - ✅ 支持自动和手动两种 MPC 管理模式

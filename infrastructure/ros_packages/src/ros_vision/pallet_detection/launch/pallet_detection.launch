@@ -1,0 +1,93 @@
+<launch>
+    <!-- 木托盘台面坐标系：彩色 + 深度 + camera_info → /pallet/detection -->
+    <!-- 算法在 LeTools 的 skills/atomic/perception/pallet_detect/ 里 -->
+
+    <arg name="image_color"   default="/camera/color/image_raw"/>
+    <arg name="image_depth"   default="/camera/depth/image_raw"/>
+    <arg name="camera_info"   default="/camera/color/camera_info"/>
+    <arg name="detection_out" default="/pallet/detection"/>
+    <arg name="target_mm"     default="[1200.0, 1000.0]"/>
+
+    <!-- 与画面近平行的边是不是长边。**按场景给**，默认短边平行。
+         给错了 θ_ref 会偏 90°，全搜索会落到错的象限（april_test7 实测偏
+         +67.6°、452mm），而 score 照样很高、不报错。 -->
+    <arg name="long_side_parallel" default="false"/>
+
+    <!-- 法向：空串 = 从 TF 查（部署默认）。给 "x,y,z" 则直接用、不查 TF。
+         ⚠️ 缺 TF 时节点**不发布**，不会回退到瞎猜的法向。 -->
+    <arg name="normal"        default=""/>
+    <arg name="camera_frame"  default="camera_color_optical_frame"/>
+    <arg name="base_frame"    default="base_link"/>
+
+    <!-- 法向自检：**TF 只当搜索初值，答案从当前帧深度拟合**（默认开）。
+         为什么：TF 链的朝向会静默偏掉，而 detect 对法向极敏感。2026-09-29 现场
+         实测（test_jia4，37 帧）：地面/台面平面之间只差 1.14°，而 **TF 与它们
+         差 12.52°**，且 37 帧里 TF 一个数都没变（静态偏差，不是抖动）。偏 12.4°
+         的后果是 `too_few_edges` **37/37 全拒**；换成拟合值、其它参数不动
+         **37/37 全过**（支撑边 3~4/4，四角逐帧标准差 0.4~1.3px）。
+         关掉 = 退回历史行为（TF 给什么用什么）。 -->
+    <arg name="fit_normal"    default="true"/>
+    <!-- 重新拟合：false（默认）= **只在首帧拟合一次，之后一直复用**。
+         依据：伺服时机器人只做平面内平移（前后左右，不动腰），所以相机相对
+         base 的朝向不变、base 的 z 与地面法向的关系也不变 —— 法向是这个过程中
+         唯一的常量，首帧 ~10ms 拟合一次就够。
+         ⚠️ **真动了腰 / 换了工位要设成 true**，否则会拿一个过期法向静默继续算
+         （法向偏了不会崩，只会换一个 score 继续"如实拒绝"）。 -->
+    <arg name="normal_refit"  default="false"/>
+
+    <!-- 检出后跑 refine。`plane` 必须为 true：detect 单独对法向敏感
+         （5.6° -> 180mm），refine 的平面拟合能修回来，前提就是它开着。 -->
+    <arg name="refine"        default="true"/>
+    <arg name="plane"         default="true"/>
+
+    <!-- 先验跟踪：把上一帧的结果喂给下一帧，θ 与位移都只在上一帧附近搜。
+         伺服跟踪时托盘不动、动的是机器人，相邻帧相对位移实测最大 9.9mm /
+         0.47°，先验几乎是白给的 —— `search` 段实测 599ms -> 66~80ms。
+         关掉只在「托盘会跳变 / 一个画面里多个托盘」时需要。 -->
+    <arg name="use_prior"     default="true"/>
+
+    <!-- 台面高度的绝对约束：`"lo,hi"`（base_link 的 z，mm）。空串 = 不约束。
+         现场实测（相机在 base 高 ~1.2m）：托盘 z≈+43、地面 z≈−107、
+         **手里抱着的纸箱 z≈+600** —— 一条 `-40,130` 的带就能把纸箱整个排除，
+         实测四角误差从 28px 降到 15~17px。
+         ⚠️ **它是绝对高度，依赖 TF 的平移** —— 换工位 / 换托盘 / 站姿变了要重标；
+         带错了不崩，只是"带内选不出台面" → 拒帧（日志里 deck_h_rel_mm=None）。 -->
+    <arg name="deck_z_mm"     default=""/>
+
+    <!-- 心跳周期（秒）。**成功时也打**，用来把「在跑」与「线程死了 / 一直被拒」
+         分开 —— 本节点原来的日志点全是一次性/只在失败时，正常工作时一片安静，
+         与挂掉长得一模一样（2026-09-29 现场踩过）。0 = 关掉。 -->
+    <arg name="heartbeat_s"   default="5.0"/>
+
+    <node name="pallet_detection" pkg="pallet_detection"
+          type="pallet_detection_node.py" output="screen">
+        <param name="image_color"        value="$(arg image_color)"/>
+        <param name="image_depth"        value="$(arg image_depth)"/>
+        <param name="camera_info"        value="$(arg camera_info)"/>
+        <param name="detection_out"      value="$(arg detection_out)"/>
+        <!-- ⚠️ `target_mm` **必须走 `<rosparam>`**，不能用 `<param value="..."/>`。
+             roslaunch 的 `<param>` 不带 `type` 时按 `'auto'` 转换，而 `auto` 认不出
+             list —— `"[1200.0, 1000.0]"` 会**原样变成字符串**（实测
+             `roslaunch.loader.convert_value`），节点拿到它逐字符迭代，第一个字符
+             就是 `[`：`ValueError: could not convert string to float: '['`，
+             **节点起不来**。`<rosparam>` 走 YAML，给出的才是真正的 list。
+             节点侧 `_parse_target_mm` 对两种形式都容错，但 launch 这一层也要写对 ——
+             否则每次启动都靠节点的容错兜底，掩盖配置错误。 -->
+        <rosparam param="target_mm" subst_value="true">$(arg target_mm)</rosparam>
+        <param name="long_side_parallel" value="$(arg long_side_parallel)"/>
+        <param name="normal"             value="$(arg normal)"/>
+        <param name="camera_frame"       value="$(arg camera_frame)"/>
+        <param name="base_frame"         value="$(arg base_frame)"/>
+        <param name="fit_normal"         value="$(arg fit_normal)"/>
+        <param name="normal_refit"       value="$(arg normal_refit)"/>
+        <param name="heartbeat_s"        value="$(arg heartbeat_s)"/>
+        <param name="refine"             value="$(arg refine)"/>
+        <param name="plane"              value="$(arg plane)"/>
+        <param name="use_prior"          value="$(arg use_prior)"/>
+        <param name="deck_z_mm"          value="$(arg deck_z_mm)"/>
+
+        <!-- 本项目矩阵都太小，OpenBLAS 多线程是纯开销，实测差 1.6x -->
+        <env name="OMP_NUM_THREADS" value="1"/>
+        <env name="OPENBLAS_NUM_THREADS" value="1"/>
+    </node>
+</launch>

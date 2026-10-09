@@ -420,7 +420,7 @@ class ThreadSafeDriver:
 ### Q1: 如何调试驱动层代码？
 
 **A**: 
-1. 查看日志文件：`log/kuavo_studio_*.log`
+1. 查看日志文件：`log/LeTools_*.log`
 2. 使用 `rostopic echo` 查看 ROS 话题
 3. 使用 `rosservice call` 测试服务
 

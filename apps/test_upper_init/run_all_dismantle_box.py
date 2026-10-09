@@ -282,6 +282,12 @@ def main():
         except Exception as e:
             raise RuntimeError(f"当前环境不可用 rospy（若非 ROS 环境请使用 --dry-run）：{e}")
         rospy.init_node(args.ros_node, log_level=rospy.INFO)
+
+        # 【重要】rospy.init_node() 会重装 root 上的 handler，清除我们的日志配置，
+        # 需立即重新收敛，否则此后到硬件初始化之间的日志不会落入 LeTools 日志文件。
+        from core.common.logger import init_logging
+        init_logging(force=True)
+
         controller.init_services()
 
     # --- 依次运行每个场景 ---

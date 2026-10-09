@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>pallet_detection</name>
+  <version>1.0.0</version>
+  <description>
+    木托盘台面坐标系检测：彩色图 + 对齐深度图 → /pallet/detection。
+
+    算法核心在 LeTools 的 skills/atomic/perception/pallet_detect/（纯函数，
+    不 import ROS）；本包只是把它接到话题上。
+
+    ⚠️ 上游还要有 pallet_detection_msgs（同一个工作区里编译）。
+  </description>
+
+  <maintainer email="zhangtingzhen@lejurobot.com">zhangtingzhen</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>message_filters</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>pallet_detection_msgs</exec_depend>
+
+  <export>
+  </export>
+</package>

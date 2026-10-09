@@ -12,6 +12,7 @@ class RepeatUntil(py_trees.decorators.Decorator):
     条件在每个 tick 检查；当条件满足时，即使子树仍在运行也会被中止并返回
     ``SUCCESS``。启用 ``wait_for_child_completion`` 后，则等待当前一轮结束，
     再根据子树结果退出。子树失败则立即向上传递 ``FAILURE``。
+    启用 ``check_before_iteration`` 后，每轮开始前也检查条件，满足时跳过该轮。
     """
 
     def __init__(
@@ -22,14 +23,40 @@ class RepeatUntil(py_trees.decorators.Decorator):
         condition_path="",
         expected_value=True,
         wait_for_child_completion=False,
+        check_before_iteration=False,
     ):
         super().__init__(name=name, child=child)
         self.condition_key = condition_key
         self.condition_path = condition_path
         self.expected_value = expected_value
         self.wait_for_child_completion = wait_for_child_completion
+        self.check_before_iteration = check_before_iteration
         self.blackboard = self.attach_blackboard_client(name=f"{name}_condition")
         self.blackboard.register_key(key=condition_key, access=Access.READ)
+
+    def tick(self):
+        starting_iteration = (
+            self.status != Status.RUNNING
+            or self.decorated.status == Status.INVALID
+        )
+        if self.check_before_iteration and starting_iteration:
+            try:
+                condition_met = self._condition_value() == self.expected_value
+            except KeyError:
+                condition_met = False
+            except Exception as exc:
+                self.feedback_message = f"读取循环条件失败: {exc}"
+                self.stop(Status.FAILURE)
+                yield self
+                return
+            if condition_met:
+                self.feedback_message = (
+                    f"本轮开始前循环条件已满足: {self.condition_key}{self._path_label()}"
+                )
+                self.stop(Status.SUCCESS)
+                yield self
+                return
+        yield from super().tick()
 
     def update(self):
         try:

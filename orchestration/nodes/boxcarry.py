@@ -615,11 +615,12 @@ def execute_plan(plan: CarryPlan, interactive: bool) -> int:
 
 def main() -> int:
     args = build_parser().parse_args()
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
     rospy.init_node("basket_vision_boxcarry", anonymous=False)
+
+    # 【重要】rospy.init_node() 会重装 root 上的 handler，清除统一日志配置，
+    # 需在其后重新收敛，否则本进程日志无 trace_id、不落盘、不轮转。
+    from core.common.logger import init_logging
+    init_logging(force=True)
 
     try:
         if args.mock:

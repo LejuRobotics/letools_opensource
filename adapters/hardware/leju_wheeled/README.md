@@ -77,7 +77,6 @@ leju_wheeled/
 ├── perception_adapter.py              # 感知适配器（AprilTag 等）
 ├── mixins/                            # 🧩 所有功能 Mixin
 │   ├── __init__.py                    # 统一导出
-│   ├── _logging_setup.py              # 日志重配置工具（独立函数）
 │   ├── lifecycle_mixin.py             # 初始化 / 关闭
 │   ├── base_control_mixin.py          # 底盘速度/位置控制（ROS 话题）
 │   ├── torso_control_mixin.py         # 躯干位姿 + 焦点切换
@@ -617,15 +616,17 @@ class LejuWheeledArmHardware(
 ### 🔴 严重陷阱
 
 #### 1. `rospy.init_node()` 会清除自定义日志配置
-`rospy.init_node()` 内部调用了 `logging.basicConfig()`，会**清除**我们注册的所有日志处理器。
+`rospy.init_node()` 会重装 root logger 上的 handler，**清除**我们注册的日志处理器，
+并把 rospy 自己的终端 handler 挂到 `rosout` logger 上。
 
-**解决方案**：在 `LifecycleMixin.initialize` 中已自动调用 `reconfigure_logging_after_rospy_init()` 修复。如果你在其他地方调用 `rospy.init_node()`，需要手动调用此函数。
+**解决方案**：在 `rospy.init_node()` 之后调用 `init_logging(force=True)` 重新收敛配置。
+`LifecycleMixin.initialize` 中已自动处理。如果你在其他地方调用 `rospy.init_node()`，需要手动调用。
 
 ```python
-from adapters.hardware.leju_wheeled.mixins._logging_setup import reconfigure_logging_after_rospy_init
+from core.common.logger import init_logging
 
 rospy.init_node('my_node')
-reconfigure_logging_after_rospy_init()  # ⬅ 必须！
+init_logging(force=True)  # ⬅ 必须！
 ```
 
 #### 2. `cmd_vel` 速度命令需要持续发布
@@ -699,13 +700,13 @@ hw.set_mpc_mode_sdk('NoControl') # 关闭控制
 
 ```bash
 # 实时查看主日志
-tail -f apps/test_kuavo_5w_app/log/kuavo_studio_*.log
+tail -f apps/test_kuavo_5w_app/log/LeTools_*.log
 
 # 只看错误日志
-tail -f apps/test_kuavo_5w_app/log/kuavo_studio_error_*.log
+tail -f apps/test_kuavo_5w_app/log/LeTools_error_*.log
 
 # 按 Trace ID 过滤（每次启动都会生成唯一 Trace ID）
-grep 'TRACE:abc12345' apps/test_kuavo_5w_app/log/kuavo_studio_*.log
+grep 'TRACE:abc12345' apps/test_kuavo_5w_app/log/LeTools_*.log
 ```
 
 日志格式（文件）：

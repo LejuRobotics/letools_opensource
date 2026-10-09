@@ -1,0 +1,12 @@
+# LeTools 运行时依赖（SSOT）
+#
+# 单一事实来源：CI 通过 `pip3 install -r requirements.txt` 安装，
+# 新增/升级依赖请只改本文件，勿再在 .gitlab-ci.yml 里硬编码包名。
+# 本文件会随开源产物同步到 GitCode/GitHub，供下游用户安装。
+#
+# 说明：仅列 LeTools 自有 Python 运行时依赖；
+#       SDK 子模块的非编译依赖（openai 等）仍由 .gitlab-ci.yml 单独安装，
+#       pyright 属 CI 工具（非运行时依赖），也留在 CI 中。
+
+colorlog
+py_trees

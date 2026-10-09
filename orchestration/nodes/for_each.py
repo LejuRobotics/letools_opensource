@@ -9,15 +9,20 @@ from py_trees.common import Access, Status
 class ForEach(py_trees.decorators.Decorator):
     """对 ``source_key`` 中的列表逐项执行同一个子树。"""
 
-    def __init__(self, name, child, source_key, target_key):
+    def __init__(self, name, child, source_key, target_key, index_key=""):
         super().__init__(name=name, child=child)
         self.source_key = str(source_key).strip()
         self.target_key = str(target_key).strip()
+        self.index_key = str(index_key).strip()
         if not self.source_key or not self.target_key:
             raise ValueError("ForEach requires source_key and target_key")
+        if self.index_key and self.index_key in (self.source_key, self.target_key):
+            raise ValueError("ForEach index_key 不能覆盖 source_key 或 target_key")
         self.blackboard = self.attach_blackboard_client(name=f"{name}_items")
         self.blackboard.register_key(key=self.source_key, access=Access.READ)
         self.blackboard.register_key(key=self.target_key, access=Access.WRITE)
+        if self.index_key:
+            self.blackboard.register_key(key=self.index_key, access=Access.WRITE)
         self._items = []
         self._index = 0
         self._error = ""
@@ -80,3 +85,6 @@ class ForEach(py_trees.decorators.Decorator):
 
     def _write_current_item(self):
         self.blackboard.set(self.target_key, deepcopy(self._items[self._index]))
+        if self.index_key:
+            # 每次进入 ForEach 都从 0 开始，供子树判断本批的第一项。
+            self.blackboard.set(self.index_key, self._index)

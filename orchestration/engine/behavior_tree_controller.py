@@ -5,11 +5,11 @@ import json
 import os
 import threading
 import time
-import traceback
 
 import py_trees
 import py_trees.common
 
+from core.common.logger import get_logger
 from orchestration.engine.behavior_tree_factory import BehaviorTreeFactory
 from orchestration.utils.blackboard_utils import apply_blackboard_data_from_json
 
@@ -22,12 +22,21 @@ except ImportError:
     rospy = None
     HAS_ROSPY = False
 
-try:
-    from orchestration.services.blackboard_service import BlackboardService
+# 黑板数据 ROS 服务暂时停用（2026-09-22）：pytrees_actions 是 ROS msg 包，须经
+# catkin 编译才能 import，而 embodied 尚未编译，注册必然失败并打出"黑板服务未启动"
+# 告警。该服务只把黑板暴露给外部调试工具，行为树本身用的是进程内的
+# blackboard_client，停用不影响运行。
+# 恢复方式：先 cd embodied && catkin_make 并 source 其 devel，再放开本段、
+# __init__ 里的 blackboard_service 字段、以及 start_behavior_tree 里的注册段。
+# try:
+#     from orchestration.services.blackboard_service import BlackboardService
+#
+#     HAS_BOARD_SERVICE = True
+# except Exception:
+#     HAS_BOARD_SERVICE = False
 
-    HAS_BOARD_SERVICE = True
-except Exception:
-    HAS_BOARD_SERVICE = False
+
+logger = get_logger(__name__)
 
 
 class BehaviorTreeController:
@@ -39,7 +48,7 @@ class BehaviorTreeController:
         self.bt_thread = None
         self._last_tree_json_path = None
         self._last_blackboard_client = None
-        self.blackboard_service = None
+        # self.blackboard_service = None  # 黑板 ROS 服务暂时停用，见文件头说明
         self.max_iterations = 1
         self.current_iteration = 0
         self.last_root_status = None
@@ -48,12 +57,14 @@ class BehaviorTreeController:
         self._last_tree_json_path = tree_json_path
         self._last_blackboard_client = blackboard_client
 
-        if blackboard_client and HAS_BOARD_SERVICE and HAS_ROSPY and not self.blackboard_service:
-            try:
-                self.blackboard_service = BlackboardService(blackboard_client)
-            except Exception as e:
-                if HAS_ROSPY:
-                    rospy.logwarn(f"[BehaviorTree] 黑板服务未启动: {e}")
+        # 黑板数据 ROS 服务暂时停用——pytrees_actions 未编译，注册必然失败。
+        # 恢复方式见文件头 BlackboardService import 处的说明。
+        # if blackboard_client and HAS_BOARD_SERVICE and HAS_ROSPY and not self.blackboard_service:
+        #     try:
+        #         self.blackboard_service = BlackboardService(blackboard_client)
+        #     except Exception as e:
+        #         if HAS_ROSPY:
+        #             rospy.logwarn(f"[BehaviorTree] 黑板服务未启动: {e}")
 
         self.running_flag = True
         self.paused_flag = False
@@ -100,6 +111,11 @@ class BehaviorTreeController:
                                         "[BehaviorTree] 完成: %s",
                                         new_root_status.name,
                                     )
+                                    if (
+                                        new_root_status
+                                        == py_trees.common.Status.FAILURE
+                                    ):
+                                        self._log_failure_details()
                                 else:
                                     print(
                                         f"[BehaviorTree] 完成: {new_root_status.name}"
@@ -124,13 +140,35 @@ class BehaviorTreeController:
                 else:
                     time.sleep(1.0 / rate_hz)
         except Exception as e:
+            logger.error("[BehaviorTree] 主循环异常: %s", e, exc_info=True)
             if HAS_ROSPY:
                 rospy.logerr(f"[BehaviorTree] 主循环异常: {e}")
-            traceback.print_exc()
         finally:
             self.running_flag = False
 
         return self.last_root_status
+
+    def _log_failure_details(self):
+        """记录真正失败的叶节点，避免根节点 FAILURE 丢失业务原因。"""
+        root = getattr(self.bt_instance, "root", None)
+        if root is None or not HAS_ROSPY:
+            return
+        try:
+            failed = [
+                node
+                for node in root.iterate()
+                if node.status == py_trees.common.Status.FAILURE
+            ]
+        except Exception as exc:
+            rospy.logerr("[BehaviorTree] 读取失败节点异常: %s", exc)
+            return
+        for node in failed:
+            rospy.logerr(
+                "[BehaviorTree] 失败节点: name=%s type=%s feedback=%s",
+                getattr(node, "name", "?"),
+                type(node).__name__,
+                getattr(node, "feedback_message", ""),
+            )
 
     def init_services(self):
         if not HAS_ROSPY:

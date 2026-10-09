@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>pallet_servo_msgs</name>
+  <version>0.1.0</version>
+  <description>
+    托盘伺服误差的实时输出（三个被控量 + 有效性），供行为树之外的控制器订阅。
+  </description>
+  <maintainer email="operator@example.com">operator</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <!-- message_generation 建的时候生成 Python/C++ 消息类；message_runtime 跑的时候要用。
+       少了这两个 catkin_package() 会直接报错（实测踩过，见 box_detection_msgs）。 -->
+  <build_depend>message_generation</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <exec_depend>message_runtime</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+</package>

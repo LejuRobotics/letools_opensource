@@ -1,0 +1,6 @@
+# 权重不入库（与 module_internal/zhaofeng_feeding/yolo_weights/ 同一做法）。
+# 仓库根的 .gitignore 已经把 *.pt 排除了，但 *.onnx 没有，所以这里显式再挡一道。
+# README 要跟着走 —— 部署的人得知道权重从哪来。
+*
+!.gitignore
+!README.md

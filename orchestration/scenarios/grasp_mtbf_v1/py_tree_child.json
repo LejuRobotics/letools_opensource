@@ -60,7 +60,7 @@
           "childs": []
         },
         {
-          "name": "NodeWheelWalk",
+          "name": "GraspMtbfWheelWalk",
           "label": "walk_to_goal",
           "params": {
             "walk_mode": {"value": "${chassis_walk_mode}", "source": "INPUT", "data_type": "string"}
@@ -79,13 +79,15 @@
       },
       "childs": [
         {
-          "name": "CalcLegMove",
+          "name": "GraspMtbfCalcLegMove",
           "label": "crouch_for_grasp",
           "params": {
             "offset_x": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
             "offset_y": {"value": "0.0", "source": "CUSTOM", "data_type": "float"},
             "offset_z": {"value": "0.1", "source": "CUSTOM", "data_type": "float"},
-            "control_base": {"value": "false", "source": "CUSTOM", "data_type": "string"},
+            "control_base": {"value": false, "source": "CUSTOM", "data_type": "bool"},
+            "fixed_torso_x": {"value": "0.15", "source": "CUSTOM", "data_type": "float"},
+            "total_time": {"value": "3.0", "source": "CUSTOM", "data_type": "float"},
             "leg_mode": {"value": "target", "source": "CUSTOM", "data_type": "string"},
             "tag_id": {"value": "${target_tag_id}", "source": "INPUT", "data_type": "int"},
             "offset_yaw": {"value": "0.0", "source": "CUSTOM", "data_type": "float"}
@@ -118,7 +120,7 @@
           "childs": []
         },
         {
-          "name": "MoveArmBaseTargetPoseMove",
+          "name": "GraspMtbfMoveArm",
           "label": "move_arm_grasp",
           "params": {
             "arm_control_mode": {"value": "fixed_base", "source": "CUSTOM", "data_type": "string"},
@@ -145,7 +147,7 @@
           "childBoard": []
         },
         {
-          "name": "ChassisStopMove",
+          "name": "GraspMtbfChassisControl",
           "label": "chassis_stop",
           "params": {
             "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
@@ -154,7 +156,7 @@
           "childBoard": []
         },
         {
-          "name": "BaseMoveRelativeJibotMove",
+          "name": "GraspMtbfRelativeMove",
           "label": "back",
           "params": {
             "x": {"value": "-0.3", "source": "CUSTOM", "data_type": "float"},
@@ -164,7 +166,7 @@
           "childs": []
         },
         {
-          "name": "ChassisStopMove",
+          "name": "GraspMtbfChassisControl",
           "label": "chassis_stop",
           "params": {
             "enable": { "value": false, "source": "CUSTOM", "data_type": "bool" }
@@ -195,7 +197,7 @@
           "childs": []
         },
         {
-          "name": "MoveArmBaseTargetPoseMove",
+          "name": "GraspMtbfMoveArm",
           "label": "move_arm_place",
           "params": {
             "arm_control_mode": {"value": "fixed_base", "source": "CUSTOM", "data_type": "string"},

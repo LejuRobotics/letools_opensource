@@ -101,15 +101,15 @@ class GraspRingSkill(SkillBase):
                                self._pre_grasp_pose[2] + 0.10,
                                ee_yaw, ee_pitch, ee_roll]
 
-            print(f"[GraspRingSkill] 圆环位置: {self._ring_pos}")
-            print(f"[GraspRingSkill] 预抓位: {self._pre_grasp_pose}")
-            print(f"[GraspRingSkill] 抓取位: {self._grasp_pose}")
+            logger.info("[GraspRingSkill] 圆环位置: %s", self._ring_pos)
+            logger.info("[GraspRingSkill] 预抓位: %s", self._pre_grasp_pose)
+            logger.info("[GraspRingSkill] 抓取位: %s", self._grasp_pose)
             self._phase = 1
             return Result.ok("phase 0 done")
 
         # Phase 1: 运动到预抓位
         if self._phase == 1:
-            print("[GraspRingSkill] 右手运动到圆环正上方")
+            logger.info("[GraspRingSkill] 右手运动到圆环正上方")
             result = self.hardware.send_right_arm_ee_world_timed(
                 pose=self._pre_grasp_pose, desire_time=3.0
             )
@@ -121,7 +121,7 @@ class GraspRingSkill(SkillBase):
 
         # Phase 2: 垂直下抓
         if self._phase == 2:
-            print("[GraspRingSkill] 垂直向下抓取")
+            logger.info("[GraspRingSkill] 垂直向下抓取")
             result = self.hardware.send_right_arm_ee_world_timed(
                 pose=self._grasp_pose, desire_time=2.0
             )
@@ -133,7 +133,7 @@ class GraspRingSkill(SkillBase):
 
         # Phase 3: 闭合夹爪
         if self._phase == 3:
-            print("[GraspRingSkill] 关闭右手夹爪")
+            logger.info("[GraspRingSkill] 关闭右手夹爪")
             self._send_claw(p.gripper_pre_position, p.gripper_close_position)
             time.sleep(1.0)
             self._phase = 4
@@ -141,19 +141,19 @@ class GraspRingSkill(SkillBase):
 
         # Phase 4: 抬起10cm
         if self._phase == 4:
-            print("[GraspRingSkill] 右臂抬高10cm")
+            logger.info("[GraspRingSkill] 右臂抬高10cm")
             result = self.hardware.send_right_arm_ee_world_timed(
                 pose=self._lift_pose, desire_time=2.0
             )
             if not result.success:
-                print(f"[GraspRingSkill] 右臂抬高失败: {result.message}")
+                logger.error("[GraspRingSkill] 右臂抬高失败: %s", result.message)
             time.sleep(3.0)
             self._phase = 5
             return Result.ok("phase 4 done")
 
         # Phase 5: 完成
         if self._phase == 5:
-            print("[GraspRingSkill] 抓取完成")
+            logger.info("[GraspRingSkill] 抓取完成")
             self._success = True
             return Result.ok("done")
 
@@ -174,7 +174,7 @@ class GraspRingSkill(SkillBase):
             msg = rospy.wait_for_message(topic, PoseStamped, timeout=5)
             return (msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
         except Exception as e:
-            print(f"[GraspRingSkill] 获取 {ring_name} 位置失败: {e}")
+            logger.error("[GraspRingSkill] 获取 %s 位置失败: %s", ring_name, e)
             return None
 
     def _send_claw(self, left_pos, right_pos):

@@ -2,6 +2,7 @@
 # 消费方：HardwareFactory、shared_hardware、编排/技能注入
 
 robot_type: leju_wheeled
+navigation_chassis_backend: jibot
 
 backend:
   base_velocity: ros
@@ -11,4 +12,4 @@ backend:
 
 camera:
   use_orbbec: true
-  enable_wrist_camera: false
+  enable_wrist_camera: true

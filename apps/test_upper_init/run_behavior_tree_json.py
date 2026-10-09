@@ -20,6 +20,11 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from core.common.logger import init_logging
+
+
+logger = logging.getLogger(__name__)
+
 
 def _resolve_studio_paths(from_file: str):
     """返回 (studio_root, orch_root) ，其中 studio_root 始终为项目根目录。"""
@@ -58,18 +63,37 @@ def _load_board_into_blackboard(blackboard_client, board_path: str):
 
     if not board_path or not os.path.isfile(board_path):
         print(f"[apps] board.json 不存在，跳过：{board_path}")
+        logger.warning("[apps] board.json 不存在，跳过：%s", board_path)
         return
 
     # 兼容两种 board 结构：
-    # 1) 扁平 dict（如 studio_smoke_v1/refactored_sdk_atomic_v1）
-    # 2) 分组 list（含 process / key/value/type 等）
+    # 1) 扁平 dict（如 studio_smoke_v1/refactored_sdk_atomic_v1）—— 顶层键直接进黑板
+    # 2) 分组 list（顶层是「组名 → 带 key/remark/type/value 的条目数组」）
     try:
         with open(board_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
         raise RuntimeError(f"读取 board.json 失败: {board_path}, err={e}")
 
-    if isinstance(data, dict) and "process" not in data:
+    # 分组格式的两个特征，**满足其一**就是分组格式：
+    #   1) 顶层有 `process` 键（历史约定，现有分组 board 都有）
+    #   2) 任一顶层值是「list 且首元素是带 key 的 dict」—— 这才是格式本身的样子
+    #
+    # 为什么不能只看 `process`：分组格式的文件**忘了写 process** 时，
+    # `apply_flat_board_json` 会把每一组都跳过（它显式 skip 这种形状），于是黑板
+    # 上一个键都没有、**且不报错** —— 现场表现为所有 READ_BOARD 全部回退到代码
+    # 默认值。判据要认格式本身，不能认一个可选的历史记号。
+    #
+    # 写成「或」而不是替换：`process` 仍是一个有效信号（比如某份分组 board 的组
+    # 全是空 list 时形状判不出来，`process` 兜住）。多一条形状判据只会让**更多**
+    # 文件走分组路，原本走分组路的不会掉回扁平路。
+    looks_grouped = False
+    if isinstance(data, dict):
+        looks_grouped = any(
+            isinstance(v, list) and v and isinstance(v[0], dict) and "key" in v[0]
+            for v in data.values())
+
+    if isinstance(data, dict) and "process" not in data and not looks_grouped:
         apply_flat_board_json(blackboard_client, board_path)
     else:
         apply_blackboard_data_from_json(blackboard_client, board_path, use_group_prefix=False)
@@ -133,6 +157,7 @@ def main():
     studio_root, orch_root = _resolve_studio_paths(__file__)
     os.chdir(studio_root)
     _ensure_sys_path(studio_root, orch_root)
+    init_logging()
 
     # 行为树节点会动态导入 kuavo_msgs 等 catkin 生成包。
     # 在正式入口统一补齐路径，避免要求每个节点或 Driver 各自修改 sys.path。
@@ -143,6 +168,7 @@ def main():
 
     # [CRITICAL] 必须先导入 compat，避免 py_trees 版本差异
     print("[apps] 导入 py_trees ...", flush=True)
+    logger.info("[apps] 导入 py_trees ...")
     import orchestration.engine.py_trees_compat  # noqa: F401, E402
 
     # 解析路径（优先显式参数，其次 scenario 目录）
@@ -175,6 +201,19 @@ def main():
     print(f"  - subtrees: {subtrees_path or '(none)'}")
     print(f"  - board: {board_path or '(none)'}")
     print(f"  - hardware config: {hardware_config_path or '(default)'}")
+    logger.info(
+        "[apps] 启动参数\n"
+        "  - workdir: %s\n"
+        "  - tree: %s\n"
+        "  - subtrees: %s\n"
+        "  - board: %s\n"
+        "  - hardware config: %s",
+        os.getcwd(),
+        tree_path,
+        subtrees_path or "(none)",
+        board_path or "(none)",
+        hardware_config_path or "(default)",
+    )
 
     if not tree_path or not os.path.isfile(tree_path):
         raise RuntimeError(f"主树 py_tree.json 不存在: {tree_path}")
@@ -192,6 +231,7 @@ def main():
         try:
             action_group_filter = set(int(g.strip()) for g in args.action_groups.split(","))
             print(f"[apps] 动作组过滤: {sorted(action_group_filter)}")
+            logger.info("[apps] 动作组过滤: %s", sorted(action_group_filter))
         except ValueError:
             raise RuntimeError(f"--action-groups 格式错误，请用逗号分隔数字（如 '1,3,5'）: {args.action_groups}")
 
@@ -209,8 +249,14 @@ def main():
         if os.path.isfile(subtrees_path):
             factory.reload_subtree_config()
             print(f"[apps] 子树集合已加载：{subtrees_path} (count={len(factory.subtree_config)})")
+            logger.info(
+                "[apps] 子树集合已加载：%s (count=%d)",
+                subtrees_path,
+                len(factory.subtree_config),
+            )
         else:
             print(f"[apps] 子树集合文件不存在，忽略：{subtrees_path}")
+            logger.warning("[apps] 子树集合文件不存在，忽略：%s", subtrees_path)
 
     controller = BehaviorTreeController(factory)
 
@@ -220,9 +266,11 @@ def main():
         if tree is None or not hasattr(tree, "root") or tree.root is None:
             raise RuntimeError("dry-run 加载失败：root 不存在")
         print(f"[apps][dry-run] 已加载树，根节点: {tree.root.name}")
+        logger.info("[apps][dry-run] 已加载树，根节点: %s", tree.root.name)
         if args.tick_once:
             tree.tick()
             print(f"[apps][dry-run] tick 后根状态: {tree.root.status}")
+            logger.info("[apps][dry-run] tick 后根状态: %s", tree.root.status)
         return
 
     # ROS 模式：初始化节点、预热硬件、运行主循环
@@ -232,6 +280,11 @@ def main():
         raise RuntimeError(f"当前环境不可用 rospy（若非 ROS 环境请使用 --dry-run）：{e}")
 
     rospy.init_node(args.ros_node, log_level=rospy.INFO)
+
+    # 【重要】rospy.init_node() 会重装 root 上的 handler，清除我们的日志配置，
+    # 需立即重新收敛，否则此后到硬件初始化之间的日志不会落入 LeTools 日志文件。
+    init_logging(force=True)
+
     controller.init_services()
 
     # 预热硬件：提前触发 HardwareFactory.create + initialize，
@@ -245,6 +298,7 @@ def main():
                 with open(hardware_config_path, "r", encoding="utf-8") as f:
                     set_hardware_config(json.load(f))
                 print(f"[apps] 已加载硬件配置: {hardware_config_path}")
+                logger.info("[apps] 已加载硬件配置: %s", hardware_config_path)
             elif args.hardware_config:
                 raise RuntimeError(
                     f"显式指定的硬件配置不存在: {hardware_config_path}"
@@ -252,9 +306,11 @@ def main():
 
         _hw = get_shared_hardware()
         print(f"[apps] 硬件预热完成: {type(_hw).__name__}")
+        logger.info("[apps] 硬件预热完成: %s", type(_hw).__name__)
     except Exception as e:
         # 初始化失败后继续运行只会在首个硬件节点中重复初始化，并掩盖真正原因。
         print(f"[apps] 硬件预热失败: {e}")
+        logger.exception("[apps] 硬件预热失败")
         _quiet_shutdown_shared_hardware()
         raise SystemExit(1)
 
@@ -269,6 +325,7 @@ def main():
         feedback = getattr(root, "feedback_message", "") if root else ""
         if feedback:
             print(f"[apps] 行为树失败原因: {feedback}")
+            logger.error("[apps] 行为树失败原因: %s", feedback)
 
     if args.spin:
         rospy.loginfo("[apps] --spin: 保持节点运行（Ctrl+C 退出）")

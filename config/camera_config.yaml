@@ -8,10 +8,10 @@ camera:
   # 头部 Orbbec 相机分辨率与帧率（0 表示使用驱动默认值）
   color_width: 1280
   color_height: 800
-  color_fps: 30
+  color_fps: 15
   depth_width: 1280
   depth_height: 800
-  depth_fps: 30
+  depth_fps: 15
 
   head_enable_frame_sync: true
   head_depth_registration: true
@@ -26,7 +26,7 @@ camera:
   # 外部图像消费者应独立配置其同步策略。
   head_rgbd_sync: true
   rgbd_sync_queue_size: 5
-  rgbd_sync_slop_sec: 0.015
+  rgbd_sync_slop_sec: 0.040
   rgbd_require_same_resolution: true
 
   # 完整 Adapter 模式启动时等待首组 RGB/深度帧；driver_only 模式不读取此项。
@@ -37,9 +37,9 @@ camera:
   # 某侧仅在两者同时为 true 时启动。完全未安装腕部相机时三项均设为 false。
   enable_wrist_camera: true
   has_left_wrist: true
-  left_wrist_camera_sn: "260522277779"
+  left_wrist_camera_sn: "412622271574"
   has_right_wrist: true
-  right_wrist_camera_sn: "260622270790"
+  right_wrist_camera_sn: "409122272623"
 
   # 腕部 RealSense 相机分辨率与帧率（左右腕共用）
   wrist_color_width: 848

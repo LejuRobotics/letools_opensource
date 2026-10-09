@@ -1,0 +1,175 @@
+{
+  "pallet": [
+    {
+      "key": "pallet_size_mm",
+      "remark": "木托盘台面 [长, 短]，毫米。换托盘改这一条 —— 检测器和 node 共读它",
+      "type": "json",
+      "value": [
+        1200.0,
+        1000.0
+      ]
+    },
+    {
+      "key": "ref_edges",
+      "remark": "各箱位的参考边。服务里写第 N 个箱子 → 用第 N 组（服务从 1 数）。每组 [底边, 右边]，必须一横一竖。加箱位就往后追加一组。**一律写绝对毫米**：y=<毫米> 是离 y=0 那条边多远，x=<毫米> 是离 x=0 那条边多远，范围 0~对应边长（见 README 的台面坐标系图）。⚠️ 这里的 1200 / 1000 与 pallet_size_mm 是**一对**：台面 [1200, 1000]，所以四条边恰好落在这些数上（同一个尺寸的两种写法，换托盘时两条一起改）",
+      "type": "json",
+      "value": [
+        [
+          "y=0",
+          "x=1200"
+        ],
+        [
+          "y=1000",
+          "x=1200"
+        ],
+        [
+          "y=1000",
+          "x=0"
+        ],
+        [
+          "y=0",
+          "x=0"
+        ]
+      ]
+    },
+    {
+      "key": "pallet_frame",
+      "remark": "黑板上的托盘位姿按哪个坐标系解释。视觉链路固定 camera，别改",
+      "type": "string",
+      "value": "camera"
+    },
+    {
+      "key": "long_side_parallel",
+      "remark": "与画面近平行的托盘边是不是长边。**这是唯一的朝向开关**：true = 长边横向、false = 短边横向。⚠️ **它只翻转 `size_mm` 的 W/H 两个数**（= 拟合出来的尺寸方向），**E1/E2 的方向不受它影响** —— E1 恒指画面右、E2 恒指向上，所以换这个键**不用再去重新找 x 轴**。⚠️ 它同时决定 `ref_edges` 里 `x=<毫米>` 的上限：`x` 沿 E1、最大 = W，给错会被启动时整表校验判 `ref_edge_out_of_range`（那正是它的用处）。⚠️ **别用改 pallet_size_mm 的顺序达到这个目的** —— 内部取 max/min，改了没用",
+      "type": "bool",
+      "value": false
+    },
+    {
+      "key": "normal",
+      "remark": "台面法向先验 \"x,y,z\"（相机系）。空串 = 从 TF 查（部署默认）。缺 TF 时节点**不发布**，换工位要动它",
+      "type": "string",
+      "value": ""
+    },
+    {
+      "key": "deck_z_mm",
+      "remark": "台面高度的**绝对** z 带 \"lo,hi\"，毫米，基准是 base_link。空串 = 不约束。现场实测（相机在 base 高 ~1.2m）：托盘 z≈+43、地面 z≈−107、**手里抱着的纸箱 z≈+600** —— 填 \"-40,130\" 就能把纸箱整个排除（实测四角误差 28px→15px）。⚠️ 它是**绝对**高度、依赖 TF 的平移，换工位/换托盘/相机装高变了都要重标；带错了不崩，只是拒帧（日志里 deck_h_rel_mm=None）",
+      "type": "string",
+      "value": ""
+    },
+    {
+      "key": "fit_normal",
+      "remark": "**TF 只当搜索初值，法向从当前帧深度拟合**（默认 true = 开）。为什么：TF 链的朝向会静默偏掉，而 detect 对法向极敏感 —— 2026-09-29 现场实测（test_jia4，37 帧）地面/台面平面之间只差 1.14°，而 **TF 与它们差 12.52°**，37 帧里 TF 一个数都没变（静态偏差，不是抖动）。偏 12.4° 的后果是 `too_few_edges` **37/37 全拒**；换成拟合值、其它参数不动 **37/37 全过**。false = 退回历史行为（TF 给什么用什么）",
+      "type": "bool",
+      "value": true
+    },
+    {
+      "key": "normal_refit",
+      "remark": "重新拟合：**false（默认）= 只在首帧拟合一次、之后一直复用**。依据是伺服时机器人**只做平面内平移**（前后左右，不动腰），所以相机相对 base 的朝向不变、base 的 z 与地面法向的关系也不变 —— 法向是这个过程中唯一的常量，首帧 ~10ms 就够（实测 37 帧里只首帧花 13ms，后 36 帧 0ms）。⚠️ **真动了腰 / 换了工位要设成 true**，否则会拿过期法向静默继续算（法向偏了不崩，只换个 score 继续「如实拒绝」）",
+      "type": "bool",
+      "value": false
+    }
+  ],
+  "box": [
+    {
+      "key": "box_size_mm",
+      "remark": "纸箱顶面 [长, 短]，毫米。换箱子改这一条（原来是两处代码常量、零出口）",
+      "type": "json",
+      "value": [
+        530.0,
+        350.0
+      ]
+    },
+    {
+      "key": "z_near_mm",
+      "remark": "选箱深度项：近于此得满分，毫米。**默认值是拍的，要用真机数据核**",
+      "type": "float",
+      "value": "500.0"
+    },
+    {
+      "key": "z_far_mm",
+      "remark": "选箱深度项：远于此得 0 分，毫米。**默认值是拍的，要用真机数据核**",
+      "type": "float",
+      "value": "1500.0"
+    },
+    {
+      "key": "score_w_conf",
+      "remark": "选箱综合打分：置信度权重（三项归一化后加权求和）",
+      "type": "float",
+      "value": "0.5"
+    },
+    {
+      "key": "score_w_area",
+      "remark": "选箱综合打分：面积权重（同帧相对归一）",
+      "type": "float",
+      "value": "0.2"
+    },
+    {
+      "key": "score_w_depth",
+      "remark": "选箱综合打分：深度权重（取不到深度时按比例让给另两项）",
+      "type": "float",
+      "value": "0.3"
+    },
+    {
+      "key": "model_path",
+      "remark": "纸箱 ONNX 权重路径。**留空 = 用包内默认**（权重不进 git）",
+      "type": "string",
+      "value": ""
+    },
+    {
+      "key": "conf",
+      "remark": "纸箱检测置信度阈值。训练时验证集 conf 都 >0.9，0.25 是松门槛",
+      "type": "float",
+      "value": "0.25"
+    }
+  ],
+  "servo": [
+    {
+      "key": "max_dt_s",
+      "remark": "两路观测配对的**最大时间差**，秒。超过就 reject（不猜、不外推）",
+      "type": "float",
+      "value": "0.4"
+    },
+    {
+      "key": "pair_cache",
+      "remark": "每侧留几个观测做配对回溯。**回溯窗 ≈ 本值 × tick 周期**（10Hz 下 5 ≈ 500ms），**必须大于托盘检测器的端到端延迟**",
+      "type": "int",
+      "value": "5"
+    },
+    {
+      "key": "window",
+      "remark": "成对序列的平滑窗长（帧数）。1 = 不平滑。**与 pair_cache 是两个独立旋钮**",
+      "type": "int",
+      "value": "5"
+    },
+    {
+      "key": "agg",
+      "remark": "多对聚合方式，只认 mean / median。拼错退回 mean 并记 WARNING",
+      "type": "string",
+      "value": "mean"
+    },
+    {
+      "key": "live_timeout_s",
+      "remark": "**存活闸**：某一侧多久没有新观测就报停摆，秒。0 = 不查。与 stale_s（延迟闸）不是一回事",
+      "type": "float",
+      "value": "5.0"
+    },
+    {
+      "key": "require_handedness",
+      "remark": "托盘位姿的手性检查。视觉链路固定 true",
+      "type": "bool",
+      "value": true
+    },
+    {
+      "key": "servo_error_out",
+      "remark": "伺服误差的对外话题（下游控制器订阅它）。空串 = 完全不发",
+      "type": "string",
+      "value": "/pallet_servo/dis"
+    },
+    {
+      "key": "servo_error_heartbeat_s",
+      "remark": "无效帧的重发间隔，秒。承诺「任何时刻都有一条不超过 1 秒的消息」",
+      "type": "float",
+      "value": "1.0"
+    }
+  ]
+}

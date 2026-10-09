@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>carton_box_yolo</name>
+  <version>1.0.0</version>
+  <description>
+    纸箱检测：图像话题 → YOLO(ONNX) 推理 → /box/yolo_box (geometry_msgs/PolygonStamped)。
+
+    这是 /box/detection 那条链路的上游 —— box_detection_node.py 消费本节点发出来的
+    轴对齐框，恢复箱子顶面的旋转角，再往 LeTools 的 NodeBoxObs 送。
+  </description>
+
+  <maintainer email="zhangtingzhen@lejurobot.com">zhangtingzhen</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+
+  <export>
+  </export>
+</package>

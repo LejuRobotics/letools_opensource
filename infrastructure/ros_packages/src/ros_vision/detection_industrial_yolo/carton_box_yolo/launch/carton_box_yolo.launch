@@ -1,0 +1,90 @@
+<launch>
+    <!-- 纸箱检测：图像 + 深度 → YOLO(ONNX) → /box/yolo_box -->
+
+    <arg name="image"     default="/camera/color/image_raw"/>
+    <!-- 深度：选箱打分用。给空串 = 不订阅深度（全部候选走"无深度"降级） -->
+    <arg name="image_depth" default="/camera/depth/image_raw"/>
+    <arg name="box_out"   default="/box/yolo_box"/>
+    <arg name="model_path" default=""/>
+    <arg name="imgsz"     default="640"/>
+    <arg name="conf"      default="0.25"/>
+    <arg name="max_rate_hz" default="0.0"/>
+    <arg name="z_near_mm"     default="500.0"/>
+    <arg name="z_far_mm"      default="1500.0"/>
+    <arg name="score_w_conf"  default="0.5"/>
+    <arg name="score_w_area"  default="0.2"/>
+    <arg name="score_w_depth" default="0.3"/>
+
+    <!-- ⚠️ **默认用系统 python3（基础环境）跑，不挂 venv。**
+
+         为什么有这个 arg：catkin 生成的 node wrapper 顶上写死了
+         `#!/usr/bin/python3`，而 `roslaunch/node_args.py` 是**直接 exec 那个文件**的
+         （`_launch_prefix_args(node) + cmd + args`）—— 不查 PATH，也不看你当前
+         activate 了什么。**换解释器只有 `launch-prefix` 这一条路。**
+         所以"想换环境"只能从这里给一个**解释器的绝对路径**。
+
+         ⚠️ **空串 = 不挂 prefix = 用系统 python3**（`core.Node` 里
+         `launch_prefix or None`，空的就退回 `[]`）。这是当前默认。
+
+         ⚠️ **回退只能改这里的 default，命令行传空串是无效的。** roslaunch 的
+         `load_mappings` 会把 `x:=` 这种空值**直接从映射里丢掉**（实测
+         `load_mappings(['yolo_python:='])` 返回 `{}`），于是 arg 保持默认值 ——
+         你以为切了环境，其实没切，**一点提示都没有**。命令行要覆盖就写个真路径：
+             roslaunch carton_box_yolo carton_box_yolo.launch yolo_python:=/usr/bin/python3
+
+         ⚠️ **挂 venv 时，那个环境里要有**（`source devel/setup.bash` 只给 ROS 那几个
+         目录放进 `PYTHONPATH`，**不会**装进 venv）：
+           * `rospkg` —— `rospy` → `roslib` → `rospkg` 是硬链，缺了整个节点起不来
+           * `onnxruntime-gpu`、`opencv`、`numpy`
+
+         ⚠️ **onnxruntime 与 numpy 的版本必须配套**（实测，不是推断）：
+
+             numpy 1.x  + onnxruntime 1.15.1  →  ✅ 推理正常
+             numpy 2.x  + onnxruntime 1.15.1  →  ❌ import 就 `_ARRAY_API not found`，
+                                                  继续往下跑是**段错误**，没有正常报错
+             numpy 2.x  + onnxruntime 1.19.2  →  ✅ 推理正常
+
+         1.15/1.16/1.17 都是拿 numpy 1.x 编的。GDRN 的 `uv.lock` 在 py3.10 linux 上
+         解析出的是 **numpy 2.2.6**（与它 README 说的"NumPy 必须为 1.x"相矛盾）——
+         照 README 装成 1.x 就用 1.15，跟着 `uv sync` 装成 2.x 就必须 >= 1.19。
+         两边要一起定，别各装各的。
+
+         （现场那台机器人曾指向 `module_internal/carton_vision/carton_gdrnpp/gdrn/bin/python`，
+         现按需要改回基础环境。要挂回来的话把那行填进 default 即可。） -->
+    <arg name="yolo_python" default=""
+         doc="纸箱检测节点的解释器绝对路径；空串 = 用系统 python3（默认）"/>
+    <node name="carton_box_detect" pkg="carton_box_yolo"
+          type="carton_box_detect.py" output="screen"
+          launch-prefix="$(arg yolo_python)">
+
+        <!-- ⚠️ **rosparam 必须写在 <node> 里面。** 写在 <launch> 顶层（也就是
+             原来的写法）会把参数放到全局 `/conf`，而节点读的是私有 `~conf`
+             —— 私有名解析成 `/<节点名>/conf`，两者根本不是一个键。实测用
+             `roslaunch` 的 dump-params 看，给出的全是 `/conf`、`/imgsz`…，
+             节点却一个都读不到，**静默用代码里的默认值**，改 yaml 完全没反应。
+             放进 <node> 之后落点才是 `/carton_box_detect/conf`。 -->
+        <rosparam command="load" file="$(find carton_box_yolo)/config/carton_box_yolo.yaml"/>
+
+        <!-- 命令行给的 arg 覆盖 yaml（同样在 <node> 里，才能盖到私有键） -->
+        <param name="image"       value="$(arg image)"/>
+        <param name="image_depth" value="$(arg image_depth)"/>
+        <param name="box_out"     value="$(arg box_out)"/>
+        <param name="imgsz"       value="$(arg imgsz)"/>
+        <param name="conf"        value="$(arg conf)"/>
+        <param name="max_rate_hz" value="$(arg max_rate_hz)"/>
+        <param name="model_path"  value="$(arg model_path)"/>
+
+        <!-- 选箱判据（置信度 + 面积 + 中心深度）。yaml 给了默认值，这里是
+             命令行覆盖口 —— 一键脚本从 board.json 传进来。 -->
+        <param name="z_near_mm"     value="$(arg z_near_mm)"/>
+        <param name="z_far_mm"      value="$(arg z_far_mm)"/>
+        <param name="score_w_conf"  value="$(arg score_w_conf)"/>
+        <param name="score_w_area"  value="$(arg score_w_area)"/>
+        <param name="score_w_depth" value="$(arg score_w_depth)"/>
+
+        <!-- onnxruntime / OpenBLAS 在这个规模的模型上开多线程是纯开销，
+             而且会和 ROS 回调线程抢核。实测差 1.6x（WORKLOG_box_frame_fit.md §15.1）。 -->
+        <env name="OMP_NUM_THREADS" value="1"/>
+        <env name="OPENBLAS_NUM_THREADS" value="1"/>
+    </node>
+</launch>

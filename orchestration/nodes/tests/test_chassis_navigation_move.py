@@ -12,6 +12,7 @@ from py_trees.common import Status
 
 from core.domain.result import Result
 from orchestration.nodes.chassis_navigation_move import ChassisNavigationMove
+from orchestration.engine.behavior_tree_factory import ParamsWrapper
 
 
 def _node(**overrides):
@@ -188,6 +189,52 @@ def test_completed_task_does_not_switch_control_mode():
     hardware.set_chassis_external_control.assert_not_called()
 
 
+def test_navigation_config_submits_selected_map_target_and_options():
+    config = {
+        "enable": True,
+        "pick_point": [1.2, -0.4, 0.5],
+        "linear_velocity": 0.10,
+        "angular_velocity": 0.15,
+        "arrived_position_threshold": 0.04,
+        "arrived_angular_threshold": 0.09,
+        "allow_rotation": False,
+    }
+    for wrap in (dict, ParamsWrapper):
+        node = ChassisNavigationMove("move", "move", None, wrap({
+            "navigation_config": config,
+            "navigation_config__board_key": "navigation_config",
+            "target_key": "pick_point",
+            "mode": "map",
+        }))
+        hardware = _navigation_hardware()
+        with patch(
+            "orchestration.nodes.chassis_navigation_move.get_shared_hardware",
+            return_value=hardware,
+        ):
+            node.initialise()
+        call = hardware.move_chassis_to_target.call_args.kwargs
+        assert (call["x"], call["y"], call["theta"]) == (1.2, -0.4, 0.5)
+        options = call["options"]
+        assert options.linear_velocity == 0.10
+        assert options.angular_velocity == 0.15
+        assert options.position_threshold == 0.04
+        assert options.angle_threshold == 0.09
+        assert options.allow_rotation is False
+
+
+def test_navigation_config_disabled_skips_hardware_access():
+    node = ChassisNavigationMove("move", "move", None, ParamsWrapper({
+        "navigation_config": {"enable": False, "pick_point": [1.0, 2.0, 0.0]},
+        "mode": "map",
+    }))
+    with patch(
+        "orchestration.nodes.chassis_navigation_move.get_shared_hardware"
+    ) as get_hardware:
+        node.initialise()
+        assert node.update() == Status.SUCCESS
+    get_hardware.assert_not_called()
+
+
 if __name__ == "__main__":
     tests = (
         test_relative_move_submits_and_waits_without_blocking,
@@ -200,6 +247,8 @@ if __name__ == "__main__":
         test_boolean_string_false_is_not_treated_as_true,
         test_interrupted_running_task_stops_navigation,
         test_completed_task_does_not_switch_control_mode,
+        test_navigation_config_submits_selected_map_target_and_options,
+        test_navigation_config_disabled_skips_hardware_access,
     )
     for test in tests:
         test()

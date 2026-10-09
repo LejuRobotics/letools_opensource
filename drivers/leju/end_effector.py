@@ -1,6 +1,10 @@
 # LeTools/drivers/leju/end_effector.py
-import rospy
+import math
+import threading
+import time
 from typing import Union
+
+import rospy
 
 from core.domain.end_effector import (
     DualGripperCommand,
@@ -36,6 +40,8 @@ class LejuEndEffector:
         self._state_sub = None
         self._current_state = EndEffectorState()
         self._last_error = ""
+        self._claw_positions = None
+        self._claw_state_condition = threading.Condition()
 
         # SG100 专用：命令发布者与状态订阅者
         self._sg100_pub = None
@@ -67,8 +73,18 @@ class LejuEndEffector:
                 generated_path = str(path_error)
             if self._ee_type == EndEffectorType.LEJU_CLAW:
                 from kuavo_msgs.srv import controlLejuClaw
+                from kuavo_msgs.msg import lejuClawState
+
                 rospy.wait_for_service('/control_robot_leju_claw', timeout=3.0)
                 self._claw_service = rospy.ServiceProxy('/control_robot_leju_claw', controlLejuClaw)
+                with self._claw_state_condition:
+                    self._claw_positions = None
+                self._state_sub = rospy.Subscriber(
+                    '/leju_claw_state',
+                    lejuClawState,
+                    self._on_claw_state,
+                    queue_size=1,
+                )
                 logger.info("Connected to Leju Claw service.")
             elif self._ee_type == EndEffectorType.QIANGNAO_HAND:
                 from kuavo_msgs.msg import robotHandPosition
@@ -106,6 +122,14 @@ class LejuEndEffector:
             return False
 
     def disconnect(self) -> None:
+        if self._state_sub is not None:
+            try:
+                self._state_sub.unregister()
+            except Exception:
+                pass
+            self._state_sub = None
+        with self._claw_state_condition:
+            self._claw_positions = None
         self._connected = False
         logger.info("End effector disconnected.")
 
@@ -128,31 +152,32 @@ class LejuEndEffector:
                         return Result.fail(
                             "DualGripperCommand requires side=both"
                         )
-                    targets = (
-                        ("left_claw", cmd.left_position),
-                        ("right_claw", cmd.right_position),
-                    )
-                    active_targets = [
-                        (name, position)
-                        for name, position in targets
-                        if position is not None
-                    ]
-                    if not active_targets:
+                    if cmd.left_position is None and cmd.right_position is None:
                         return Result.fail("DualGripperCommand has no active side")
-                    names = [item[0] for item in active_targets]
-                    positions = [item[1] for item in active_targets]
+                    positions_result = self._complete_claw_positions(
+                        cmd.left_position,
+                        cmd.right_position,
+                    )
+                    if not positions_result.success:
+                        return positions_result
+                    positions = positions_result.data
+                    names = ["left_claw", "right_claw"]
                 else:
-                    side_names = {
-                        "left": ["left_claw"],
-                        "right": ["right_claw"],
-                        "both": ["left_claw", "right_claw"],
-                    }
-                    if side not in side_names:
+                    if side not in ("left", "right", "both"):
                         return Result.fail(
                             f"Invalid gripper side: {side}; expected left, right or both"
                         )
-                    names = side_names[side]
-                    positions = [cmd.position] * len(names)
+                    if side == "both":
+                        positions = [cmd.position, cmd.position]
+                    else:
+                        positions_result = self._complete_claw_positions(
+                            cmd.position if side == "left" else None,
+                            cmd.position if side == "right" else None,
+                        )
+                        if not positions_result.success:
+                            return positions_result
+                        positions = positions_result.data
+                    names = ["left_claw", "right_claw"]
 
                 count = len(names)
                 req = controlLejuClawRequest()
@@ -169,6 +194,77 @@ class LejuEndEffector:
             return Result.fail(f"Gripper command not supported for type: {self._ee_type}")
         except Exception as e:
             return Result.fail(f"Send command error: {e}")
+
+    def _complete_claw_positions(self, left_position, right_position) -> Result:
+        """用反馈补齐未控制侧，避免其被服务端默认置为 0（张开）。"""
+        if left_position is not None and right_position is not None:
+            return Result.ok(data=[left_position, right_position])
+
+        state_result = self._get_claw_positions()
+        if not state_result.success:
+            return state_result
+        current_left, current_right = state_result.data
+        return Result.ok(
+            data=[
+                current_left if left_position is None else left_position,
+                current_right if right_position is None else right_position,
+            ]
+        )
+
+    def _get_claw_positions(self, timeout=None) -> Result:
+        """返回缓存的左右位置；尚无反馈时等待首帧，超时则失败。"""
+        if self._ee_type != EndEffectorType.LEJU_CLAW:
+            return Result.fail("Current end effector is not Leju Claw")
+
+        if timeout is None:
+            timeout = self.config.get("claw_state_timeout", 1.0)
+        try:
+            timeout = float(timeout)
+        except (TypeError, ValueError):
+            return Result.fail("claw_state_timeout must be a positive number")
+        if not math.isfinite(timeout) or timeout <= 0.0:
+            return Result.fail("claw_state_timeout must be a positive number")
+
+        deadline = time.monotonic() + timeout
+        with self._claw_state_condition:
+            while self._claw_positions is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    return Result.fail(
+                        "Timed out waiting for /leju_claw_state; "
+                        "single-side command was not sent"
+                    )
+                self._claw_state_condition.wait(remaining)
+            return Result.ok(data=list(self._claw_positions))
+
+    def _on_claw_state(self, msg) -> None:
+        """缓存左右夹爪的实际位置。"""
+        try:
+            data = msg.data
+            raw_positions = list(data.position)
+            names = list(data.name)
+            if names and len(names) == len(raw_positions):
+                position_by_name = dict(zip(names, raw_positions))
+                raw_positions = [
+                    position_by_name["left_claw"],
+                    position_by_name["right_claw"],
+                ]
+            elif len(raw_positions) >= 2:
+                raw_positions = raw_positions[:2]
+            else:
+                raise ValueError("state does not contain both claw positions")
+
+            positions = [float(value) for value in raw_positions]
+            if any(
+                not math.isfinite(value) or not 0.0 <= value <= 100.0
+                for value in positions
+            ):
+                raise ValueError(f"invalid claw positions: {positions}")
+            with self._claw_state_condition:
+                self._claw_positions = positions
+                self._claw_state_condition.notify_all()
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            logger.warning("Ignore invalid /leju_claw_state message: %s", exc)
 
     def send_hand_command(self, left_cmd: HandFingerCommand, right_cmd: HandFingerCommand) -> Result:
         """发送灵巧手指令"""

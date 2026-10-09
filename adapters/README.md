@@ -173,7 +173,6 @@ adapters/
 │   │       ├── sdk_control_mixin.py
 │   │       ├── state_feedback_mixin.py
 │   │       ├── timed_command_mixin.py
-│   │       ├── _logging_setup.py   # 日志初始化辅助（非 Mixin）
 │   │       └── jibot/
 │   │           └── chassis_mixin.py
 │   │
@@ -301,7 +300,6 @@ hardware.shutdown()
 | `state_feedback_mixin.py` | 状态反馈 |
 | `timed_command_mixin.py` | 时序指令 |
 | `jibot/chassis_mixin.py` | 底盘移动（JiBot 协议） |
-| `_logging_setup.py` | 日志初始化辅助（非 Mixin） |
 
 **设计优势**：
 - 单一职责：每个 Mixin 只处理一个控制域

@@ -19,10 +19,8 @@ import rospy
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from adapters.hardware.leju_wheeled.camera_adapter import CameraAdapter
-from adapters.hardware.leju_wheeled.mixins._logging_setup import (
-    reconfigure_logging_after_rospy_init,
-)
 from core.common.config_loader import ConfigLoader
+from core.common.logger import init_logging
 
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'camera_config.yaml'
@@ -67,7 +65,7 @@ class CameraInitTest:
             # 正常注册，按需启流的相机驱动因看不到订阅者而永远不发布首帧。
             if not rospy.core.is_initialized():
                 rospy.init_node('test_camera_init', anonymous=True)
-                reconfigure_logging_after_rospy_init()
+                init_logging(force=True)
 
             self.adapter = CameraAdapter()
             result = self.adapter.initialize(config)

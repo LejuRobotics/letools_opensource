@@ -88,7 +88,7 @@ class LegJointTimedSkill(SkillBase):
 
         p = self.params
         start_ts = time.monotonic()
-        logger.info(
+        logger.debug(
             "[Perf][leg_joint_timed] hardware_call_start angles=%s desire_time=%.3fs",
             list(p.joint_angles),
             float(p.desire_time),
@@ -115,18 +115,15 @@ class LegJointTimedSkill(SkillBase):
 
         elapsed = time.monotonic() - start_ts
         logger.info(
-            "[Perf][leg_joint_timed] hardware_call_done success=%s elapsed=%.3fs expected=%.3fs",
+            "[Perf][leg_joint_timed] hardware_call_done success=%s elapsed=%.3fs expected=%.3fs angles=%s desire_time=%.3fs actual_time=%.3fs",
             result.success,
             elapsed,
             float(p.desire_time),
-        )
-        self._done = True
-        logger.info(
-            "leg_joint_timed: joint_angles=%s desire_time=%.3fs actual_time=%.3fs",
             list(p.joint_angles),
             float(p.desire_time),
             actual_time,
         )
+        self._done = True
         return result
 
     def on_is_finished(self) -> bool:

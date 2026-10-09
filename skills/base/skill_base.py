@@ -27,7 +27,7 @@ class SkillBase(ISkill):
     def initialize(self, params: SkillParams) -> Result:
         self._params = params
         self._start_time = time.time()
-        logger.info(f"Skill [{self.name}] initialized.")
+        logger.debug(f"Skill [{self.name}] initialized.")
         return self.on_initialize(params)
 
     def execute(self) -> Result:

@@ -1,13 +1,6 @@
-# -*- coding: utf-8 -*-
 """LejuClawControl 单元测试。"""
 
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-# 直接执行本文件时，Python 默认只把 tests 目录放进模块搜索路径。
-if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from py_trees.blackboard import Client
 from py_trees.common import Access, Status
@@ -19,8 +12,8 @@ from orchestration.engine.behavior_tree_factory import ParamsWrapper
 from orchestration.nodes.leju_claw_control import LejuClawControl
 
 
-def test_both_grippers_receive_command():
-    params = {"command": [[0, 90], 50, 1.0]}
+def test_both_target_sends_same_position_to_both_grippers():
+    params = {"command": [0, 50, 1.0], "active_arm": "both"}
     node = LejuClawControl("gripper", "gripper", None, params)
     hardware = MagicMock()
     hardware.control_end_effector.return_value = Result.ok()
@@ -34,7 +27,7 @@ def test_both_grippers_receive_command():
     assert side == ArmSide.BOTH
     assert isinstance(command, DualGripperCommand)
     assert command.left_position == 0.0
-    assert command.right_position == 90.0
+    assert command.right_position == 0.0
     assert command.velocity == 50.0
     assert command.effort == 1.0
 
@@ -47,7 +40,6 @@ def test_disabled_skips_invalid_command_and_hardware_access():
         {
             "enabled": False,
             "command": "not-json",
-            "active_arm_board_key": "missing_key",
         },
     )
     with patch(
@@ -58,39 +50,84 @@ def test_disabled_skips_invalid_command_and_hardware_access():
         get_hardware.assert_not_called()
 
 
-def test_minus_one_skips_left_gripper():
-    command = LejuClawControl._parse_command([[-1, 50], 60, 0.8])
-    assert command.left_position is None
-    assert command.right_position == 50.0
-    assert command.velocity == 60.0
-    assert command.effort == 0.8
+def test_enabled_can_be_read_from_central_command_config():
+    board_key = "test_leju_claw_enabled_config"
+    writer = Client(name="test_leju_claw_enabled_writer", namespace="/")
+    writer.register_key(key=board_key, access=Access.WRITE)
+    writer.set(board_key, {"enabled": False, "pick": [100, 50, 1.0]})
+    node = LejuClawControl(
+        "gripper",
+        "gripper",
+        None,
+        ParamsWrapper(
+            {
+                "enabled__board_key": board_key,
+                "command__board_key": board_key,
+                "command_key": "pick",
+            }
+        ),
+    )
+
+    with patch(
+        "orchestration.nodes.leju_claw_control.get_shared_hardware"
+    ) as get_hardware:
+        assert node.update() == Status.SUCCESS
+        assert "已禁用" in node.feedback_message
+        get_hardware.assert_not_called()
 
 
 def test_key_points_select_only_active_right_gripper():
-    raw_command = LejuClawControl._parse_command([[0, 0], 50, 1.0])
+    board_key = "test_leju_claw_pick_key_points"
+    writer = Client(name="test_leju_claw_key_points_writer", namespace="/")
+    writer.register_key(key=board_key, access=Access.WRITE)
     key_points = {
-        "eef_pick": {"active_arm": "right"},
-        "eef_pick_lift": {"active_arm": "right"},
+        "ee_pick": {"active_arm": "right"},
+        "ee_pick_lift": {"active_arm": "right"},
     }
-    active_arm = LejuClawControl._find_active_arm(key_points)
-    command = LejuClawControl._mask_to_active_arm(raw_command, active_arm)
+    writer.set(board_key, key_points)
+    node = LejuClawControl(
+        "gripper",
+        "gripper",
+        None,
+        ParamsWrapper(
+            {
+                "command": [100, 50, 1.0],
+                "active_arm__board_key": board_key,
+            }
+        ),
+    )
+    hardware = MagicMock()
+    hardware.control_end_effector.return_value = Result.ok()
+
+    with patch(
+        "orchestration.nodes.leju_claw_control.get_shared_hardware",
+        return_value=hardware,
+    ):
+        assert node.update() == Status.SUCCESS
+
+    _, command = hardware.control_end_effector.call_args.args
     assert command.left_position is None
-    assert command.right_position == 0.0
+    assert command.right_position == 100.0
     assert command.velocity == 50.0
     assert command.effort == 1.0
 
 
-def test_select_command_from_board_mapping():
-    commands = {
-        "servo": [[90, 90], 50, 1.0],
-        "pick": [[0, 0], 50, 1.0],
-    }
-    raw = LejuClawControl._select_command(commands, "pick")
-    command = LejuClawControl._parse_command(raw)
-    assert command.left_position == 0.0
-    assert command.right_position == 0.0
-    assert command.velocity == 50.0
-    assert command.effort == 1.0
+def test_single_position_command_targets_active_arm():
+    left = LejuClawControl._parse_command([60, 50, 1.0], active_arm="left")
+    right = LejuClawControl._parse_command([90, 40, 0.8], active_arm="right")
+
+    assert left.left_position == 60.0
+    assert left.right_position is None
+    assert right.left_position is None
+    assert right.right_position == 90.0
+
+
+def test_open_and_close_positions_are_not_inverted():
+    opened = LejuClawControl._parse_command([0, 50, 1.0], active_arm="both")
+    closed = LejuClawControl._parse_command([100, 50, 1.0], active_arm="both")
+
+    assert [opened.left_position, opened.right_position] == [0.0, 0.0]
+    assert [closed.left_position, closed.right_position] == [100.0, 100.0]
 
 
 def test_nested_stage_commands_are_read_back_from_board():
@@ -100,8 +137,8 @@ def test_nested_stage_commands_are_read_back_from_board():
     writer.set(
         board_key,
         {
-            "servo": [[90, 90], 50, 1.0],
-            "pick": [[0, 0], 40, 0.8],
+            "servo": [90, 50, 1.0],
+            "pick": [100, 40, 0.8],
         },
     )
     params = ParamsWrapper(
@@ -110,6 +147,7 @@ def test_nested_stage_commands_are_read_back_from_board():
             "command": writer.get(board_key),
             "command__board_key": board_key,
             "command_key": "servo",
+            "active_arm": "both",
         }
     )
     node = LejuClawControl("gripper", "gripper", None, params)
@@ -125,12 +163,12 @@ def test_nested_stage_commands_are_read_back_from_board():
     assert command.right_position == 90.0
 
 
-def test_driver_failure_returns_failure():
+def test_hardware_failure_returns_failure():
     node = LejuClawControl(
         "gripper",
         "gripper",
         None,
-        {"command": [[0, -1], 50, 1.0]},
+        {"command": [0, 50, 1.0], "active_arm": "left"},
     )
     hardware = MagicMock()
     hardware.control_end_effector.return_value = Result.fail("service rejected")
@@ -140,36 +178,3 @@ def test_driver_failure_returns_failure():
     ):
         assert node.update() == Status.FAILURE
         assert "service rejected" in node.feedback_message
-
-
-def test_both_sides_skipped_returns_failure_without_hardware_access():
-    node = LejuClawControl(
-        "gripper",
-        "gripper",
-        None,
-        {"command": [[-1, -1], 50, 1.0]},
-    )
-    with patch(
-        "orchestration.nodes.leju_claw_control.get_shared_hardware"
-    ) as get_hardware:
-        assert node.update() == Status.FAILURE
-        get_hardware.assert_not_called()
-
-
-if __name__ == "__main__":
-    # 兼容没有安装 pytest 的机器人运行环境。这里直接调用纯单元测试函数，
-    # 所有硬件访问均已 mock，不会连接 ROS 或控制真实夹爪。
-    tests = (
-        test_both_grippers_receive_command,
-        test_disabled_skips_invalid_command_and_hardware_access,
-        test_minus_one_skips_left_gripper,
-        test_key_points_select_only_active_right_gripper,
-        test_select_command_from_board_mapping,
-        test_nested_stage_commands_are_read_back_from_board,
-        test_driver_failure_returns_failure,
-        test_both_sides_skipped_returns_failure_without_hardware_access,
-    )
-    for test in tests:
-        test()
-        print(f"PASS {test.__name__}")
-    print(f"LejuClawControl: {len(tests)} tests passed")

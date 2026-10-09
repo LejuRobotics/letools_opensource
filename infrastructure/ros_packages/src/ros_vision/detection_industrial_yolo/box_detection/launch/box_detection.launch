@@ -1,0 +1,36 @@
+<launch>
+    <!-- 箱子顶面四角：/box/yolo_box → /box/detection -->
+    <!-- 算法在 LeTools 的 skills/atomic/perception/box_frame/ 里 -->
+
+    <arg name="image_color" default="/camera/color/image_raw"/>
+    <arg name="image_depth" default="/camera/depth/image_raw"/>
+    <arg name="box_in"      default="/box/yolo_box"/>
+    <arg name="detection_out" default="/box/detection"/>
+    <arg name="pose_service" default="/infer_carton_pose"/>
+    <arg name="target_mm"     default="[530.0, 350.0]"/>
+    <arg name="window"        default="5"/>
+    <arg name="process_every" default="3"/>
+    <arg name="agg"           default="mean"/>
+
+    <node name="box_detection" pkg="box_detection"
+          type="box_detection_node.py" output="screen">
+        <param name="image_color"   value="$(arg image_color)"/>
+        <param name="image_depth"   value="$(arg image_depth)"/>
+        <param name="box_in"        value="$(arg box_in)"/>
+        <param name="detection_out" value="$(arg detection_out)"/>
+        <param name="pose_service"  value="$(arg pose_service)"/>
+        <!-- ⚠️ `target_mm` 走 `<rosparam>`，不能用 `<param value="..."/>`：
+             roslaunch 的 `<param>` 不带 type 时按 'auto' 转换，而 auto **认不出
+             list** —— "[530.0, 350.0]" 会原样变字符串，节点逐字符迭代，
+             第一个字符就是 '['：ValueError: could not convert string to float: '['。
+             与 pallet_detection.launch 同一写法。 -->
+        <rosparam param="target_mm" subst_value="true">$(arg target_mm)</rosparam>
+        <param name="window"        value="$(arg window)"/>
+        <param name="process_every" value="$(arg process_every)"/>
+        <param name="agg"           value="$(arg agg)"/>
+
+        <!-- 本项目矩阵都太小，OpenBLAS 多线程是纯开销，实测差 1.6x -->
+        <env name="OMP_NUM_THREADS" value="1"/>
+        <env name="OPENBLAS_NUM_THREADS" value="1"/>
+    </node>
+</launch>

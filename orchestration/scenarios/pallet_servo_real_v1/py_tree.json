@@ -1,0 +1,69 @@
+{
+  "tree": {
+    "name": "Parallel",
+    "label": "pallet_servo_real",
+    "params": {
+      "policy": { "value": "success_on_one", "source": "CUSTOM", "data_type": "string" }
+    },
+    "childs": [
+      {
+        "name": "NodePalletObs",
+        "label": "pallet_obs",
+        "params": {
+          "topic": { "value": "/pallet/detection", "source": "CUSTOM", "data_type": "string" },
+          "msg_type": { "value": "pallet_detection_msgs/PalletDetection", "source": "CUSTOM", "data_type": "string" },
+          "pallet_key": { "value": "latest_pallet", "source": "CUSTOM", "data_type": "string" },
+          "require_valid": { "value": "true", "source": "CUSTOM", "data_type": "string" },
+          "require_handedness": { "source": "READ_BOARD", "board_key": "require_handedness" },
+          "pallet_size_mm": { "source": "READ_BOARD", "board_key": "pallet_size_mm" }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "NodeBoxObs",
+        "label": "box_obs",
+        "params": {
+          "topic": { "value": "/box/detection", "source": "CUSTOM", "data_type": "string" },
+          "box_key": { "value": "latest_box_obs", "source": "CUSTOM", "data_type": "string" },
+          "require_valid": { "value": "true", "source": "CUSTOM", "data_type": "string" }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "NodePalletServo",
+        "label": "pallet_servo",
+        "params": {
+          "pallet_key": { "value": "latest_pallet", "source": "CUSTOM", "data_type": "string" },
+          "box_key": { "value": "latest_box_obs", "source": "CUSTOM", "data_type": "string" },
+          "pallet_frame": { "source": "READ_BOARD", "board_key": "pallet_frame" },
+          "ref_edges": { "source": "READ_BOARD", "board_key": "ref_edges" },
+          "pallet_size_mm": { "source": "READ_BOARD", "board_key": "pallet_size_mm" },
+          "use_distortion": { "value": "true", "source": "CUSTOM", "data_type": "string" },
+          "max_dt_s": { "source": "READ_BOARD", "board_key": "max_dt_s" },
+          "pair_cache": { "source": "READ_BOARD", "board_key": "pair_cache" },
+          "window": { "source": "READ_BOARD", "board_key": "window" },
+          "agg": { "source": "READ_BOARD", "board_key": "agg" },
+          "live_timeout_s": { "source": "READ_BOARD", "board_key": "live_timeout_s" },
+          "overlay_out": { "value": "/pallet_servo/overlay", "source": "CUSTOM", "data_type": "string" },
+          "servo_error_out": { "source": "READ_BOARD", "board_key": "servo_error_out" },
+          "servo_error_heartbeat_s": { "source": "READ_BOARD", "board_key": "servo_error_heartbeat_s" }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "WaitSeconds",
+        "label": "run_for",
+        "params": {
+          "duration_sec": { "value": "86400.0", "source": "CUSTOM", "data_type": "float", "description": "跑多久（秒）。86400 = 一天。⚠️ 节点会把 skill 的 timeout 自动设成 duration+60，所以改这个不用管超时" }
+        },
+        "childs": [],
+        "childBoard": []
+      }
+    ],
+    "childBoard": []
+  },
+  "interface": { "inputs": [], "outputs": [], "custom": [], "process": [] }
+}

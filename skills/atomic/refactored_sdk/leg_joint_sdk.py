@@ -75,9 +75,9 @@ class LegJointSdkSkill(SkillBase):
             return Result.fail("Hardware does not implement send_leg_joint_sdk()")
 
         start_ts = time.monotonic()
-        logger.info(
+        logger.debug(
             "[Perf][leg_joint_sdk] hardware_call_start angles=%s total_time=%.3fs",
-            list(self.params.joint_angles),
+            [f"{a:.3f}" for a in self.params.joint_angles],
             float(self.params.total_time),
         )
         result = fn(
@@ -86,18 +86,13 @@ class LegJointSdkSkill(SkillBase):
         )
         elapsed = time.monotonic() - start_ts
         logger.info(
-            "[Perf][leg_joint_sdk] hardware_call_done success=%s elapsed=%.3fs expected=%.3fs",
+            "[Perf][leg_joint_sdk] hardware_call_done success=%s elapsed=%.3fs expected=%.3fs angles=%s",
             result.success,
             elapsed,
             float(self.params.total_time),
+            [f"{a:.3f}" for a in self.params.joint_angles],
         )
         self._done = True
-        if result.success:
-            logger.info(
-                "leg_joint_sdk: joint_angles=%s total_time=%.3fs",
-                list(self.params.joint_angles),
-                float(self.params.total_time),
-            )
         return result
 
     def on_is_finished(self) -> bool:

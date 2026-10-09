@@ -1,14 +1,20 @@
 # 待检测的 AprilTag 定义
 #
 # - 所有尺寸单位为 米
-# - 'size' 指黑色与白色矩形共享边的长度
+# - 'size' 指**黑框外沿**的边长（不是整张打印纸含白边的尺寸）
+# - 家族在 apriltag_settings.yaml 的 tag_family，当前是 tag16h5
 #
+# 换现场标签时改这里的 id 与 size 两处即可；`NodePalletPose.tag_ids`
+# 必须是本列表的子集，否则那个 id 永远算不出托盘位姿。
+#
+# ⚠️ **尺寸量错是静默的。** apriltag_ros 拿 size 反算 tag 到相机的距离：
+# 写成 0.09 而实物是 0.18，距离就差一倍。而 T_pallet_tag 照样是个合法的
+# 刚体变换、照样写得进 config/pallet_tag.yaml、下游一路上没有任何报错 ——
+# 只是托盘位姿整体偏了一截。上机前拿卡尺量一次黑框外沿，别用卷尺、别含白边。
 standalone_tags:
   [
-    {id: 1, size: 0.06, name: 'tag_1'},
-    {id: 2, size: 0.06, name: 'tag_2'},
-    {id: 3, size: 0.06, name: 'tag_3'},
-    {id: 4, size: 0.06, name: 'tag_4'},
+    {id: 0, size: 0.18, name: 'tag_0'},
+    {id: 1, size: 0.18, name: 'tag_1'},
   ]
 
 tag_bundles:

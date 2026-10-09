@@ -35,6 +35,13 @@ def _default_board_json():
     return os.path.join(_DEFAULT_SCENARIO, "board.json")
 
 
+def _scenario_subtree_path(tree_json):
+    subtree_path = os.path.join(
+        os.path.dirname(os.path.abspath(tree_json)), "py_tree_child.json"
+    )
+    return subtree_path if os.path.isfile(subtree_path) else None
+
+
 def _load_board(blackboard_client, board_path):
     if not os.path.isfile(board_path):
         print(f"[main] 未找到 board: {board_path}")
@@ -61,7 +68,9 @@ def dry_run_load(tree_json, board_json, do_tick=False):
     import core.interfaces.i_skill  # noqa: F401
     blackboard_client = Client(name="main_tree_blackboard", namespace="/")
     _load_board(blackboard_client, board_json)
-    factory = BehaviorTreeFactory(blackboard_client)
+    factory = BehaviorTreeFactory(
+        blackboard_client, subtree_json_path=_scenario_subtree_path(tree_json)
+    )
     controller = BehaviorTreeController(factory)
     tree = controller.load_tree_only(tree_json, blackboard_client)
     if tree is None or not hasattr(tree, "root"):
@@ -109,7 +118,9 @@ def main():
     rospy.init_node("behavior_tree_main", log_level=rospy.INFO)
     blackboard_client = Client(name="main_tree_blackboard", namespace="/")
     _load_board(blackboard_client, args.board)
-    factory = BehaviorTreeFactory(blackboard_client)
+    factory = BehaviorTreeFactory(
+        blackboard_client, subtree_json_path=_scenario_subtree_path(args.tree)
+    )
     controller = BehaviorTreeController(factory)
     controller.init_services()
     rospy.loginfo(f"加载行为树: {args.tree}")

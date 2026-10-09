@@ -120,8 +120,8 @@ class SimpleTwoArmPublisherLocalSkill(ISkill):
             
             logger.info("开始双臂位姿插值发布...")
             logger.info(f"插值步数: {total_steps} 步")
-            logger.info(f"每步时长: {step_duration} 秒")
-            logger.info(f"总时长: {total_steps * step_duration} 秒")
+            logger.info(f"每步时长: {step_duration:.3f} 秒")
+            logger.info(f"总时长: {total_steps * step_duration:.3f} 秒")
             logger.info("左手目标: [1.44, 2.0, 0.8], yaw=30°")
             logger.info("右手目标: [0.56, 2.0, 0.8], yaw=30°")
             

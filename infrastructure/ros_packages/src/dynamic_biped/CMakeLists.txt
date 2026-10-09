@@ -64,6 +64,7 @@ add_service_files(
   controlEndHand.srv
   playmusic.srv
   recordmusic.srv
+  InferCartonPose.srv
 )
 
 ## Generate added messages and services with any dependencies listed here

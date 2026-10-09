@@ -1,0 +1,42 @@
+{
+  "tree": {
+    "name": "Sequence",
+    "label": "jibot_nav_v1_sim_seq",
+    "params": {
+      "memory": {
+        "value": "True",
+        "source": "CUSTOM",
+        "data_type": "string"
+      }
+    },
+    "childs": [
+      {
+        "name": "WaitForEnter",
+        "label": "wait_start",
+        "params": {
+          "message": {
+            "value": "jibot_nav_v1_sim 仿真导航示例：按 Enter 开始",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "demo_jibot_nav_sim.json",
+        "label": "demo_jibot_nav_sim",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      }
+    ],
+    "childBoard": []
+  },
+  "interface": {
+    "inputs": [],
+    "outputs": [],
+    "custom": [],
+    "process": []
+  }
+}

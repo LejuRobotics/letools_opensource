@@ -13,8 +13,11 @@ import threading
 import py_trees
 from py_trees.common import Status
 
+from core.common.logger import get_logger
 from orchestration.nodes.base_node import BaseAction
 from orchestration.shared_hardware import get_shared_hardware
+
+logger = get_logger(__name__)
 
 _DRY_RUN = os.environ.get("STUDIO_DRY_RUN", "").lower() in ("1", "true", "yes")
 
@@ -43,7 +46,7 @@ class WheelNavMove(BaseAction):
 
         hw = get_shared_hardware()
 
-        print(f"[WheelNavMove] 导航到 ({x:.3f}, {y:.3f}, yaw={yaw_deg:.1f}°)")
+        logger.info("[WheelNavMove] 导航到 (%.3f, %.3f, yaw=%.1f°)", x, y, yaw_deg)
         self._thread = threading.Thread(
             target=self._nav_worker,
             args=(hw, x, y, yaw_rad),
@@ -56,7 +59,7 @@ class WheelNavMove(BaseAction):
             hw.send_world_position(x, y, yaw_rad)
             self._result = True
         except Exception as e:
-            print(f"[WheelNavMove] 导航异常: {e}")
+            logger.error("[WheelNavMove] 导航异常: %s", e, exc_info=True)
             self._result = False
 
     def update(self):
@@ -74,7 +77,7 @@ class WheelNavMove(BaseAction):
 
         self._done = True
         if self._result:
-            print(f"[WheelNavMove] 导航完成")
+            logger.info("[WheelNavMove] 导航完成")
             return Status.SUCCESS
         else:
             return Status.FAILURE

@@ -1,0 +1,10 @@
+# Request
+---
+bool success
+string message
+geometry_msgs/Pose[] poses_base_link
+geometry_msgs/Pose[] poses_waist_link
+float32[] bbox_xyxy
+uint32 num_instances
+float32[] yaw
+int32[] tape_orientation_deg   # 0=horizontal, 90=vertical, -1=unknown
