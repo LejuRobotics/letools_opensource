@@ -26,6 +26,16 @@ from skills.atomic.refactored_sdk.arm_ee_timed_cmd import (
 _DRY_RUN = os.environ.get("STUDIO_DRY_RUN", "").lower() in ("1", "true", "yes")
 
 
+def _to_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "y", "on")
+    return False
+
+
 @define_manifest(
     label="TimedCmd 末端位姿 (desireTime 平滑)",
     category=["motion", "arm"],
@@ -43,6 +53,10 @@ _DRY_RUN = os.environ.get("STUDIO_DRY_RUN", "").lower() in ("1", "true", "yes")
          "description": "每段执行时间(秒)"},
         {"name": "frame", "type": "string", "default": "local",
          "description": "坐标系: 'world' / 'local'"},
+        {"name": "prepare_arm_control", "type": "bool", "default": "True",
+         "description": "发令前切换到手臂外部控制模式 set_arm_control_mode(2)；关闭则需自行保证已在模式 2"},
+        {"name": "release_arm_control", "type": "bool", "default": "True",
+         "description": "执行完成后释放外部保持 set_arm_control_mode(0)"},
     ],
     inputs=[],
     outputs=[],
@@ -103,6 +117,8 @@ class ArmEeTimedCmdMove(BaseAction):
             right_waypoints=right_wps,
             desire_time=float(self.params.get("desire_time", 3.0)),
             frame=str(self.params.get("frame", "local")),
+            prepare_arm_control=_to_bool(self.params.get("prepare_arm_control", True)),
+            release_arm_control=_to_bool(self.params.get("release_arm_control", True)),
         )
         self._skill = ArmEETimedCmdSkill(hardware=get_shared_hardware())
         result = self._skill.initialize(skill_params)

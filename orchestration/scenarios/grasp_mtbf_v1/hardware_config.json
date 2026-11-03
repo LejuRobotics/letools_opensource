@@ -1,5 +1,0 @@
-{
-    "skip_force_publishers": true,
-    "sdk_managers_whitelist": ["timed", "arm", "low"]
-}
-

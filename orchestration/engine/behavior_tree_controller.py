@@ -53,7 +53,14 @@ class BehaviorTreeController:
         self.current_iteration = 0
         self.last_root_status = None
 
-    def start_behavior_tree(self, tree_json_path, blackboard_client=None):
+    def start_behavior_tree(
+        self,
+        tree_json_path,
+        blackboard_client=None,
+        ready_event=None,
+        failed_event=None,
+        pause_immediately=False,
+    ):
         self._last_tree_json_path = tree_json_path
         self._last_blackboard_client = blackboard_client
 
@@ -78,7 +85,14 @@ class BehaviorTreeController:
                     if HAS_ROSPY:
                         rospy.logerr("[BehaviorTree] 构建失败")
                     self.running_flag = False
+                    if failed_event is not None:
+                        failed_event.set()
                     return
+
+            if pause_immediately:
+                self.paused_flag = True
+            if ready_event is not None:
+                ready_event.set()
 
             rate_hz = 50
             if HAS_ROSPY:
@@ -143,6 +157,8 @@ class BehaviorTreeController:
             logger.error("[BehaviorTree] 主循环异常: %s", e, exc_info=True)
             if HAS_ROSPY:
                 rospy.logerr(f"[BehaviorTree] 主循环异常: {e}")
+            if ready_event is not None and not ready_event.is_set() and failed_event is not None:
+                failed_event.set()
         finally:
             self.running_flag = False
 
@@ -202,3 +218,101 @@ class BehaviorTreeController:
         self._last_blackboard_client = blackboard_client
         self.bt_instance = self.bt_core.load_tree_from_json(tree_json_path)
         return self.bt_instance
+
+    def snapshot_node_states(self, include_timestamp=False):
+        """给 /get_all_node_states 和 /get_bt_state 用的树快照。树未加载时 success 为 False。"""
+        if not self.bt_instance:
+            return {
+                "success": False,
+                "message": "行为树未加载",
+                "tree_json": "{}",
+                "node_count": 0,
+                "tree_status": "INACTIVE",
+                "root_node_status": "INACTIVE",
+            }
+        root = getattr(self.bt_instance, "root", None) or self.bt_instance
+        tree_data = self._snapshot_node(root, bool(include_timestamp))
+        node_count = self._count_snapshot_nodes(tree_data)
+        tree_status = tree_data.get("status", "INVALID")
+        if self.paused_flag and tree_status == "RUNNING":
+            tree_status = "PAUSE"
+        if tree_status == "FAILURE":
+            message = "执行失败 (共 %d 个节点)" % node_count
+        elif tree_status == "PAUSE":
+            message = "已暂停 (共 %d 个节点)" % node_count
+        elif tree_status == "SUCCESS":
+            message = "执行成功 (共 %d 个节点)" % node_count
+        elif tree_status == "RUNNING":
+            message = "运行中 (共 %d 个节点)" % node_count
+        else:
+            message = "共 %d 个节点" % node_count
+        return {
+            "success": True,
+            "message": message,
+            "tree_json": json.dumps(tree_data, ensure_ascii=False, separators=(",", ":")),
+            "node_count": node_count,
+            "tree_status": tree_status,
+            "root_node_status": tree_status,
+        }
+
+    def _snapshot_status(self, node):
+        status = getattr(node, "status", None)
+        names = {
+            py_trees.common.Status.INVALID: "INVALID",
+            py_trees.common.Status.SUCCESS: "SUCCESS",
+            py_trees.common.Status.FAILURE: "FAILURE",
+            py_trees.common.Status.RUNNING: "RUNNING",
+        }
+        text = names.get(status, "INVALID")
+        if self.paused_flag and text == "RUNNING":
+            return "PAUSE"
+        return text
+
+    def _snapshot_node(self, node, include_timestamp):
+        status = self._snapshot_status(node)
+        if getattr(node, "subtree_file", None):
+            inner = {
+                "name": node.__class__.__name__,
+                "label": node.name,
+                "status": status,
+                "errMsg": getattr(node, "feedback_message", "") or "",
+                "errMsgCode": "",
+                "children": [
+                    self._snapshot_node(child, include_timestamp)
+                    for child in (getattr(node, "children", None) or [])
+                ],
+            }
+            outer = {
+                "name": node.subtree_file,
+                "label": node.name,
+                "status": status,
+                "errMsg": "",
+                "errMsgCode": "",
+                "children": [inner],
+            }
+            if include_timestamp:
+                stamp = time.time()
+                outer["timestamp"] = stamp
+                inner["timestamp"] = stamp
+            return outer
+        data = {
+            "name": node.__class__.__name__,
+            "label": getattr(node, "name", ""),
+            "status": status,
+            "errMsg": getattr(node, "feedback_message", "") or "",
+            "errMsgCode": "",
+            "children": [
+                self._snapshot_node(child, include_timestamp)
+                for child in (getattr(node, "children", None) or [])
+            ],
+        }
+        if include_timestamp:
+            data["timestamp"] = time.time()
+        return data
+
+    @staticmethod
+    def _count_snapshot_nodes(tree_data):
+        count = 1
+        for child in tree_data.get("children") or []:
+            count += BehaviorTreeController._count_snapshot_nodes(child)
+        return count

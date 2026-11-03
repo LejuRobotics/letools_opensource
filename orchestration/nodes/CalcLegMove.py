@@ -3,7 +3,7 @@
 
 - leg_mode="target"：stand_in_tag 位姿 + offset → tag 系 → odom → base_link，再下发躯干
 - leg_mode 其他值（搬箱树里用 "leg"）：直接用 offset_x/y/z + offset_yaw 作为 base 系躯干目标
-- 走 LeTools 标准接口：set_mpc_mode(ARM_ONLY) + send_torso_pose
+- 走 LeTools 标准接口：set_mpc_mode(ARM_ONLY) + send_torso_pose_timed
 """
 
 import ast
@@ -88,10 +88,11 @@ def _base_from_odom(pose_odom: Pose6D):
         {"name": "offset_yaw", "type": "float", "default": "0.0", "description": "偏航角偏移（度）"},
         {"name": "offset_pitch", "type": "float", "default": "0.0", "description": "俯仰角偏移（度），正值前倾"},
         {"name": "control_base", "type": "bool", "default": "false", "description": "是否控制底盘（保留，暂不使用）"},
-        {"name": "total_time", "type": "float", "default": "2.0", "description": "躯干执行时长(秒)，调大降速"},
+        {"name": "total_time", "type": "float", "default": "3.0", "description": "躯干执行时长(秒)，调大降速"},
     ],
     inputs=[
-        {"name": "target_tag", "type": "object", "required": False, "default_key": "TargetTag", "description": "目标 Tag（leg_mode=target 时需要）"},
+        # 实际从黑板读 latest_tag_<tag_id>（见 initialise()），此处声明仅用于前端展示。
+        {"name": "latest_tag", "type": "object", "required": False, "default_key": "latest_tag_<tag_id>", "description": "NodePercep 写入的 TagDetection（odom 系）；leg_mode=target 时需要"},
     ],
     outputs=[],
 )

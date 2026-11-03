@@ -1,0 +1,16 @@
+# 启动一轮纸箱 OBB 底盘伺服。其余控制参数使用服务节点启动时的默认配置。
+float32 max_yaw_rate_deg_s
+float32 max_linear_speed_m_s
+float32 target_x_m
+
+# 为 true 时，服务会根据当前选中的 OBB 横放/竖放姿态自动选择目标距离。
+# target_x_m 仍作为识别不稳定时的兜底距离。
+bool auto_target_x
+float32 horizontal_target_x_m
+float32 vertical_target_x_m
+---
+bool success
+string message
+
+# 仅在 success=true 时有效，默认坐标系为 waist_link。
+geometry_msgs/PointStamped carton_pose

@@ -39,13 +39,17 @@ class DualGripperCommand:
     velocity: float = 50.0
     effort: float = 1.0
 
+# 每只 qiangnao 灵巧手的手指关节数（对应 robotHandPosition.msg 的一侧数组长度）
+HAND_JOINT_COUNT = 6
+
+
 @dataclass
 class HandFingerCommand:
     """
     灵巧手手指控制指令。
     对应 robotHandPosition.msg，通常包含6个手指关节的位置。
     """
-    positions: List[float] = field(default_factory=lambda: [0.0] * 6) # [0, 100]
+    positions: List[float] = field(default_factory=lambda: [0.0] * HAND_JOINT_COUNT) # [0, 100]
 
 @dataclass
 class EndEffectorState:

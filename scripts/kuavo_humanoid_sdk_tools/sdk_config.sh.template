@@ -35,6 +35,16 @@ export SDK_REPO_TAG=""
 export SDK_VERSION_STRATEGY="upstream"
 
 # 如果以上策略都失败，使用的默认版本
+# ⚠️  SDK_DEFAULT_VERSION 不是版本权威源：权威源是 sdk_version.env 的
+#     SDK_REPO_BRANCH / SDK_REPO_TAG（当前 master / 1.4.5，见 sdk_version.env:26-27）。
+#     两者不一致时，一律以 sdk_version.env 为准。
+#     本常量只在「取不到上游版本」时才生效：setup_sdk.sh:88-90 要求先走过
+#     setup_sdk.sh:71-86（策略为 upstream、SDK_REPO_TAG 为空、submodule 的
+#     git describe 也取不到版本）仍未得到 VERSION；离线安装脚本
+#     同理由 git describe 全失败触发。install_sdk.sh:136-137 会以 sdk_version.env 的
+#     TARGET_TAG 透传给 setup_sdk.sh，正常安装路径下本常量不参与。
+#     1.4.4 是历史遗留值（上游 master 上确实存在 tag 1.4.4，但配套版本已前移到
+#     1.4.5），不要据此判断当前配套版本。
 export SDK_DEFAULT_VERSION="1.4.4"
 
 # ============================================

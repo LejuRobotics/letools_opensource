@@ -4,6 +4,7 @@
 """
 import os
 import time
+import py_trees
 from py_trees.common import Status
 
 from orchestration.nodes.base_node import BaseAction
@@ -16,7 +17,7 @@ def _is_dry_run() -> bool:
 
 
 class NodeHeadSequence(BaseAction):
-    """按 yaws/pitchs 网格循环扫头,扫到目标/超时返回。
+    """按 yaws/pitchs 网格扫头；虚拟模式扫完一轮后通知等待节点。
 
     每步驻留 dwell_sec 秒(默认 1.5s),给头部物理运动留足时间。
     """
@@ -27,6 +28,10 @@ class NodeHeadSequence(BaseAction):
         self._current_index = 0
         self._start_time = 0.0
         self._cmd_sent_time = 0.0    # 当前指令发出时间
+        if self.params.get("use_virtual_tag", False):
+            self.global_blackboard.register_key(
+                key="virtual_head_scan_done", access=py_trees.common.Access.WRITE
+            )
 
     def initialise(self):
         yaws = self.params.get("head_search_yaws", [0.0])
@@ -38,6 +43,8 @@ class NodeHeadSequence(BaseAction):
         self._current_index = 0
         self._start_time = time.time()
         self._cmd_sent_time = 0.0
+        if self.params.get("use_virtual_tag", False):
+            self.global_blackboard.virtual_head_scan_done = False
 
     def update(self):
         if _is_dry_run():
@@ -56,6 +63,11 @@ class NodeHeadSequence(BaseAction):
             return Status.RUNNING
 
         if self._current_index >= len(self._head_traj):
+            if self.params.get("use_virtual_tag", False):
+                # 保持 RUNNING，让同一 Parallel 中的等待节点注入虚拟 Tag 后再结束。
+                self.global_blackboard.virtual_head_scan_done = True
+                self.feedback_message = "virtual head scan complete"
+                return Status.RUNNING
             # 循环重扫
             self._current_index = 0
             self.feedback_message = "head rescan loop (index reset)"

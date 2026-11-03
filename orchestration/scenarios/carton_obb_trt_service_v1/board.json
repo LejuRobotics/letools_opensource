@@ -1,0 +1,172 @@
+{
+  "service": [
+    {
+      "key": "engine_path",
+      "type": "string",
+      "value": "skills/atomic/perception/carton_detect/models/carton_obb_fp16.engine",
+      "remark": "TensorRT engine 路径。相对路径按 LeTools 仓库根解析；也可以填写绝对路径。"
+    },
+    {
+      "key": "service_name",
+      "type": "string",
+      "value": "/carton_obb/infer",
+      "remark": "共享纸箱 OBB 推理服务名称。调用方必须使用同一个名称。"
+    },
+    {
+      "key": "warmup",
+      "type": "int",
+      "value": 5,
+      "remark": "服务对外注册前的 TensorRT 预热次数，用于吸收首次 CUDA 初始化耗时。"
+    },
+    {
+      "key": "python",
+      "type": "string",
+      "value": "",
+      "remark": "roslaunch 使用的 Python 解释器绝对路径。空串表示自动使用当前环境中 command -v python3 的结果。"
+    },
+    {
+      "key": "max_frame_age",
+      "type": "float",
+      "value": 0.5,
+      "remark": "允许推理的头部相机最新帧最大接收年龄，单位秒；超时则拒绝推理。"
+    }
+  ],
+  "servo": [
+    {
+      "key": "servo_service_name",
+      "type": "string",
+      "value": "/carton_obb/servo",
+      "remark": "阻塞式纸箱底盘视觉伺服服务名称。完成后返回 waist_link 下的纸箱坐标。"
+    },
+    {
+      "key": "servo_script",
+      "type": "string",
+      "value": "skills/atomic/perception/carton_detect/scripts/realtime_carton_obb_trt.py",
+      "remark": "复用共享 OBB 推理服务的视觉伺服服务端脚本。相对路径按 LeTools 仓库根解析。"
+    },
+    {
+      "key": "servo_result_topic",
+      "type": "string",
+      "value": "/carton_obb/servo_result",
+      "remark": "伺服成功后额外锁存发布 geometry_msgs/PointStamped 的话题。"
+    },
+    {
+      "key": "servo_result_frame",
+      "type": "string",
+      "value": "waist_link",
+      "remark": "伺服响应和结果话题使用的纸箱坐标系。"
+    },
+    {
+      "key": "servo_capture_dir",
+      "type": "string",
+      "value": "log/carton_obb_trt_service/captures",
+      "remark": "保存主流程抓取伺服过程帧和最终对齐帧的目录。相对路径按 LeTools 仓库根解析；留空表示关闭保存。"
+    },
+    {
+      "key": "servo_capture_interval",
+      "type": "float",
+      "value": 1.0,
+      "remark": "抓取伺服过程中保存标注图的最小间隔，单位秒；伺服结束帧不受此间隔限制并始终保存。"
+    }
+  ],
+  "camera": [
+    {
+      "key": "start_camera_if_missing",
+      "type": "bool",
+      "value": true,
+      "remark": "头部相机没有发布者时，由一键脚本启动公共 Orbbec 驱动。"
+    },
+    {
+      "key": "camera_launch",
+      "type": "string",
+      "value": "config/camera_orbbec.launch",
+      "remark": "公共头部相机 launch。相对路径按 LeTools 仓库根解析。"
+    },
+    {
+      "key": "color_topic",
+      "type": "string",
+      "value": "/camera/color/image_raw",
+      "remark": "OBB 服务端订阅的头部彩色图话题。"
+    },
+    {
+      "key": "depth_topic",
+      "type": "string",
+      "value": "/camera/depth/image_raw",
+      "remark": "公共配准深度话题；一键脚本用它确认 RGB-D 均可供下游复用。"
+    },
+    {
+      "key": "camera_startup_timeout",
+      "type": "int",
+      "value": 60,
+      "remark": "启动相机后等待首组彩色/深度帧、以及等待推理/伺服服务注册的超时时间，单位秒。"
+    },
+    {
+      "key": "color_width",
+      "type": "int",
+      "value": 640,
+      "remark": "头部彩色图宽度。"
+    },
+    {
+      "key": "color_height",
+      "type": "int",
+      "value": 480,
+      "remark": "头部彩色图高度。"
+    },
+    {
+      "key": "color_fps",
+      "type": "int",
+      "value": 30,
+      "remark": "头部彩色图帧率。"
+    },
+    {
+      "key": "depth_width",
+      "type": "int",
+      "value": 640,
+      "remark": "头部深度图宽度。"
+    },
+    {
+      "key": "depth_height",
+      "type": "int",
+      "value": 480,
+      "remark": "头部深度图高度。"
+    },
+    {
+      "key": "depth_fps",
+      "type": "int",
+      "value": 30,
+      "remark": "头部深度图帧率。"
+    }
+  ],
+  "tf_bridge": [
+    {
+      "key": "publish_tf_bridge",
+      "type": "bool",
+      "value": true,
+      "remark": "缺少头部相机 TF 桥接时，由本场景启动静态 TF 发布器。"
+    },
+    {
+      "key": "tf_parent_frame",
+      "type": "string",
+      "value": "head_camera_depth",
+      "remark": "机器人模型提供的真实头部深度相机安装 frame。"
+    },
+    {
+      "key": "tf_child_frame",
+      "type": "string",
+      "value": "camera_link",
+      "remark": "Orbbec 驱动发布的相机根 frame。"
+    },
+    {
+      "key": "tf_transform_args",
+      "type": "string",
+      "value": "0 0 0 0 0 0",
+      "remark": "static_transform_publisher 的 x y z yaw pitch roll 参数。"
+    },
+    {
+      "key": "tf_startup_timeout",
+      "type": "int",
+      "value": 10,
+      "remark": "等待静态 TF 桥接可查询的超时时间，单位秒。"
+    }
+  ]
+}

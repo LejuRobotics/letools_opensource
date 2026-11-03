@@ -1,0 +1,68 @@
+# 相机配置（扁平结构，直接对应 CameraAdapter 接口）
+
+camera:
+  # 头部相机
+  enable_head: true
+  head_camera_type: "orbbec_camera"    # orbbec_camera / realsense2_camera
+
+  # 头部 Orbbec 相机分辨率与帧率（0 表示使用驱动默认值）
+  # ⚠️ 现场部署值是 **640×480@30**（2026-10-14 操作员在实机上改的，已同步回仓库）。
+  # 托盘检测那条链的 OBB 模型 imgsz=640，1280×800 进来只是多花 letterbox 的时间，
+  # 且 15fps 会把上游喂帧率直接压到 15 —— 换回 1280×800 前先想清这两件事。
+  color_width: 640
+  color_height: 480
+  color_fps: 30
+  depth_width: 640
+  depth_height: 480
+  depth_fps: 30
+
+  head_enable_frame_sync: true
+  head_depth_registration: true
+  head_enable_point_cloud: false
+  head_enable_colored_point_cloud: false
+
+  driver_only: true
+
+  # 头部 RGBD：驱动级帧同步/空间配准 + Adapter 级时间戳配对
+  # Adapter 使用原始 Header 时间戳做近似同步，不会改写时间戳。
+  # CameraAdapter 使用 driver_only 模式时，以下 Adapter 数据面参数不生效；
+  # 外部图像消费者应独立配置其同步策略。
+  head_rgbd_sync: true
+  rgbd_sync_queue_size: 5
+  rgbd_sync_slop_sec: 0.040
+  rgbd_require_same_resolution: true
+
+  # 完整 Adapter 模式启动时等待首组 RGB/深度帧；driver_only 模式不读取此项。
+  camera_startup_timeout_sec: 10.0
+
+  # 手腕相机
+  # enable_wrist_camera 是总开关；左右 has_* 表示硬件是否实际安装。
+  # 某侧仅在两者同时为 true 时启动。完全未安装腕部相机时三项均设为 false。
+  enable_wrist_camera: true
+  has_left_wrist: true
+  left_wrist_camera_sn: "412622271574"
+  has_right_wrist: true
+  right_wrist_camera_sn: "409122272623"
+
+  # 腕部 RealSense 相机分辨率与帧率（左右腕共用）
+  wrist_color_width: 848
+  wrist_color_height: 480
+  wrist_color_fps: 15
+  wrist_depth_width: 848
+  wrist_depth_height: 480
+  wrist_depth_fps: 15
+  wrist_align_depth: true          # 将深度图对齐到腕部 RGB 坐标系
+
+  # RGB 校准叠加（默认关闭）
+  use_wrist_rgb_caminfo_overlay: false
+
+  # AprilTag 检测
+  launch_apriltag: false
+  # AprilTag 参数文件位于 config/apriltag_settings.yaml 和 config/apriltag_tags.yaml
+  # tag_family: 'tag36h11'
+  # tag id/size 在 apriltag_tags.yaml 的 standalone_tags 列表中定义
+  # Tag结果话题可配置，默认保持为 /robot_tag_info。
+  apriltag_topic: /robot_tag_info
+
+  # RViz
+  rviz: false

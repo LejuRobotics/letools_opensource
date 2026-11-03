@@ -10,11 +10,11 @@
 图上的中文**一律走 PIL 画**，不用 `cv2.putText`（它只认 ASCII，中文会变成一串
 问号）。
 
-配色与 `apps/test_camera_internal/pallet_servo_sim/render_overlay.py` **一致**，
+配色与离线出图工具**一致**，
 而且**现在就是从这里取的** —— 那边已经不再自己定义那五个颜色与三个绘制原语
 （`draw_segment` / `draw_arrow` / `round_xy`）和 CJK 字体那套，改成
 `from skills.atomic.perception.pallet_servo.render import ...`。**这里现在是唯一
-出处**，改配色只改这一处。本模块另有两个特有图层（托盘台面矩形、YOLO 输入框）。
+出处**，改配色只改这一处。本模块另有两个特有图层（托盘台面矩形、箱子外接框）。
 
 画序的一个非显然点 —— **已被"共线合并"取代**
 ------------------------------------------------
@@ -27,11 +27,11 @@
 画出同一批像素的线段只画优先级最高的一条，被跳过的既不画也不探。** 优先级
 （高 → 低）：
 
-    箱子底边/右边  >  参考边 底/右  >  台面矩形 边0..3  >  YOLO 框 四条边
+    箱子底边/右边  >  参考边 底/右  >  台面矩形 边0..3  >  箱子外接框 四条边
 
 箱子边优先级最高是因为**箱子边是测量结果、参考边是目标**：两者重合 = 到位，
-这时图上显示绿色（"箱子已经贴到托盘边上了"）比显示黄色信息量更大。YOLO 框最低
-是因为它是**输入**、箱子边是**精修结果**（AABB 兜底路径下两者是同一条线段）。
+这时图上显示绿色（"箱子已经贴到托盘边上了"）比显示黄色信息量更大。箱子外接框最低
+是因为它是四角的**轴对齐包围盒**（粗）、箱子边是**精修结果**。
 
 ⚠️ **判据是"取整后的整数端点相等"，不是浮点相等**（`_same_pixels`）：`draw_segment`
 把端点吸附到整数像素，相差 0.4 px 的两条线**像素上只有一条**。判浮点相等会让
@@ -89,7 +89,13 @@ COLOR_FOOT = (255, 80, 200)         # 紫：垂足
 COLOR_OFFSET = (0, 0, 255)          # 红：垂距线
 # 本模块特有的两个
 COLOR_PALLET_QUAD = (255, 255, 0)   # 青：托盘台面矩形
-COLOR_YOLO_BOX = (160, 160, 160)    # 灰：YOLO 输入框
+COLOR_BOX_AABB = (160, 160, 160)    # 灰：箱子外接框（四角的 AABB）
+# 邻居路线的两个邻居框轮廓（2026-10-17）。都取**没被上面用掉的**色相：
+# 洋红贴近紫（垂足），但垂足是**空心小圆**、轮廓是**整圈细线**，形状差得远。
+COLOR_NEIGH_UP = (255, 0, 255)      # 洋红：上邻居的整圈轮廓
+COLOR_NEIGH_SIDE = (0, 140, 255)    # 橙：侧邻居的整圈轮廓
+NEIGH_CONTOUR_PX = 1                # 轮廓线宽：与灰外接框同级，不抢主图层
+
 
 Probe = Tuple[str, Tuple[float, float], Tuple[int, int, int]]
 Label = Tuple[Tuple[float, float], str, Tuple[int, int, int]]
@@ -161,6 +167,70 @@ def cjk_font(size: int = 18):
     return font
 
 
+def _is_blank(seg) -> bool:
+    """这个数组是不是**空数组**（`np.zeros((0, 2))` 那种）。
+
+    ★ **邻居路线的诊断量里有空数组**（2026-10-17）：那一档没有侧邻居时
+    `ServoError.ref_right_px` / `right_foot_px` 等是 `np.zeros((0, 2))`（见
+    `node_pallet_servo._neighbor_servo_error`）。照旧直接 `ref[0]` / `ref[1]`
+    会 `IndexError`，而这条链路**包在 try 里**（"可视化不该把节点弄死"）——
+    于是整张图都发不出去，现场看到的是"叠加图这条链坏了"，而真正的原因只是
+    "这一档没有侧邻居"。所以空数组一律**跳过不画、也不设探针**（与
+    `_merge_collinear` 的"没画的线没有探针可失败"同一条纪律）。
+
+    ⚠️ 判据是「**元素个数为 0**」，不是"形状是不是 (2, 2)" —— 这一层里有三种
+    形状都会走到这儿：线段与四角是 `(2, 2)`、单位向量与垂足是 `(2,)`、空的那
+    一段是 `(0, 2)`。按 `(2, 2)` 判定会**把垂足与内法向整层判没**（托盘路线
+    也一起没了），那是比原来的 IndexError 更难查的静默错。
+
+    **对非空的一切是零行为变化**：原来那几行一个字没动。
+    """
+    try:
+        return int(np.asarray(seg).size) == 0
+    except Exception:                                        # noqa: BLE001
+        return False
+
+
+def neighbor_contour_specs(neighbor_quads):
+    """邻居框 → 该画的**轮廓线段**与**标签**（纯函数，不画）。
+
+    `neighbor_quads` 是 `(up_quad, side_quad)`，各为 `(4, 2)` 的四角或 `None`。
+    返回 `([(key, (p0, p1), tag), ...], [(锚点, 文字, 颜色), ...])`。
+
+    **为什么要有这一层**（2026-10-17，操作员要求）：邻居路线里，参与伺服的那
+    两条边画成黄线（`ref_bottom_px` / `ref_right_px`），但**只看两条边判不出
+    "认对了没有"** —— 上邻居认成侧邻居、或者压根认到别的箱子上，黄线照样在
+    那里。所以把**两个邻居的整圈轮廓**也画出来并标上 `UP` / `SIDE`，让人一眼
+    看出认的是哪两个箱子。
+
+    ⚠️ **轮廓只有 4 条边、不画对角线**：对角的两个顶点连线会横穿框内，看着
+    像另一条边，反而让人怀疑框画错了。
+
+    ⚠️ **不设探针**（操作员 2026-10-17 裁定）：轮廓只是位置指示，它的中点很容易
+    落在别的图层上（那个框自己可能就与手里箱重叠）—— 设探针会引入一批"被盖住"
+    的假红，而本项目为此已经返工过三次。**代价明说：轮廓画错了不会有任何自动
+    告警**，核对的判据就是人眼。
+    """
+    if not neighbor_quads:
+        return [], []
+    up_q, side_q = (tuple(neighbor_quads) + (None, None))[:2]
+    specs: List = []
+    labels: List = []
+    for tag, quad, color in (("UP", up_q, COLOR_NEIGH_UP),
+                             ("SIDE", side_q, COLOR_NEIGH_SIDE)):
+        if _is_blank(quad):
+            continue
+        q = np.asarray(quad, np.float64)
+        if q.shape != (4, 2):
+            continue                       # 形状不认识 -> 不画（不是猜）
+        for k in range(4):
+            specs.append((f"neigh_{tag}_{k}", (q[k], q[(k + 1) % 4]), tag))
+        # 标签锚在**最靠上那个角**（`v` 最小）：四角里它最不容易被手里箱压住。
+        top = q[int(np.argmin(q[:, 1]))]
+        labels.append(((float(top[0]) + 4.0, float(top[1]) + 4.0), tag, color))
+    return specs, labels
+
+
 def round_xy(uv) -> Tuple[int, int]:
     return int(round(float(uv[0]))), int(round(float(uv[1])))
 
@@ -170,7 +240,7 @@ def draw_segment(canvas: np.ndarray, p0, p1, color, thickness: int = 2) -> None:
 
     自检依赖"线上就是那个颜色"。AA 会混掉**细线**的像素：实测 1 px 线在 180 个
     角度里有 122 个角度中心像素不是纯色；2~3 px 线则 180/180 都是纯色（中心离
-    边缘够远）。本模块有 1 px 的图层（YOLO 框），所以一律关 AA。
+    边缘够远）。本模块有 1 px 的图层（箱子外接框），所以一律关 AA。
     """
     cv2.line(canvas, round_xy(p0), round_xy(p1), color, thickness,
              lineType=cv2.LINE_8)
@@ -281,25 +351,281 @@ def _project_pallet_quad(T_cam_pallet, size_mm, K, D=None):
     return np.asarray(px, np.float64)
 
 
-def render_servo_overlay(color_bgr: np.ndarray, *, error,
-                         T_cam_pallet, size_mm, K, D=None,
-                         yolo_uv=None, hud_lines: Sequence[str] = (),
+def _ref_edges_spec(ref_edges, index: int) -> Optional[str]:
+    """从调用方给的 `ref_edges` 里取第 `index` 条边的**原文**；取不到返回 None。
+
+    ⚠️ `ref_edges` 传进来的形状在各调用方不一致（节点层给的是**已切好的
+    这一帧那一组** `["y=0","x=W"]`，场景/板子那份是**槽位表**
+    `[["y=0","x=W"], ...]`），所以两种都认 —— 认第一种优先（切好的就是切好的）。
+    认不出来就返回 None，那一层不画：**投不出参考边时宁可不画，也不猜一条**。
+    """
+    if not isinstance(ref_edges, (list, tuple)) or len(ref_edges) < index + 1:
+        return None
+    item = ref_edges[index]
+    if isinstance(item, (list, tuple)):     # 给的是槽位表：拿第 0 组的第 index 条
+        if not item or len(item) < index + 1:
+            return None
+        item = item[index]
+    return str(item)
+
+
+def _project_ref_edge(T_cam_pallet, size_mm, edge_spec, K, D=None):
+    """一条参考边 → 图像上的两个端点 `(2, 2)`；三样不齐或投影失败返回 None。
+
+    `error` 不在时走这条路（托盘检测有结果、纸箱那路还没出东西）：参考边本来
+    就是**配置 + 托盘位姿**投出来的，不需要等三个数算出来。
+    """
+    from .algorithm import project_pallet_points, ref_edge_points_mm
+
+    if T_cam_pallet is None or size_mm is None or K is None or not edge_spec:
+        return None
+    try:
+        pts = ref_edge_points_mm(str(edge_spec), size_mm)
+    except Exception:                                            # noqa: BLE001
+        return None
+    if pts is None:                       # 非法写法：不猜，这一层不画
+        return None
+    px = project_pallet_points(T_cam_pallet, pts, K, D)
+    if hasattr(px, "code"):               # Reject
+        return None
+    return np.asarray(px, np.float64)
+
+
+def _quad_edges(box_quad_uv) -> List:
+    """箱子四角连成的**四条边**（`[(p0,p1), (p1,p2), ...]`）；没有四角返回 `[]`。
+
+    `box_quad_uv` 是**已经按契约序排好**的四个角（右下 → 左下 → 左上 → 右上），
+    这里**不重排、不排序** —— 顺序直接给出边，猜"最平行配对"正是要避免的那类
+    静默错（见 `algorithm.box_corners` 的说明）。
+    """
+    if box_quad_uv is None:
+        return []
+    q = np.asarray(box_quad_uv, np.float64)
+    if q.shape != (4, 2) or not np.all(np.isfinite(q)):
+        return []
+    return [(q[k], q[(k + 1) % 4]) for k in range(4)]
+
+
+def _mid_of(seg) -> np.ndarray:
+    """一条线段的**中点**（`(2,2)` -> `(2,)`）。"""
+    return np.asarray(seg, np.float64).reshape(-1, 2).mean(axis=0)
+
+
+def _shift_seg(seg, u, dist):
+    """把线段平移到"这个误差归零"的位置 —— **沿 `+u` 走 `dist`**。
+
+    ⚠️ **`u` 传的是"误差的正方向"，不是随手的某个轴**（2026-10-17，符号按操作员
+    现场裁定改过一次）。当前三个量的定义（见 `neighbor.py` 的「方向与符号」）::
+
+        e_bottom = 参照底边到手里底边的**垂距**   -> 目标 = 手里 + e·u_bottom
+        e_right  = (手里 − 参照) · u_side          -> 目标 = 手里 − e·u_side
+
+    所以底边传 `u_bottom`（**参考边法向的加权平均**，不是 `u_far`）、横向传
+    `−u_side`。两个减数不一样不是笔误：它们对应托盘路线那两条**内法向**（底边指向
+    托盘内部 = 远离机器人；右边指向画面左）。
+
+    ⚠️ **传错了方向比不画还坏**：红线会指向"误差更大"的那一边，人照着图推就是把
+    箱子推得更偏。判据：把手里箱沿**误差正方向**挪 5px，`e` 必须**变大** 5。
+    """
+    return (np.asarray(seg, np.float64).reshape(2, 2)
+            + np.asarray(u, np.float64).reshape(2) * float(dist))
+
+
+def render_neighbor_overlay(color_bgr: np.ndarray, *,
+                            error=None, neighbors=None, hud_lines=()) -> np.ndarray:
+    """**邻居路线**的叠加图 —— 与托盘路线分开一套画法（2026-10-17）。
+
+    托盘那张图回答"**伺服算得对不对**"（参考边、垂足、内法向、探针自检）；
+    邻居这张回答"**我到位了没有、邻居认对了没有**"，所以只要四样：
+
+        灰实线    手里箱四角                      —— 现在在哪
+        绿线      手里箱的**底边 / 侧边**（参与计算的那两条）—— 就是这两条在动
+        黄线      这两条边**按误差平移后**该在的位置          —— 该到哪
+        红线段    绿线 → 黄线                     —— 还差多少
+        洋红/橙圈  上邻居 / 侧邻居整圈轮廓          —— 认的是哪两个箱子
+
+    **绿线就是"同托盘伺服画的箱子边"**（操作员 2026-10-17：`box_edges` 的
+    `bottom` / `right`，`COLOR_BOX_EDGE`）—— 与托盘那张图**同一个颜色、同一个
+    含义**：那是服务器正拿在手上的两条边。
+
+    ⚠️ **但"底边/侧边"必须是算法真正用的那两条**（`neighbor.py` 交出来的
+    `held_bottom_px` / `held_side_px`），**不能**在出图这边用 `algorithm.box_edges()`
+    自己推（那是写死的 `corners[0:2]` / `corners[3],corners[0]`）—— 算法用的是
+    `_frame_of()` 推出来的（背向上邻居 / 朝向侧邻居），相机翻 180° 时两者
+    **不是同一条**，图上会出现"一个选上一个选下"（实测踩过）。
+
+    **为什么画"平移后的位置"而不是画参照边**（操作员定）：`e_bottom` / `e_right`
+    都是**两项加权平均**，目标**不是**某一个邻居的某一条边 —— 拿上邻居那条边当
+    目标画出来，红线长度与 HUD 上的数**对不上**（实测 e_bottom = -28.2px 的帧，
+    红线却有 +130.5px）。按误差平移则**红线长度恒等于那个数**。
+
+    ⚠️ **一条探针都不设、不做自检**（操作员裁定）：可视化是给人看的，人眼判断，
+    不许因为自检拦图或耗时。本函数返回纯 `canvas`，不返回 probes。
+    代价明说：图画错了没有自动告警。
+    """
+    canvas = np.asarray(color_bgr, np.uint8).copy()
+    pending_labels: List[Label] = []
+
+    # 1) 邻居轮廓（最下层）
+    neigh_specs, neigh_labels = neighbor_contour_specs(neighbors)
+    for seg, tag in [(s_, t) for _k, s_, t in neigh_specs]:
+        draw_segment(canvas, seg[0], seg[1],
+                     COLOR_NEIGH_UP if tag == "UP" else COLOR_NEIGH_SIDE,
+                     2 if tag == "UP" else 1)
+    pending_labels.extend(neigh_labels)
+
+    if error is not None:
+        quad = getattr(error, "held_quad_px", None)
+        quad = (np.asarray(quad, np.float64).reshape(4, 2)
+                if quad is not None and not _is_blank(quad) else None)
+        u_far = getattr(error, "u_far", None)
+        u_side = getattr(error, "u_side", None)
+        # ★ 底边黄线沿**参考边法向**平移（`u_bottom`），不是 `u_far`：
+        #   `e_bottom` 现在是"两条边之间的垂直距离"，`u_far` 却带着横向/透视偏移
+        #   （实测与竖直差 27.5°），沿它平移会把黄线斜着推出去、垂距也归不了零。
+        #   老帧没有这个字段（`u_bottom is None`）时才退回 `u_far`。
+        u_bottom = getattr(error, "u_bottom", None)
+        if u_bottom is None:
+            u_bottom = u_far
+
+        # 2) 底边方向：绿 = 手里箱的底边；黄 = 它按 e_bottom 平移后的位置
+        #    ⚠️ 底边的"误差正方向"就是 `+u_bottom`（往里走），见 `_shift_seg`。
+        hb = getattr(error, "held_bottom_px", None)
+        if (hb is not None and not _is_blank(hb) and u_bottom is not None):
+            hb = np.asarray(hb, np.float64).reshape(2, 2)
+            tgt = _shift_seg(hb, u_bottom, error.e_bottom_px)
+            draw_segment(canvas, tgt[0], tgt[1], COLOR_REF_EDGE, 3)
+            draw_segment(canvas, _mid_of(hb), _mid_of(tgt), COLOR_OFFSET, 2)
+            draw_segment(canvas, hb[0], hb[1], COLOR_BOX_EDGE, 3)
+            pending_labels.append((tuple(tgt[0]), "目标底边", COLOR_REF_EDGE))
+
+        # 3) 横向：绿 = 手里箱的**侧边**（有侧邻居）或"中心"两条虚拟边（没有）；
+        #          黄 = 同样按 e_right 平移后的位置
+        #    ★ 平移方向用 **`−u_side_shift`**：`u_side_shift` 指向"右"，而
+        #      `e_right > 0` 表示**手里箱偏右**（与托盘路线同口径），所以"该到哪"
+        #      在手里箱**左边**，方向要取负。2026-10-17 真机踩过：符号没取负，
+        #      e_right 为负时黄线却画在左边（正好反了）。
+        #      老帧没有 `u_side_shift` 时才退回 `−u_side`（与从前一致）。
+        u_right_err = getattr(error, "u_side_shift", None)
+        if u_right_err is None:
+            u_right_err = (None if u_side is None
+                           else -np.asarray(u_side, np.float64).reshape(2))
+        else:
+            u_right_err = -np.asarray(u_right_err, np.float64).reshape(2)
+        hs = getattr(error, "held_side_px", None)
+        if u_right_err is not None and not (hs is None or _is_blank(hs)):
+            hs = np.asarray(hs, np.float64).reshape(2, 2)
+            tgt = _shift_seg(hs, u_right_err, error.e_right_px)
+            draw_segment(canvas, tgt[0], tgt[1], COLOR_REF_EDGE, 3)
+            draw_segment(canvas, _mid_of(hs), _mid_of(tgt), COLOR_OFFSET, 2)
+            draw_segment(canvas, hs[0], hs[1], COLOR_BOX_EDGE, 3)
+            pending_labels.append((tuple(tgt[0]), "目标侧边", COLOR_REF_EDGE))
+        elif u_right_err is not None and quad is not None:
+            # 没有侧邻居：横向那一项是"中心对中心"，手里箱这一侧**没有边** ——
+            # 用一条**穿过中心、垂直于 u_side 的短线**当它的"边"（人看时就是
+            # "中心这一列"），绿黄同色系、与上面的画法一致。
+            c = quad.mean(axis=0)
+            perp = np.array([-float(u_right_err[1]), float(u_right_err[0])])
+            half = 0.25 * float(np.linalg.norm(quad[0] - quad[3]))
+            seg = np.array([c - perp * half, c + perp * half])
+            tgt = _shift_seg(seg, u_right_err, error.e_right_px)
+            draw_segment(canvas, tgt[0], tgt[1], COLOR_REF_EDGE, 3)
+            draw_segment(canvas, c, _mid_of(tgt), COLOR_OFFSET, 2)
+            draw_segment(canvas, seg[0], seg[1], COLOR_BOX_EDGE, 3)
+            pending_labels.append((tuple(tgt[0]), "目标侧边(中心)", COLOR_REF_EDGE))
+
+        # 4) 手里箱四角（灰，最上层）
+        if quad is not None:
+            for k in range(4):
+                draw_segment(canvas, quad[k], quad[(k + 1) % 4], COLOR_BOX_AABB, 2)
+            pending_labels.append((tuple(quad[0]), "手里箱", COLOR_BOX_AABB))
+
+        # 5) 目标线出画时**在 HUD 上说明**（2026-10-17）。
+        #    ⚠️ **不夹取、不缩放**：夹到边界会把"还差 29px"画成"还差 3px"，
+        #    图与 HUD 的数打架 —— 那是比不画更坏的结果。几何确实在画面外时
+        #    图上看不全是**事实**，只能靠这行字提醒"以 HUD 的数为准"。
+        #    为什么真会发生：箱子贴着画面边（实测手里箱 v 到 488、画布高 480）
+        #    时，目标线一推就出去，红线段只剩被裁掉的一小截。
+        # ⚠️ **要查的是"平移之后"的那条黄线，不是绿线**（2026-10-17 修）：
+        #    第一版只查了 `held_*_px`（平移**前**）—— 而绿线在方框内、黄线推到
+        #    框外正是最常见的情形（绿线跟着箱子、箱子贴边时绿线还进来一点点）。
+        #    查错对象 = 这条提醒在最需要它的那一帧上不响（实测：贴边那帧
+        #    v 到 515、画布高 480，一声没响）。
+        outside = False
+        # ⚠️ **两个方向与上面画黄线时用的必须逐字相同**（底边 `+u_bottom`、横向
+        #    `−u_side`）—— 这里查的就是"黄线会不会出画"，方向偏了查的是另一条线。
+        for seg, u, dist in ((getattr(error, "held_bottom_px", None),
+                              u_bottom,
+                              getattr(error, "e_bottom_px", 0.0)),
+                             (getattr(error, "held_side_px", None),
+                              u_right_err,
+                              getattr(error, "e_right_px", 0.0))):
+            if seg is None or u is None or _is_blank(seg):
+                continue
+            for arr in (np.asarray(seg, np.float64).reshape(-1, 2),
+                        _shift_seg(seg, u, dist)):
+                if (arr[:, 0].min() < 0 or arr[:, 0].max() >= canvas.shape[1]
+                        or arr[:, 1].min() < 0 or arr[:, 1].max() >= canvas.shape[0]):
+                    outside = True
+        if outside:
+            # ⚠️ 文案里**不带 `⚠` 之类的符号**：那几个字形 CJK 字体里不一定有，
+            #    缺字形时 PIL 画成豆腐块 —— 而这一行的全部作用就是让人看懂。
+            pending_labels.append(
+                ((12.0, float(canvas.shape[0]) - 16.0),
+                 "目标线出画，真实误差以 HUD 上的数为准", COLOR_OFFSET))
+
+    y = 24.0
+    for line in hud_lines:
+        pending_labels.append(((12.0, y), line, (255, 255, 255)))
+        y += 22.0
+    _draw_labels(canvas, pending_labels)
+    return canvas
+
+
+def render_servo_overlay(color_bgr: np.ndarray, *, error=None,
+                         T_cam_pallet=None, size_mm=None, K=None, D=None,
+                         ref_edges=None, box_aabb_uv=None, box_quad_uv=None,
+                         hud_lines: Sequence[str] = (),
                          ref_edge_labels: Optional[Sequence[str]] = None,
+                         neighbor_quads=None,
                          ) -> Tuple[np.ndarray, List[Probe]]:
     """画一张对比图，同时返回**每个元素的中点**作为自检探针。
 
+    **每一层都是"有就画、没有就不画"，不要求三层齐全。** 三个数要托盘与纸箱
+    **两个检测器都出了结果、而且配得上对**才算得出来，而排查时最需要的恰恰是
+    "只有一边有结果"的那些帧 —— 那时整张图都没有的话，操作员分不出是
+    **这一路检测没出东西**、还是**叠加图这条链坏了**。
+
+    | 手里有什么 | 画出来的是什么 |
+    |---|---|
+    | `error`（三个数算出来了）| 全套：参考边 + 台面矩形 + 箱子底/右边 + 垂距 + 垂足 + 内法向 |
+    | 只有 `T_cam_pallet` + `size_mm` + `K` + `ref_edges` | 台面矩形 + 两条参考边（自己投）|
+    | 只有 `box_quad_uv` | 箱子四角连成的**四边形四条边** |
+    | 只有 `box_aabb_uv` | 灰色外接框 |
+
     图层（从下到上）：
-      1. YOLO 输入框（灰，四条 1 px 边）—— 给了 `yolo_uv` 才画
-      2. 托盘参考边（黄）
+      1. 箱子外接框（灰，四条 1 px 边）—— 给了 `box_aabb_uv` 才画。
+         ⚠️ 它是**箱子四角的轴对齐包围盒**（`node_box_obs` 用 `min/max(corners)`
+         填的 `BoxObservation.u1/v1/u2/v2`），不是某个网络的原始输出框 ——
+         从前它来自 `/box/yolo_box` 那条话题，2026-10-15 删了。
+      2. 托盘参考边（黄）—— 来自 `error`，或没有 `error` 时由
+         `T_cam_pallet` + `size_mm` + `ref_edges` 自己投
       3. 托盘台面矩形（青）—— 伺服自己从 `T_cam_pallet` + `size_mm` 投影
-      4. 箱子底边/右边（绿）
-      5. 垂距线（红）+ 垂足（紫，空心圆）
-      6. 内法向箭头（蓝）—— **攒到实线与垂距线之后画**，见 `_ARROW_SIDE_PX`
-      7. HUD 文字 + 各图层的标签（**攒起来最后一遍一次画完**，见 `_draw_labels`）
+      4. 箱子边（绿）—— 有 `error` 时是**伺服用的底边/右边**；没有 `error` 时
+         是 `box_quad_uv` 的**四条边**（没有"哪两条参与伺服"的语义，要看的是
+         整圈框歪不歪）
+      5. 垂距线（红）+ 垂足（紫，空心圆）—— **只有 `error` 在才有**
+      6. 内法向箭头（蓝）—— 同上；**攒到实线与垂距线之后画**，见 `_ARROW_SIDE_PX`
+      7. **邻居框轮廓**（`neighbor_quads` 给了才画）—— 上邻居洋红、侧邻居橙，
+         各标 `UP` / `SIDE`。**只给邻居路线用**：那一路的黄线是"邻居的哪条边
+         参与了伺服"，而**只看一条边判不出认的是哪个箱子**，所以补上整圈轮廓。
+         画在最后（除文字外），因为它只是提示层、又在别的图层之上可见即可。
+         ⚠️ **不设探针**（操作员 2026-10-17 裁定），理由见 `neighbor_contour_specs`。
+      8. HUD 文字 + 各图层的标签（**攒起来最后一遍一次画完**，见 `_draw_labels`）
 
     ⚠️ **画出同一批像素的实线只画一条。** 默认 `ref_edges=["y=0","x=W"]` 时参考边
     就是台面矩形的下边和右边，**在几何上是同一对三维线段**；伺服到位时箱子底边/
-    右边也落到同一批直线上。按优先级 `箱子 > 参考边 > 台面矩形 > YOLO 框` 合并，
+    右边也落到同一批直线上。按优先级 `箱子 > 参考边 > 台面矩形 > 箱子外接框` 合并，
     **被跳过的既不画也不探**（理由见模块 docstring 与 `_merge_collinear`）。
 
     ⚠️ **内法向箭头沿参考边切向挪开 `_ARROW_SIDE_PX`，方向背离箱子中点**，
@@ -343,15 +669,23 @@ def render_servo_overlay(color_bgr: np.ndarray, *, error,
     # 把被别的图层部分盖住的探针挪到还看得见的一段上（见 `_snap_probes_to_drawn`）。
     snap_specs: List = []
 
-    quad = _project_pallet_quad(T_cam_pallet, size_mm, K, D)
+    # 台面矩形：要 `T_cam_pallet` + `size_mm` + `K` 三样齐了才投得出来。
+    # ⚠️ **逐个数判 `is not None`，不要写 `None not in (...)`** —— 元组里的
+    # `K` 是 numpy 数组，`==` 出来的是数组，`in` 会抛 "truth value ambiguous"。
+    if T_cam_pallet is not None and size_mm is not None and K is not None:
+        quad = _project_pallet_quad(T_cam_pallet, size_mm, K, D)
+        if quad is None:
+            logger.warning("托盘台面投影失败（Reject）—— 图上不画这一层")
+    else:
+        quad = None
 
     # —— 实线图层的重合合并 ——
-    # 优先级（高 → 低）：箱子底边/右边 > 参考边 底/右 > 台面矩形 边0..3 > YOLO 框边。
+    # 优先级（高 → 低）：箱子底边/右边 > 参考边 底/右 > 台面矩形 边0..3 > 箱子外接框边。
     # 箱子边是**测量结果**、参考边是**目标**：两者重合 = 到位，这时显示绿色
     # （"箱子已经贴到托盘边上了"）比显示黄色信息量更大。
-    # YOLO 框**优先级最低**：它是**输入**、箱子边是**精修结果**（`box_frame` 的
-    # AABB 兜底路径产出的四角**就是 YOLO 框本身**，5 帧全失败时 box_bottom ==
-    # YOLO 下边、box_right == YOLO 右边），两者重合时显示精修结果信息量更大。
+    # 箱子的外接框**优先级最低**：它是**检测的输入**、箱子边是**要用的结果**
+    # （2026-10-13 换成 OBB 之后没有 AABB 兜底档了，但叠加图上那个框仍然只是
+    # 「这是不是手里那个箱子」的提示，两者重合时显示四角信息量更大）。
     # 参考边的标签用**调用方给的原文**（用户写的 `y=0` / `y=800`），不用
     # 写死的"底边"/"右边" —— 那两句话只对默认组合成立，换个 `ref_edges`
     # 就是错的，而操作员会照着图去核对（指错边比不标更糟）。
@@ -360,47 +694,102 @@ def render_servo_overlay(color_bgr: np.ndarray, *, error,
         bottom_tag, right_tag = str(ref_edge_labels[0]), str(ref_edge_labels[1])
     else:
         bottom_tag, right_tag = "底边", "右边"
-    ref_specs = (("ref_bottom", error.ref_bottom_px, bottom_tag),
-                 ("ref_right", error.ref_right_px, right_tag))
-    box_specs = (("box_bottom", error.box_bottom_px, "底边"),
-                 ("box_right", error.box_right_px, "右边"))
+
+    # 参考边：`error` 里有现成的（伺服真的用了它），否则自己投一次。
+    # ⚠️ **必须用同一份 `T_cam_pallet` + `size_mm` + `K`** —— 自己投出来的与
+    # `error` 里那份是几何上同一条线，三样不齐就投不了，那一层不画（不是猜）。
+    ref_specs = []
+    box_specs = []
     quad_specs = ([(f"quad{k}", (quad[k], quad[(k + 1) % 4]))
                    for k in range(4)] if quad is not None else [])
-    # YOLO 框拆成四条 1 px 边，边顺序与探针一一对应（左/右/下/上）。**不再用
+    if error is not None:
+        # ⚠️ **空数组在这里就滤掉**（邻居路线会给出 `np.zeros((0, 2))`，见
+        # `_is_blank`）：`_merge_collinear` 会对每一段调 `_same_pixels`，
+        # 那里 `seg[0]` 直接 `IndexError` —— 而它排在这一段之后、外层虽包了 try
+        # 但那一抛会让**整张图都发不出去**（现场看到的是"叠加图坏了"，真原因只是
+        # "这一档没有侧邻居"）。滤掉之后那一段既不画也不设探针，与
+        # `_merge_collinear` 的"没画的线没有探针可失败"同一条纪律。
+        ref_specs = [(key, seg, tag) for key, seg, tag in
+                     (("ref_bottom", error.ref_bottom_px, bottom_tag),
+                      ("ref_right", error.ref_right_px, right_tag))
+                     if not _is_blank(seg)]
+        box_specs = [(key, seg, tag) for key, seg, tag in
+                     (("box_bottom", error.box_bottom_px, "底边"),
+                      ("box_right", error.box_right_px, "右边"))
+                     if not _is_blank(seg)]
+    else:
+        for key, spec, tag in (("ref_bottom", _ref_edges_spec(ref_edges, 0), bottom_tag),
+                               ("ref_right", _ref_edges_spec(ref_edges, 1), right_tag)):
+            seg = _project_ref_edge(T_cam_pallet, size_mm, spec, K, D)
+            if seg is not None:
+                ref_specs.append((key, seg, tag))
+        # 没有 `error` 就没有"哪两条边参与伺服"的语义 —— 画 `box_quad_uv` 的
+        # **四条边**，要看的是整圈框歪不歪。
+        for k, seg in enumerate(_quad_edges(box_quad_uv)):
+            box_specs.append((f"box_edge{k}", seg, f"边{k}"))
+
+    # 箱子外接框拆成四条 1 px 边，边顺序与探针一一对应（左/右/下/上）。**不再用
     # `cv2.rectangle`**：那样它绕过合并列表，与箱子边/台面边共线时会被整条盖住，
-    # 三条 YOLO 探针恒红 —— 而 Task 5 传的正是 `self._last_box_uv`，那是一整条
+    # 三条外接框探针恒红 —— 而调用方传的是一整条 AABB，它的四条边里
     # 工作模式必红，不是巧合。视觉不变：1 px 灰框本来就是四条线拼的。
-    yolo_specs = []
-    if yolo_uv is not None:
-        yu0, yu1 = sorted((float(yolo_uv[0]), float(yolo_uv[2])))
-        yv0, yv1 = sorted((float(yolo_uv[1]), float(yolo_uv[3])))
-        yolo_specs = [("yolo_left", ((yu0, yv0), (yu0, yv1)), "左边"),
-                      ("yolo_right", ((yu1, yv0), (yu1, yv1)), "右边"),
-                      ("yolo_bottom", ((yu0, yv1), (yu1, yv1)), "下边"),
-                      ("yolo_top", ((yu0, yv0), (yu1, yv0)), "上边")]
+    aabb_specs = []
+    if box_aabb_uv is not None:
+        au0, au1 = sorted((float(box_aabb_uv[0]), float(box_aabb_uv[2])))
+        av0, av1 = sorted((float(box_aabb_uv[1]), float(box_aabb_uv[3])))
+        aabb_specs = [("aabb_left", ((au0, av0), (au0, av1)), "左边"),
+                      ("aabb_right", ((au1, av0), (au1, av1)), "右边"),
+                      ("aabb_bottom", ((au0, av1), (au1, av1)), "下边"),
+                      ("aabb_top", ((au0, av0), (au1, av0)), "上边")]
+    # 邻居框轮廓（邻居路线才给）。**不参与 `_merge_collinear`**，理由有两条，
+    # 都不是审美：
+    #   1. 它的优先级该**最低**（只是提示层），而合并只在"已经画过的"之间判重，
+    #      放进这一批会让它**先于**箱子的外接框登记，反而把灰框顶掉；
+    #   2. 合并的语义是"这条线画不画、要不要设探针"，而轮廓**本来就不设探针**
+    #      （操作员 2026-10-17 裁定），过一遍合并没有收益。
+    # 于是它按原样、在**所有实线画完之后**再画（见第 7 步），画在别人上面。
+    neigh_specs, neigh_labels = neighbor_contour_specs(neighbor_quads)
     kept = _merge_collinear(
         [(k, seg) for k, seg, _ in box_specs]
         + [(k, seg) for k, seg, _ in ref_specs]
         + quad_specs
-        + [(k, seg) for k, seg, _ in yolo_specs])
+        + [(k, seg) for k, seg, _ in aabb_specs])
 
-    # 1) YOLO 输入框（四条 1 px 边，各自判是否被跳过；被跳过的边不产生探针）
-    #    探针仍然是原来的三条（左/右/下）：**上边不设探针**。上边那一带是箱子
-    #    底边的"XX 垂距"标签落笔的地方（标签锚在箱子边中点上，最后一遍画），
+    # 1) 箱子外接框（四条 1 px 边，各自判是否被跳过；被跳过的边不产生探针）
+    #    探针是三条（左/右/下）：**上边不设探针**。上边那一带是箱子底边的
+    #    "XX 垂距"标签落笔的地方（标签锚在箱子边中点上，最后一遍画），
     #    在那里取灰色会被文字盖住 —— 实测随机连续族里 32/4000 帧因此变红。
     #    画四条边是为了逐边参与合并，不是为了逐边取探针。
-    yolo_probed = {"yolo_left", "yolo_right", "yolo_bottom"}
-    for key, seg, tag in yolo_specs:
+    aabb_probed = {"aabb_left", "aabb_right", "aabb_bottom"}
+    # ⚠️ **四角框也在时，外接框一律不设探针（但照画）。**
+    #
+    # 外接框**就是四角框的包围盒** —— 它的每条边与四角框对应那条边本来就几乎
+    # 重合（差的就是"梯形 vs 矩形"那几个像素）。画序是外接框先画（1px 灰）、
+    # 四角框后画（2px 绿），**绿的一定盖住灰的**；而探针取的是"外接框那条边"的
+    # 中点，那里采到的必然是绿。
+    #
+    # `_merge_collinear` 挡不住这件事：它判的是"取整后端点是否相同"，梯形边略微
+    # 倾斜就与水平的外接框边差几个像素，于是两条都画、灰的被盖死。
+    # 实测复现（实机某帧数据扫倾角）：
+    #
+    #     四角框倾角 1.8° -> 通过 ； 0.8° -> 通过 ； 0.5° -> 外接框下边报红
+    #                                              ； 0.2° -> 右边也报红
+    #
+    # 即**箱子接近轴对齐时必报**，而那是正常姿态。
+    #
+    # 判据是"这一帧有没有画四角框"（`box_specs` 非空），不是"某条边偏了多少" ——
+    # 后者又要引入一个阈值，而"被盖住"是几何事实，不是量的问题。
+    aabb_probe_on = not box_specs
+    for key, seg, tag in aabb_specs:
         if key not in kept:
             continue
-        draw_segment(canvas, seg[0], seg[1], COLOR_YOLO_BOX, 1)
-        if key in yolo_probed:
+        draw_segment(canvas, seg[0], seg[1], COLOR_BOX_AABB, 1)
+        if aabb_probe_on and key in aabb_probed:
             mid = ((seg[0][0] + seg[1][0]) / 2.0, (seg[0][1] + seg[1][1]) / 2.0)
-            probes.append((f"YOLO 框 {tag}", mid, COLOR_YOLO_BOX))
-            snap_specs.append((len(probes) - 1, seg, COLOR_YOLO_BOX))
-    if yolo_specs:
-        pending_labels.append(((yolo_specs[0][1][0][0], yolo_specs[0][1][0][1]),
-                               "YOLO 输入框", COLOR_YOLO_BOX))
+            probes.append((f"外接框 {tag}", mid, COLOR_BOX_AABB))
+            snap_specs.append((len(probes) - 1, seg, COLOR_BOX_AABB))
+    if aabb_specs:
+        pending_labels.append(((aabb_specs[0][1][0][0], aabb_specs[0][1][0][1]),
+                               "箱子外接框", COLOR_BOX_AABB))
 
     # 2) 托盘参考边
     for key, seg, tag in ref_specs:
@@ -427,26 +816,42 @@ def render_servo_overlay(color_bgr: np.ndarray, *, error,
             drawn_any = True
         if drawn_any:
             pending_labels.append((tuple(quad[0]), "托盘台面", COLOR_PALLET_QUAD))
-    else:
-        logger.warning("托盘台面投影失败（Reject）—— 图上不画这一层")
 
-    # 4) 箱子底边/右边
+    # 4) 箱子四条边（`error` 在时是底/右两条，没有 `error` 时是四角框的四条）
     for key, seg, tag in box_specs:
         if key not in kept:
             continue
         box = np.asarray(seg, np.float64)
         draw_segment(canvas, box[0], box[1], COLOR_BOX_EDGE, 3)
         mid = (box[0] + box[1]) / 2.0
+        # 探针名带 `箱子` 前缀（既有用例按这个名字断言）；两条边那条路的
+        # `tag` 就是 "底边"/"右边"，四角那条路是 "边0".."边3"。
         probes.append((f"箱子 {tag}", tuple(mid), COLOR_BOX_EDGE))
         snap_specs.append((len(probes) - 1, seg, COLOR_BOX_EDGE))
+    # 四角那条路**只标一次**（标在边0 上）：四条边各来一个"箱子边k"是噪声，
+    # 而这一层要看的是"整圈框对不对"。
+    if error is None and box_specs and box_specs[0][0] in kept:
+        pending_labels.append((tuple(np.asarray(box_specs[0][1][0], np.float64)),
+                               "箱子四角", COLOR_BOX_EDGE))
 
-    # 5) 垂距线 + 垂足（先画），箭头**攒到最后画**（见下面 6)）
+    # 5) 垂距线 + 垂足（先画），箭头**攒到最后画**（见下面 6)）。
+    #    **`error` 在才有这一层** —— 垂距/垂足/内法向都是伺服算出来的量，
+    #    没有 `error` 就没有它们可画（也没有"哪两条边参与伺服"的语义）。
     arrow_specs = []
-    for ref, box, n, foot, tag in (
+    for ref, box, n, foot, tag in ([] if error is None else (
             (error.ref_bottom_px, error.box_bottom_px, error.bottom_inward_px,
              error.bottom_foot_px, "底边"),
             (error.ref_right_px, error.box_right_px, error.right_inward_px,
-             error.right_foot_px, "右边")):
+             error.right_foot_px, "右边"))):
+
+        # ★ **任一段是空的就整条跳过**（邻居路线没有侧邻居时，
+        #   `ref_right_px` / `right_inward_px` / `right_foot_px` 都是
+        #   `np.zeros((0, 2))`，见 `_is_blank`）。少了这一句，下面
+        #   `ref[0]` 一取就 IndexError —— 整张图都发不出去。
+        #   **对非空的那一组是零行为变化**：托盘路线的两段永远是两个点。
+        if any(_is_blank(x) for x in (ref, box, n, foot)):
+            continue
+
         ref = np.asarray(ref, np.float64)
         n = np.asarray(n, np.float64)
         mid_ref = (ref[0] + ref[1]) / 2.0
@@ -510,15 +915,25 @@ def render_servo_overlay(color_bgr: np.ndarray, *, error,
     for p0, p1, _tag in arrow_specs:
         draw_arrow(canvas, p0, p1, COLOR_INWARD)
 
-    # 7) 文字：各图层标签 + HUD。**一次 PIL 会话**，见 `_draw_labels`。
-    #    文字**必须排在 F8 挪位之前** —— 理由见下面 7.5。
+    # 7) 邻居框轮廓（`neighbor_quads` 给了才画）—— **画在所有实线之上**。
+    #    它是"认的是哪两个箱子"的位置指示，被别的线盖住一半就更难判读；
+    #    1 px 细线、又只在邻居路线出现，盖不掉主图层的信息。
+    #    ⚠️ **不设探针**（操作员 2026-10-17 裁定），所以这里也不进 `snap_specs`。
+    for seg, tag in [(s, t) for _k, s, t in neigh_specs]:
+        draw_segment(canvas, seg[0], seg[1],
+                     COLOR_NEIGH_UP if tag == "UP" else COLOR_NEIGH_SIDE,
+                     NEIGH_CONTOUR_PX)
+    pending_labels.extend(neigh_labels)
+
+    # 8) 文字：各图层标签 + HUD。**一次 PIL 会话**，见 `_draw_labels`。
+    #    文字**必须排在 F8 挪位之前** —— 理由见下面 8.5。
     y = 24.0
     for line in hud_lines:
         pending_labels.append(((12.0, y), line, (255, 255, 255)))
         y += 22.0
     _draw_labels(canvas, pending_labels)
 
-    # 7.5) **F8**：实线探针被别的图层**部分**盖住时，沿它自己那条线挪到还看得见
+    # 8.5) **F8**：实线探针被别的图层**部分**盖住时，沿它自己那条线挪到还看得见
     #      的一段上。**必须在所有实线画完之后、而且要在文字之后** —— 挪位是拿
     #      "探针的 7x7 邻域里有没有本色"当"这个位置在图上看得见"的判据，而文字
     #      也会盖住像素。挪位跑在文字之前时，它找到的位置**随后被文字盖住**，
@@ -611,7 +1026,7 @@ def numeric_self_check(canvas: np.ndarray, probes: Iterable[Probe],
     ⚠️ **探针落在画布外 -> 直接跳过，不算问题**（2026-09-30 第二次修）。
     第一次只放宽了"线段有一截进得来"的情况，还是不够 —— 又被拦住两次：
 
-      * `YOLO 框 下边 (685, 803)` / `箱子 底边 (676, 844)`（图高 800）：箱子出画
+      * `外接框 下边 (685, 803)` / `箱子 底边 (676, 844)`（图高 800）：箱子出画
       * `垂足 底边 (645, 827)`：它是个**单点**探针（不是线段），没有"另一截"
         可挪，所以第一次的放宽救不了它
 

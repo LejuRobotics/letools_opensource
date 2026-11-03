@@ -134,11 +134,8 @@ class PalletServoSkill(SkillBase):
         if not isinstance(params, PalletServoParams):
             return Result.fail("Invalid parameters for PalletServoSkill")
 
-        # 传尺寸是为了让绝对毫米写法的越界（`y=1000` 而台面只有 800）在
-        # **技能初始化**时就死。尺寸此刻还没过下面的 `_check_size`，但
-        # `parse_ref_edges` 自带 `size_mm_bad` 兜底 —— 畸形值在这里也是
-        # `Reject` 不是异常，顺序无所谓。
-        parsed = parse_ref_edges(params.ref_edges, params.pallet_size_mm)
+        # 只查写法与平行（绝对写法允许落在台面外，见 `parse_ref_edges`）。
+        parsed = parse_ref_edges(params.ref_edges)
         if isinstance(parsed, Reject):
             return Result.fail(f"配置错误 —— {parsed}")
 

@@ -56,12 +56,9 @@ skill.py 和 node 里完成。
     #    （.gitlab-ci.yml 的 verify:opensource 里 pytest orchestration/nodes/tests/ -m unit）
     pytest orchestration/nodes/tests/test_node_pallet_pose.py -m unit -v
 
-    # 3. 标定工具：要真机、要两个 tag 都在视野里
-    python3 apps/test_camera_internal/pallet_calibration/pallet_calibrate.py --help
+    # 3. 标定：要真机、要两个 tag 都在视野里；标定工具不随开源包提供
 
-第 1 条里含一组回归：拿 maduo 项目 `gt/april_test7/pallet_tag_tf.json` 与
-`report.json` 里已经导出的数据重算一遍，逐位比对。算法是从那边搬过来的，
-同样的输入必须给出同样的输出；这一步是这次合并唯一能证明"没搬错"的手段。
+第 1 条里含一组回归：用固定的输入与期望输出逐位比对，确认算法实现没有偏差。
 """
 from __future__ import annotations
 

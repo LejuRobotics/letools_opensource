@@ -6,61 +6,110 @@
     <arg name="image_depth"   default="/camera/depth/image_raw"/>
     <arg name="camera_info"   default="/camera/color/camera_info"/>
     <arg name="detection_out" default="/pallet/detection"/>
+    <!-- 非空时覆盖 Catkin 包装脚本的 /usr/bin/python3 shebang。 -->
+    <arg name="python"        default=""/>
     <arg name="target_mm"     default="[1200.0, 1000.0]"/>
 
-    <!-- 与画面近平行的边是不是长边。**按场景给**，默认短边平行。
-         给错了 θ_ref 会偏 90°，全搜索会落到错的象限（april_test7 实测偏
-         +67.6°、452mm），而 score 照样很高、不报错。 -->
+    <!-- 与画面近平行的托盘边是不是长边。**用户给出的先验，必须保留、必须传** ——
+         现场事实：短边近平行、长边近垂直画面，所以部署值 = false。
+         它定死**面内转角种子 θ0**；给错**明确偏 90°** 且不报错，换场景必须确认。
+         ⚠️ **不能改成"两个候选都试、用残差挑"**：OBB 框的宽高比 ≈ 1，"哪条边是
+         长边"在框上不可分，靠数据投票会让同一场景不同帧投出不同结果。见
+         skills/atomic/perception/pallet_detect/solve_obb._seed_from_long_side。 -->
     <arg name="long_side_parallel" default="false"/>
 
     <!-- 法向：空串 = 从 TF 查（部署默认）。给 "x,y,z" 则直接用、不查 TF。
-         ⚠️ 缺 TF 时节点**不发布**，不会回退到瞎猜的法向。 -->
+         ⚠️ 缺 TF 时节点**不发布**，不会回退到瞎猜的法向。
+         ⚠️ OBB 路线把法向**锁死**成这个先验（frame_from_obb 的 4 自由度），
+         所以偏了没有任何下游步骤会纠正它 —— 换工位 / 动腰后要重新确认。 -->
     <arg name="normal"        default=""/>
     <arg name="camera_frame"  default="camera_color_optical_frame"/>
     <arg name="base_frame"    default="base_link"/>
 
-    <!-- 法向自检：**TF 只当搜索初值，答案从当前帧深度拟合**（默认开）。
-         为什么：TF 链的朝向会静默偏掉，而 detect 对法向极敏感。2026-09-29 现场
-         实测（test_jia4，37 帧）：地面/台面平面之间只差 1.14°，而 **TF 与它们
-         差 12.52°**，且 37 帧里 TF 一个数都没变（静态偏差，不是抖动）。偏 12.4°
-         的后果是 `too_few_edges` **37/37 全拒**；换成拟合值、其它参数不动
-         **37/37 全过**（支撑边 3~4/4，四角逐帧标准差 0.4~1.3px）。
-         关掉 = 退回历史行为（TF 给什么用什么）。 -->
+    <!-- 法向第二级：**TF 先验的 z 与托盘实际台面法向有 0~10° 的偏差，靠当前帧
+         深度拟合纠正**（默认 true = 开）。OBB 路线把法向**锁死**成先验，偏了没有
+         任何下游步骤会纠正它 —— 那 0~10° 会直接进位姿。关掉 = 用带偏差的 TF 法向。 -->
     <arg name="fit_normal"    default="true"/>
-    <!-- 重新拟合：false（默认）= **只在首帧拟合一次，之后一直复用**。
-         依据：伺服时机器人只做平面内平移（前后左右，不动腰），所以相机相对
-         base 的朝向不变、base 的 z 与地面法向的关系也不变 —— 法向是这个过程中
-         唯一的常量，首帧 ~10ms 拟合一次就够。
-         ⚠️ **真动了腰 / 换了工位要设成 true**，否则会拿一个过期法向静默继续算
-         （法向偏了不会崩，只会换一个 score 继续"如实拒绝"）。 -->
+    <!-- false（默认）= 只在首帧拟合一次、之后复用（伺服只做平面内平移，朝向不变）。
+         真动了腰 / 换了工位要设 true。 -->
     <arg name="normal_refit"  default="false"/>
+    <!-- 首帧拟合的**合理性自检**（2026-10-22 现场事故后加）：拟合出的法向与
+         相机光轴的夹角、拟合平面的距离都要说得通，才允许缓存。0 = 关掉对应闸。
+         事故：TF 初值本身侧向、拟合与初值只差 0.05°，于是歪法向被缓存，
+         D 恒为 241mm（ref=990），闸门把每一帧都拒掉（pub=0）。
+         normal_d_check_tol 是**拟合平面距离**的相对容差，必须比发布用的
+         d_tol（10%）宽 —— 拟合到的常是地面，地面与台面差 ~15%。 -->
+    <arg name="normal_max_tilt_deg" default="60.0"/>
+    <arg name="normal_d_check_tol" default="0.35"/>
+    <!-- D 闸门拒绝时丢掉缓存法向、下一帧重新拟合（默认开）= 自愈。
+         关掉就退回"拟歪一次永久生效，只能重启进程"的旧行为。 -->
+    <arg name="normal_refit_on_d_reject" default="true"/>
 
-    <!-- 检出后跑 refine。`plane` 必须为 true：detect 单独对法向敏感
-         （5.6° -> 180mm），refine 的平面拟合能修回来，前提就是它开着。 -->
+    <!-- 托盘 OBB 模型（**必需**）。空 = 用包内 models/pallet_obb.onnx。
+         模型缺失 / 加载失败时节点**起不来**（不静默降级）—— 缺了它没法检测，
+         静默返回 None 会让"一直检不到"与"现场没有托盘"分不开。
+         engine_path 空 = 包内 models/pallet_obb_fp32.engine（目标机上用 trtexec 导出）。
+         infer_backend：auto = engine 文件在就用 engine、否则 ONNX；
+                        engine = 强制 engine（缺了报错）；onnx = 强制 ONNX。 -->
+    <arg name="model_path"    default=""/>
+    <arg name="engine_path"   default=""/>
+    <arg name="infer_backend" default="auto"/>
+    <arg name="imgsz"         default="640"/>
+    <arg name="conf"          default="0.25"/>
+    <arg name="nms_iou"       default="0.45"/>
+    <!-- 一帧多个候选时怎么挑：bottom_center(离画面下方中心最近) / conf / area -->
+    <arg name="obb_pick"      default="bottom_center"/>
+
+    <!-- ================= 两种前端（2026-10-18） =================
+         detector=obb  —— **现行路径**：YOLO-OBB 初值 + 全 refine（~5Hz）。
+         detector=pose —— **15Hz 路径**：YOLO-pose 12 关键点 → 四边解算 +
+                          轻量 edge_refine（在 detect 内部做）。
+                          该路线**建议 refine=false**（start_all.sh 按后端自动选
+                          pallet_refine / pallet_pose_refine，不用手工改这里）。
+         ⚠️ 只认 obb / pose；写错节点启动时 SystemExit。
+         ⚠️ 两条路线的模型**不通用**：pose 必须另给 pose_model_path
+            （空 = 包内 models/pallet_pose.onnx），缺失即起不来（不静默回退 OBB）。 -->
+    <arg name="detector"      default="pose"/>
+    <arg name="pose_model_path" default=""/>
+    <arg name="pose_engine_path" default="/home/leju_kuavo/ztz/LeTools/skills/atomic/perception/pallet_detect/models/pallet_pose_fp32.engine"/>
+    <arg name="pose_conf"     default="0.25"/>
+    <arg name="pose_kconf"    default="0.5"/>
+    <arg name="pose_edge_refine" default="true"/>
+    <!-- pose 的选框口径，与 obb_pick 同一组取值 -->
+    <arg name="pose_pick"     default="bottom_center"/>
+
+    <!-- 检出后跑 refine（用户规则开关 + 脊线/角点/深度三级细化）。
+         OBB 路线没有 plane 开关 —— 法向锁死，refine 不做平面细化。
+         pose 路线建议 false（edge_refine 已在 detect 内做完）；由 start_all.sh
+         按 detector 自动选 pallet_refine / pallet_pose_refine 的值再传进来。 -->
     <arg name="refine"        default="true"/>
-    <arg name="plane"         default="true"/>
-
-    <!-- 先验跟踪：把上一帧的结果喂给下一帧，θ 与位移都只在上一帧附近搜。
-         伺服跟踪时托盘不动、动的是机器人，相邻帧相对位移实测最大 9.9mm /
-         0.47°，先验几乎是白给的 —— `search` 段实测 599ms -> 66~80ms。
-         关掉只在「托盘会跳变 / 一个画面里多个托盘」时需要。 -->
-    <arg name="use_prior"     default="true"/>
-
-    <!-- 台面高度的绝对约束：`"lo,hi"`（base_link 的 z，mm）。空串 = 不约束。
-         现场实测（相机在 base 高 ~1.2m）：托盘 z≈+43、地面 z≈−107、
-         **手里抱着的纸箱 z≈+600** —— 一条 `-40,130` 的带就能把纸箱整个排除，
-         实测四角误差从 28px 降到 15~17px。
-         ⚠️ **它是绝对高度，依赖 TF 的平移** —— 换工位 / 换托盘 / 站姿变了要重标；
-         带错了不崩，只是"带内选不出台面" → 拒帧（日志里 deck_h_rel_mm=None）。 -->
-    <arg name="deck_z_mm"     default=""/>
 
     <!-- 心跳周期（秒）。**成功时也打**，用来把「在跑」与「线程死了 / 一直被拒」
          分开 —— 本节点原来的日志点全是一次性/只在失败时，正常工作时一片安静，
          与挂掉长得一模一样（2026-09-29 现场踩过）。0 = 关掉。 -->
     <arg name="heartbeat_s"   default="5.0"/>
 
+    <!-- 检测门控（2026-10-18）：true = 只在伺服节点广播"这一档要托盘"（mode=2）
+         之后才算、才发布；空闲时**启动先跑一帧预热**再待命。
+         默认 false = 一直算（旧的独立 roslaunch 跑法行为不变）。
+         ⚠️ 依赖 `std_msgs/Int32` 话题 `/pallet_servo/detect_mode`（伺服节点发，
+         latched）。检测器先起也没关系 —— 拿到当前值之前按"关"处理。 -->
+    <arg name="gated"         default="false"/>
+
+    <!-- D 闸门：最终帧的平面距离 D（相机原点到**台面**、沿法向，毫米）与参考值的
+         **最大相对偏差**。超过就不发布这一帧 —— 宁可不发，也不要送一个明显歪的
+         位姿给伺服。D 是这条链里唯一"看图看不出来"的量（远近只表现为投影尺寸，
+         而投影尺寸与"托盘多大"不可分），所以必须靠这个外部先验兜住。
+         ⚠️ **890 是现场实测值**，换机位 / 动腰之后要重量（不同机位实测 ~650~1650mm）。
+         给错不会崩，但会把所有帧判成超限、**一帧都不发布**，表现是"检测坏了"。
+         节点启动会打一条 INFO 写明生效的 ref/tol，心跳里带实测 D（`d闸=N D=xxxmm`）。
+         `d_mm <= 0` 或 `d_tol <= 0` = **关闸**。 -->
+    <arg name="d_mm"          default="890.0"/>
+    <arg name="d_tol"         default="0.1"/>
+
     <node name="pallet_detection" pkg="pallet_detection"
-          type="pallet_detection_node.py" output="screen">
+          type="pallet_detection_node.py" output="screen"
+          launch-prefix="$(arg python)">
         <param name="image_color"        value="$(arg image_color)"/>
         <param name="image_depth"        value="$(arg image_depth)"/>
         <param name="camera_info"        value="$(arg camera_info)"/>
@@ -76,15 +125,32 @@
         <rosparam param="target_mm" subst_value="true">$(arg target_mm)</rosparam>
         <param name="long_side_parallel" value="$(arg long_side_parallel)"/>
         <param name="normal"             value="$(arg normal)"/>
-        <param name="camera_frame"       value="$(arg camera_frame)"/>
-        <param name="base_frame"         value="$(arg base_frame)"/>
         <param name="fit_normal"         value="$(arg fit_normal)"/>
         <param name="normal_refit"       value="$(arg normal_refit)"/>
-        <param name="heartbeat_s"        value="$(arg heartbeat_s)"/>
+        <param name="normal_max_tilt_deg" value="$(arg normal_max_tilt_deg)"/>
+        <param name="normal_d_check_tol" value="$(arg normal_d_check_tol)"/>
+        <param name="normal_refit_on_d_reject" value="$(arg normal_refit_on_d_reject)"/>
+        <param name="camera_frame"       value="$(arg camera_frame)"/>
+        <param name="base_frame"         value="$(arg base_frame)"/>
+        <param name="model_path"         value="$(arg model_path)"/>
+        <param name="engine_path"        value="$(arg engine_path)"/>
+        <param name="infer_backend"      value="$(arg infer_backend)"/>
+        <param name="imgsz"              value="$(arg imgsz)"/>
+        <param name="conf"               value="$(arg conf)"/>
+        <param name="nms_iou"            value="$(arg nms_iou)"/>
+        <param name="obb_pick"           value="$(arg obb_pick)"/>
+        <param name="detector"           value="$(arg detector)"/>
+        <param name="pose_model_path"    value="$(arg pose_model_path)"/>
+        <param name="pose_engine_path"   value="$(arg pose_engine_path)"/>
+        <param name="pose_conf"          value="$(arg pose_conf)"/>
+        <param name="pose_kconf"         value="$(arg pose_kconf)"/>
+        <param name="pose_edge_refine"   value="$(arg pose_edge_refine)"/>
+        <param name="pose_pick"          value="$(arg pose_pick)"/>
         <param name="refine"             value="$(arg refine)"/>
-        <param name="plane"              value="$(arg plane)"/>
-        <param name="use_prior"          value="$(arg use_prior)"/>
-        <param name="deck_z_mm"          value="$(arg deck_z_mm)"/>
+        <param name="heartbeat_s"        value="$(arg heartbeat_s)"/>
+        <param name="gated"              value="$(arg gated)"/>
+        <param name="d_mm"               value="$(arg d_mm)"/>
+        <param name="d_tol"              value="$(arg d_tol)"/>
 
         <!-- 本项目矩阵都太小，OpenBLAS 多线程是纯开销，实测差 1.6x -->
         <env name="OMP_NUM_THREADS" value="1"/>

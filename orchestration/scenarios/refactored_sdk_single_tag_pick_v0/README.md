@@ -15,7 +15,7 @@
 
 ## 目标
 
-机器人识别面前**单个 AprilTag**,用单臂**走到 + 抓 + 抬起 + 退回 + 复位**。整个过程**不依赖外部真实 tag**,支持**干跑 / MuJoCo / 真机**三链运行,真机模式下若真实 tag 30s 内未找到则**降级注入 fake tag** 继续执行。
+机器人识别面前**单个 AprilTag**,用单臂**走到 + 抓 + 抬起 + 退回 + 复位**。支持**干跑 / MuJoCo / 真机**三链运行:干跑和仿真使用虚拟 Tag(fake tag),真机等待真实 tag,30s 内未找到则返回 FAILURE 并停止后续动作。
 
 ---
 
@@ -25,7 +25,7 @@
 |---|---|---|
 | 🆕 NEW | `NodeHeadSequence` | 扫头序列(多 yaw × 多 pitch,循环重扫,超时降级) |
 | 🆕 NEW | `NodePercep` | 标签检测写到 blackboard(`latest_tag_<id>`,带 version 计数) |
-| 🆕 NEW | `NodeWaitForBlackboard` | 三链行为: 干跑/虚拟/真机+超时降级 |
+| 🆕 NEW | `NodeWaitForBlackboard` | 三链行为: 干跑/虚拟/真机(真机超时默认 FAILURE) |
 | 🔁 PORTED | `NodeComputePickGoal` | 由 fake tag 公式 + box 偏移算底盘目标 |
 | 🔁 PORTED | `NodeTagToArmGoal` | 由 tag + box + lift 算臂轨迹(支持 pick / lift 两套 keypoints) |
 | 🔁 PORTED | `NodeWheelWalk` | 底盘走(支持 `cmd_pos_world` / `cmd_pos` / `cmd_vel` 三模式) |
@@ -88,14 +88,6 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 
 需先启动下位机(`roslaunch humanoid_controllers load_kuavo_real_wheel.launch`),然后同上条命令。
 
-### 单元测试
-
-```bash
-pytest apps/test_upper_init/tests/test_refactored_sdk_single_tag_pick_v0.py -v
-```
-
-> 1 个 subprocess 集成测试 `test_scenario_dry_run_tick_once_succeeds` 默认 deselected,需手动跑确认全链路不依赖 mock 节点。
-
 ---
 
 ## board.json 22 字段速查
@@ -121,7 +113,8 @@ pytest apps/test_upper_init/tests/test_refactored_sdk_single_tag_pick_v0.py -v
 | `z_lift` | float | 0.2 | 抬起高度(米) |
 | `hand_pitch_degree` | float | 0.0 | 末端 pitch 角(度) |
 | `use_virtual_tag` | bool | false | 强制走 fake tag 路径 |
-| `real_tag_timeout_sec` | float | 30.0 | 真 tag 超时后注入 fake |
+| `real_tag_timeout_sec` | float | 30.0 | 等待真 tag 的超时秒数;超时后返回 FAILURE |
+| `fallback_to_virtual` | bool | false(节点默认,本场景未配置) | 为 true 时真 tag 超时改注入 fake tag;真机不要开启 |
 | `virtual_tag_pose_in_odom` | list[float] | [1,0,0,0,0,0] | fake tag 在 odom 系的 6 元组 pose |
 
 ---
@@ -138,11 +131,15 @@ pytest apps/test_upper_init/tests/test_refactored_sdk_single_tag_pick_v0.py -v
 
 不在干跑上验证的:硬件调用细节、视觉算法真值、动力学。
 
-### 2. 为什么用 fake tag + 30s 兜底?
+### 2. 虚拟 Tag(fake tag)的用途
 
-- 干跑无法触发视觉算法 → 走 fake
-- MuJoCo 视觉模块可能不识别 tag → 走 fake
-- 真机视觉失败(光照/遮挡)→ 走 fake,继续验证**后续逻辑**
+虚拟 Tag 用于在没有视觉输入的环境中验证后续流程:
+
+- 干跑无法触发视觉算法 → 立即注入 fake tag
+- MuJoCo 仿真使用 `board_sim.json`(`use_virtual_tag=true`)→ 扫头一轮后注入 fake tag
+- 真机(默认 `board.json`)只接受真实 tag,30s 内未识别到则返回 FAILURE,不注入 fake tag
+
+> ⚠️ 真机不要开启 `use_virtual_tag` / `fallback_to_virtual`:fake tag 是配置中的固定位姿,机器人会朝它移动并抓取,存在碰撞风险。
 
 公式: `fake_tag_pose = virtual_tag_pose_in_odom - stand_in_tag_*`(把"机器人站立位置"局部系的 tag 反推到 odom)。
 
@@ -176,8 +173,7 @@ pytest apps/test_upper_init/tests/test_refactored_sdk_single_tag_pick_v0.py -v
 | [board.json](./board.json) | 22 字段黑板 |
 | [py_tree.json](./py_tree.json) | 主树 |
 | [py_tree_child.json](./py_tree_child.json) | 3 棵 demo 子树内嵌集合 |
-| [apps/test_upper_init/tests/test_refactored_sdk_single_tag_pick_v0.py](../../../apps/test_upper_init/tests/test_refactored_sdk_single_tag_pick_v0.py) | 11 单元测试 |
 | [apps/test_upper_init/readme.md](../../../apps/test_upper_init/readme.md) | 启动器使用说明 |
-| [orchestration/README.md](../../README.md) | 编排层总览 |
+| [行为树编排（orchestration）说明](../../../docs/03-接口详细文档/05-orchestration-行为树编排.md) | 编排层总览 |
 | [orchestration/nodes/](../../nodes/) | 9 节点实现 |
-| [core/util/keypoints.py](../../../core/util/keypoints.py) | 2 工具函数 |
+| [orchestration/nodes/utils/keypoints.py](../../nodes/utils/keypoints.py) | 2 工具函数 |

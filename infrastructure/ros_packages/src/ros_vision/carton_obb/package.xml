@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>carton_obb</name>
+  <version>0.1.0</version>
+  <description>
+    纸箱顶面四角（OBB）：图像 → ONNX(OBB) → /box/detection。
+    取代原来的「YOLO 轴对齐框 + 深度边缘拟合」两段链路
+    （旧包 carton_box_yolo 与 box_detection，已删除）。
+    `/box/yolo_box` 仍会发（手里那个箱子的外接框），只给 node_pallet_servo 画叠加图。
+  </description>
+  <maintainer email="dev@example.com">ztz</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>message_filters</depend>
+  <depend>box_detection_msgs</depend>
+</package>

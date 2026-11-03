@@ -39,6 +39,7 @@
           "box_key": { "value": "latest_box_obs", "source": "CUSTOM", "data_type": "string" },
           "pallet_frame": { "source": "READ_BOARD", "board_key": "pallet_frame" },
           "ref_edges": { "source": "READ_BOARD", "board_key": "ref_edges" },
+          "servo_slots": { "source": "READ_BOARD", "board_key": "servo_slots" },
           "pallet_size_mm": { "source": "READ_BOARD", "board_key": "pallet_size_mm" },
           "use_distortion": { "value": "true", "source": "CUSTOM", "data_type": "string" },
           "max_dt_s": { "source": "READ_BOARD", "board_key": "max_dt_s" },

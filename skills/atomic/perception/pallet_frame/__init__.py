@@ -9,7 +9,7 @@
 `algorithm.py` 是纯函数库（零框架依赖、零 ROS），`window.py` 是**有状态**的
 `PalletFrameWindow`（也不 import ROS）。
 
-⚠️ 本模块**不是** `box_frame/window.py` 的扩展：那个管「一路观测 + 多帧平均」，
+⚠️ 本模块**不是**箱子那条链（`carton_obb`）的扩展：那个管「一路观测 + 多帧平均」，
 本模块管「两路观测 + 配对」，是两件事。
 """
 from .algorithm import (  # noqa: F401

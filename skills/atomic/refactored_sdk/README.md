@@ -24,12 +24,14 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 |---------|------|-------------------|---------|
 | `arm_ee_traj_local_sdk.py` | 手臂末端轨迹（本体坐标系 `base_link`） | `hardware.send_arm_ee_traj_sdk(frame='base_link')` | `sdk_control_mixin.py` → `ArmSDKManager.move_eef_traj_auto()` → `robot_sdk.control.control_robot_end_effector_pose()` |
 | `arm_ee_traj_world_sdk.py` | 手臂末端轨迹（世界坐标系 `world`） | `hardware.send_arm_ee_traj_sdk(frame='world')` | 同上 |
+| `arm_joint_timed.py` | 双臂 14 关节单目标控制（TimedCmd） | `hardware.send_arm_joint_timed()` | 一次下发 `[左臂 J0-J6, 右臂 J0-J6]`，等待规划运动完成 |
 | `arm_joint_traj_sdk.py` | 手臂 14 关节轨迹（多关键点，自动 MPC） | `hardware.send_arm_joint_traj_sdk()` | `sdk_control_mixin.py` → `ArmSDKManager.move_joint_traj_auto()` → `robot_sdk.control.control_arm_joint_positions()` |
 | `arm_reset_sdk.py` | 双臂归位到初始姿态 | `hardware.arm_reset()` | `sdk_control_mixin.py` → `ArmSDKManager.arm_reset()` → `robot_sdk.control.arm_reset()` |
 
 **参数说明**：
 - 末端轨迹点格式：`[x, y, z, qx, qy, qz, qw]`（位置 + 四元数）
 - 关节角度格式：14 个 float，顺序 `[左臂J0-J6, 右臂J0-J6]`（用户角度单位），镜像规则 J0/J3/J6 保持原值，J1/J2/J4/J5 取反
+- `arm_joint_timed.py` 接收一个 14 维目标姿态，不是多关键点轨迹；角度遵循 Adapter 的 `angle_unit`，默认是度
 
 ### 2. 底盘控制
 
@@ -44,7 +46,17 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 | `head_control_sdk.py` | 头部偏航/俯仰控制 | `hardware.control_head_sdk(yaw, pitch)` | `sdk_control_mixin.py` → `LowLevelSDKManager.control_head()` → `robot_sdk.control.control_head()` |
 | `leg_joint_sdk.py` | 下肢 4 关节控制 | `hardware.send_leg_joint_sdk()` | `sdk_control_mixin.py` → `LowLevelSDKManager.move_wheel_lower_joint_auto()` → `robot_sdk.control.control_leg_joint_positions()` |
 
-### 4. 编排工具（无硬件依赖）
+### 4. 通用 TimedCmd
+
+| 技能文件 | 功能 | 调用的 Adapter 方法 | 底层链路 |
+|---------|------|-------------------|---------|
+| `multi_timed_command.py` | 可配置的多 planner 单次组合控制 | `hardware.set_arm_control_mode(2)`（可选） + `hardware.set_focus_ee()` + `hardware.set_focus_z()` + `hardware.send_timed_multi_commands()` | 将 `commands` 中的 planner 通过一次请求下发，可组合 2/8/9、3/8/9、3/6/7 等 |
+
+`MultiTimedCommandParams.prepare_arm_control` 默认 `True`：包含躯干或手臂 planner 2–9 时，每次发令前调用 `set_arm_control_mode(2)` 并检查返回结果，失败则不下发 TimedCmd。纯底盘 planner 0/1 不切换手臂模式；设为 `False` 时由调用方保证外部控制模式。此处没有独立的模式查询，只确认切换接口成功。不做手臂复位，不在结束后自动切回模式 0，便于连续动作和持箱；释放控制应由场景显式安排。
+
+`focus_ee` 默认 `False`，`focus_z` 内部跟随其值，二者不代替手臂控制模式准备。`MultiTimedCommandMove` 透传以上参数；dry-run 仅初始化并验证命令，不执行模式切换。直接调用 Adapter 的 `send_timed_multi_commands()` 不会经过技能前置准备。
+
+### 5. 编排工具（无硬件依赖）
 
 | 技能文件 | 功能 | 实现方式 |
 |---------|------|---------|

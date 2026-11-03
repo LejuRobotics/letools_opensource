@@ -57,7 +57,7 @@ from skills.atomic.perception.pallet_servo.render import (
     COLOR_OFFSET,
     COLOR_PALLET_QUAD,
     COLOR_REF_EDGE,
-    COLOR_YOLO_BOX,
+    COLOR_BOX_AABB,
     _merge_collinear,
     _same_pixels,
     _snap_probes_to_drawn,
@@ -94,7 +94,7 @@ IMAGE_SIZE = (CANVAS_W, CANVAS_H)
 # （"这块该有文字的地方出现了既非底色、也非线色的像素"）。
 BG_FILL = 7
 LAYER_COLORS = (COLOR_REF_EDGE, COLOR_BOX_EDGE, COLOR_INWARD, COLOR_FOOT,
-                COLOR_OFFSET, COLOR_PALLET_QUAD, COLOR_YOLO_BOX)
+                COLOR_OFFSET, COLOR_PALLET_QUAD, COLOR_BOX_AABB)
 
 
 def _straight_down():
@@ -151,14 +151,14 @@ def _project_pallet_quad_px(T):
     return np.asarray(px, np.float64)
 
 
-def _render(color, err, T, *, with_yolo=True, hud=True):
+def _render(color, err, T, *, with_aabb=True, hud=True):
     kwargs = dict(error=err, T_cam_pallet=T,
                   size_mm=(PALLET_W_MM, PALLET_H_MM), K=K_MAT)
-    if with_yolo:
-        kwargs["yolo_uv"] = (680.0, 760.0, 980.0, 1120.0)
+    if with_aabb:
+        kwargs["box_aabb_uv"] = (680.0, 760.0, 980.0, 1120.0)
     if hud:
         kwargs["hud_lines"] = ("e_bottom=+0.0px", "e_right=+0.0px",
-                               "theta=+0.00deg")
+                               "theta=+0.000000rad")
     return render_servo_overlay(color, **kwargs)
 
 
@@ -236,7 +236,7 @@ def test_labels_actually_draw_text():
     canvas_b, _ = render_servo_overlay(
         np.full((CANVAS_H, CANVAS_W, 3), BG_FILL, np.uint8), error=err,
         T_cam_pallet=T, size_mm=(PALLET_W_MM, PALLET_H_MM), K=K_MAT,
-        yolo_uv=(680.0, 760.0, 980.0, 1120.0), hud_lines=())
+        box_aabb_uv=(680.0, 760.0, 980.0, 1120.0), hud_lines=())
     q0 = np.round(_project_pallet_quad_px(T)[0]).astype(int)
     patch = canvas_b[q0[1] + 5:q0[1] + 22, q0[0]:q0[0] + 60]
     check("标签真的画出了文字像素（托盘台面 锚点，无 HUD）",
@@ -261,7 +261,7 @@ def test_ref_edge_labels_use_the_callers_text():
     ⚠️ **两次渲染的 kwargs 必须逐字相同**（只差 `ref_edge_labels`），否则下面
     "线条像素完全相同"那一条比的是两张不同的图。所以这里用一个闭包把公共
     kwargs 钉住，而不是一边走 `_render`、一边裸调 —— `_render` 会带上
-    `yolo_uv`/`hud_lines`，裸调不带，灰色的 YOLO 框只在一边出现。
+    `box_aabb_uv`/`hud_lines`，裸调不带，灰色的外接框只在一边出现。
     """
     T = _straight_down()
     err = servo_error(T, (PALLET_W_MM, PALLET_H_MM), ["y=0", "x=W"],
@@ -275,8 +275,8 @@ def test_ref_edge_labels_use_the_callers_text():
         return render_servo_overlay(
             np.full((CANVAS_H, CANVAS_W, 3), BG_FILL, np.uint8), error=err,
             T_cam_pallet=T, size_mm=(PALLET_W_MM, PALLET_H_MM), K=K_MAT,
-            yolo_uv=(680.0, 760.0, 980.0, 1120.0),
-            hud_lines=("e_bottom=+0.0px", "e_right=+0.0px", "theta=+0.00deg"),
+            box_aabb_uv=(680.0, 760.0, 980.0, 1120.0),
+            hud_lines=("e_bottom=+0.0px", "e_right=+0.0px", "theta=+0.000000rad"),
             **extra)
 
     # 默认（不给 ref_edge_labels）：退回位置名
@@ -394,20 +394,20 @@ def test_coincidence_rule():
     check("相差 0.6 px 取整后不同像素，不算重合",
           not _same_pixels(a, np.array([[0.0, 0.6], [10.0, 0.6]])))
 
-    # 优先级：箱子 > 参考边 > 台面矩形 > YOLO 框；同一条线只留优先级最高的那个 key
+    # 优先级：箱子 > 参考边 > 台面矩形 > 箱子外接框；同一条线只留优先级最高的那个 key
     seg = ((0.0, 0.0), (10.0, 0.0))
     kept = _merge_collinear([("box", seg), ("ref", seg),
                              ("quad", ((10.0, 0.0), (0.0, 0.0))),
-                             ("yolo", ((0.0, 0.4), (10.0, 0.4))),
+                             ("外接框", ((0.0, 0.4), (10.0, 0.4))),
                              ("other", ((0.0, 5.0), (10.0, 5.0)))])
     check("重合时只留优先级最高的 key", "box" in kept and "ref" not in kept
           and "quad" not in kept, str(kept))
-    check("YOLO 框边优先级最低：与箱子边同像素时被跳过（F3）",
-          "yolo" not in kept, str(kept))
+    check("外接框边优先级最低：与箱子边同像素时被跳过（F3）",
+          "外接框" not in kept, str(kept))
     check("不重合的线照留", "other" in kept, str(kept))
 
 
-def _scan_canvas(cases, yolo=None, hud=("a", "b", "c")):
+def _scan_canvas(cases, aabb=None, hud=("a", "b", "c")):
     """扫一批**自造四角**的箱子，返回 `(总帧数, 红帧列表)`。
 
     ⚠️ 箱子四角**必须自己构造**（`box_quad`），**不能**复用 `_project_pallet_quad_px`
@@ -428,8 +428,8 @@ def _scan_canvas(cases, yolo=None, hud=("a", "b", "c")):
         total += 1
         kw = dict(error=err, T_cam_pallet=_straight_down(),
                   size_mm=(PALLET_W_MM, PALLET_H_MM), K=K_MAT, hud_lines=hud)
-        if yolo is not None:
-            kw["yolo_uv"] = yolo
+        if aabb is not None:
+            kw["box_aabb_uv"] = aabb
         canvas, probes = render_servo_overlay(
             np.full((CANVAS_H, CANVAS_W, 3), BG_FILL, np.uint8), **kw)
         problems = numeric_self_check(canvas, probes)
@@ -589,6 +589,126 @@ def test_convergence_scan():
           "; ".join(numeric_self_check(_c, probes_f4)))
 
 
+def test_partial_layers():
+    """★ **只有一部分输入时也要出图** —— 每一层都是"有就画、没有就不画"。
+
+    排查时最需要看的恰恰是"只有一路检测出了结果"的那些帧：三个数要两路都出
+    结果、而且配得上对才算得出来，而整张图都没有的话，操作员分不出是
+    **这一路检测没出东西**还是**叠加图这条链坏了**。
+
+    五个组合各钉一遍：探针里有**该有的**、没有**不该有的**，而且都自检通过。
+    """
+    color = np.full((CANVAS_H, CANVAS_W, 3), BG_FILL, np.uint8)
+    T = _straight_down()
+
+    def _names(**kw):
+        _c, probes = render_servo_overlay(color, hud_lines=("h",), **kw)
+        return [p[0] for p in probes], _c, probes
+
+    # ① 只有箱子四角：画四条边，**没有**"哪两条参与伺服"的语义（那是 error 的事）
+    names, c, p = _names(box_quad_uv=QUAD)
+    check("只有箱子四角：四条边都在",
+          names == ["箱子 边0", "箱子 边1", "箱子 边2", "箱子 边3"], str(names))
+    check("只有箱子四角：自检通过", not numeric_self_check(c, p),
+          "; ".join(numeric_self_check(c, p)))
+
+    # ② 只有托盘（自己投参考边 + 台面矩形）
+    names, c, p = _names(T_cam_pallet=T, size_mm=(PALLET_W_MM, PALLET_H_MM),
+                         K=K_MAT, ref_edges=["y=0", "x=W"])
+    check("只有托盘：参考边按原文投出来了",
+          "托盘参考边 底边" in names and "托盘参考边 右边" in names, str(names))
+    check("只有托盘：台面矩形也在", any(n.startswith("托盘台面") for n in names),
+          str(names))
+    check("只有托盘：**没有**箱子那一层",
+          not any(n.startswith("箱子") for n in names), str(names))
+    check("只有托盘：自检通过", not numeric_self_check(c, p),
+          "; ".join(numeric_self_check(c, p)))
+
+    # ③ 两样都有：**共线的那两条只画一条**（箱子边优先级最高），与全套那条一致
+    names, c, p = _names(box_quad_uv=QUAD, T_cam_pallet=T,
+                         size_mm=(PALLET_W_MM, PALLET_H_MM), K=K_MAT,
+                         ref_edges=["y=0", "x=W"])
+    check("两样都有：箱子四条边 + 参考边 + 台面都在",
+          any(n.startswith("箱子") for n in names)
+          and any(n.startswith("托盘参考边") for n in names)
+          and any(n.startswith("托盘台面") for n in names), str(names))
+    check("两样都有：自检通过", not numeric_self_check(c, p),
+          "; ".join(numeric_self_check(c, p)))
+
+    # ④ 只有箱子外接框
+    names, c, p = _names(box_aabb_uv=(680.0, 760.0, 980.0, 1120.0))
+    check("只有外接框：三条探针（上边不探）",
+          names == ["外接框 左边", "外接框 右边", "外接框 下边"], str(names))
+
+    # ⑤ 什么都没有：出得来一张**只有 HUD** 的图，不抛
+    names, c, p = _names()
+    check("什么都没有：不出探针、也不抛", names == [], str(names))
+    check("什么都没有：画布尺寸不变", c.shape == color.shape, str(c.shape))
+
+    # ⑥ 三样不齐 / 写法非法 → 那一层**不画**，不是猜一条出来
+    names, _c, _p = _names(T_cam_pallet=T, ref_edges=["y=0", "x=W"])   # 缺 size/K
+    check("缺 K/size：投不出台面，那一层不画", names == [], str(names))
+    names, _c, _p = _names(T_cam_pallet=T, size_mm=(PALLET_W_MM, PALLET_H_MM),
+                           K=K_MAT, ref_edges=["nonsense", "x=W"])
+    check("非法写法：那一条边不画，另一条照画",
+          names == ["托盘参考边 右边", "托盘台面 边0", "托盘台面 边2",
+                    "托盘台面 边3"], str(names))
+    names, _c, _p = _names(T_cam_pallet=T, size_mm=(PALLET_W_MM, PALLET_H_MM),
+                           K=K_MAT, ref_edges=[["y=0", "x=W"], ["y=H", "x=0"]])
+    check("槽位表形状也认（取第 0 组）",
+          "托盘参考边 底边" in names and "托盘参考边 右边" in names, str(names))
+    names, _c, _p = _names(box_quad_uv=[[1.0, 2.0], [3.0, 4.0]])      # 不是四点
+    check("四角形状不对：那一层不画（不抛）", names == [], str(names))
+
+
+def test_aabb_probes_are_dropped_when_the_quad_is_drawn():
+    """★ 四角框也在时，**外接框不设探针（但照画）** —— 2026-10-16 现场回归。
+
+    外接框**就是四角框的包围盒**：它的每条边与四角框对应那条边本来就几乎重合
+    （差的就是"梯形 vs 矩形"那几个像素）。画序是外接框先画（1px 灰）、四角框
+    后画（2px 绿），**绿的一定盖住灰的**；而探针取的是外接框那条边的中点，
+    那里采到的必然是绿 —— 于是自检恒红、**叠加图一帧都发不出去**。
+
+    `_merge_collinear` 挡不住：它判"取整后端点是否相同"，梯形边略微倾斜就与
+    水平的包围盒边差几个像素，两条都画。
+
+    实测（实机某帧的真数据，把四角框倾角从 1.8° 扫到 0）：
+
+        1.8° 通过 / 0.8° 通过 / **0.5° 外接框下边报红** / **0.2° 右边也报红**
+
+    即**箱子接近轴对齐时必报**，而那是正常姿态。
+
+    判据是"这一帧画没画四角框"，不是"某条边偏了多少" —— 后者又要引入一个阈值，
+    而"被盖住"是几何事实。
+
+    ⚠️ **没有四角框时，外接框的探针必须还在**：那时它是最准的那一层，去掉等于
+    把这条告警通道关掉。这一半同样要测。
+    """
+    quad = np.array([[481.7, 434.6], [184.3, 425.3],
+                     [190.3, 230.7], [487.8, 240.0]], np.float64)
+    aabb = (float(quad[:, 0].min()), float(quad[:, 1].min()),
+            float(quad[:, 0].max()), float(quad[:, 1].max()))
+
+    def run(**kw):
+        canvas = np.zeros((480, 640, 3), np.uint8)
+        out, probes = render_servo_overlay(canvas, **kw)
+        out = canvas if out is None else out
+        return [p[0] for p in probes], numeric_self_check(out, probes)
+
+    names, bad = run(box_aabb_uv=aabb, box_quad_uv=[list(p) for p in quad])
+    check("四角框与外接框同时画时，自检通过（现场那个 bug 的判据）",
+          not bad, "; ".join(bad))
+    check("两者都在时，外接框不设探针（线照画）",
+          not any(n.startswith("外接框") for n in names), str(names))
+    check("两者都在时，四角框的探针还在",
+          sum(1 for n in names if n.startswith("箱子")) == 4, str(names))
+
+    names2, bad2 = run(box_aabb_uv=aabb)
+    check("只有外接框时，探针必须还在（别把告警通道关掉）",
+          any(n.startswith("外接框") for n in names2), str(names2))
+    check("只有外接框时自检通过", not bad2, "; ".join(bad2))
+
+
 def main():
     T = _straight_down()
     err = servo_error(T, (PALLET_W_MM, PALLET_H_MM), ["y=0", "x=W"],
@@ -610,8 +730,15 @@ def main():
 
     # ---- 每个图层都在 ----
     names = " ".join(p[0] for p in probes)
-    for want in ("托盘台面", "YOLO", "托盘参考边", "箱子", "垂足"):
+    for want in ("托盘台面", "托盘参考边", "箱子", "垂足"):
         check(f"探针里有「{want}」", want in names, names)
+    # 外接框这一层**不设探针**（见 `test_aabb_probes_are_dropped_...`：它的每条边
+    # 都被画在它上面的箱子边整条盖住，探针恒红），但**线必须画出来** ——
+    # 判据换成"画布上有它的颜色"，检查的还是"这一层在不在"。
+    check("外接框这一层画出来了（画布上有灰像素）",
+          bool(np.any(np.all(canvas == np.asarray(COLOR_BOX_AABB, np.uint8),
+                             axis=-1))),
+          "画布上一个外接框像素都没有")
 
     # ---- 核心：探针处就是目标颜色 ----
     problems = numeric_self_check(canvas, probes)
@@ -692,15 +819,15 @@ def main():
     check("垂距线是红", COLOR_OFFSET == (0, 0, 255), str(COLOR_OFFSET))
     check("托盘台面是青（新增）", COLOR_PALLET_QUAD == (255, 255, 0),
           str(COLOR_PALLET_QUAD))
-    check("YOLO 框是灰（新增）", COLOR_YOLO_BOX == (160, 160, 160),
-          str(COLOR_YOLO_BOX))
+    check("箱子外接框是灰", COLOR_BOX_AABB == (160, 160, 160),
+          str(COLOR_BOX_AABB))
 
-    # ---- 不传 yolo_uv 也要能跑 ----
-    canvas2, probes2 = _render(color, err, T, with_yolo=False, hud=False)
-    check("没有 yolo_uv 也能出图", not numeric_self_check(canvas2, probes2),
+    # ---- 不传 box_aabb_uv 也要能跑 ----
+    canvas2, probes2 = _render(color, err, T, with_aabb=False, hud=False)
+    check("没有 box_aabb_uv 也能出图", not numeric_self_check(canvas2, probes2),
           "; ".join(numeric_self_check(canvas2, probes2)))
-    check("没有 yolo_uv 时探针里没有 YOLO",
-          "YOLO" not in " ".join(p[0] for p in probes2))
+    check("没有 box_aabb_uv 时探针里没有外接框",
+          "外接框" not in " ".join(p[0] for p in probes2))
 
 
 
@@ -711,6 +838,10 @@ def main():
     test_coincidence_rule()
     test_convergence_scan()
     test_ref_edge_labels_use_the_callers_text()
+    test_partial_layers()
+
+    print("== 四角框在时，外接框不设探针（现场回归）==")
+    test_aabb_probes_are_dropped_when_the_quad_is_drawn()
 
     print()
     if FAILS:

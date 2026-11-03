@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
-"""MoveArmBaseTargetPoseMove：按 ArmPoseAndWrench 关键点序列移动双臂（世界系）。
+"""MoveArmBaseTargetPoseMove：按 ArmPoseAndWrench 关键点序列移动双臂（BASE 系）。
 
 - 从黑板读 ArmPoseAndWrench（CalcArmPoseMove 输出，tag 系关键点）
 - tag 来自黑板 latest_tag_<tag_id>（NodePercep 输出，odom 系）；
+  关键点由 tag 系经 odom、tf 变换到 base_link（BASE 系）后下发
+- 下发走 TimedCmd planner 6/7（`send_timed_multi_commands`），
+  **不走** SDK 末端轨迹路径（`send_arm_ee_traj_sdk`）
+- 中间的四元数表示只是变换的副产物（`transform_pose` 以四元数承载姿态），
+  下发前统一转回欧拉角 [x,y,z,yaw,pitch,roll]；对外接口一直只用欧拉角
 - 搬运箱流程（夹板末端）：在并拢关键点闭合夹爪，在放置关键点张开夹爪
 """
 
@@ -53,7 +58,7 @@ def _make_odom_to_base():
     label="移动机械臂到目标点",
     category=["motion", "arm"],
     tree_type="grasp_mtbf",
-    description="从黑板读 ArmPoseAndWrench，tag系关键点经 latest_tag_<tag_id> 变换到世界系后走 send_arm_ee_traj_sdk 下发（与 single_tag_pick NodeWheelArm 同路径；关键点联动夹爪开合）",
+    description="从黑板读 ArmPoseAndWrench，tag系关键点经 latest_tag_<tag_id> 变换到 base_link（BASE 系）后走 TimedCmd planner 6/7（send_timed_multi_commands）下发；关键点联动夹爪开合",
     params=[
         {"name": "tag_id", "type": "int", "default": "0",
          "description": "黑板 latest_tag_<tag_id> 来源（NodePercep）；<=0 时按 base 系下发"},
@@ -100,14 +105,6 @@ class MoveArmBaseTargetPoseMove(BaseAction):
         if not s:
             return set()
         return {int(x.strip()) for x in s.split(",") if x.strip()}
-
-    @staticmethod
-    def _quat_point_to_cmd_deg(p):
-        """[x,y,z,qx,qy,qz,qw] → TimedCmd [x,y,z,yaw,pitch,roll]（度）。"""
-        from scipy.spatial.transform import Rotation as R
-        r = R.from_quat([p[3], p[4], p[5], p[6]])
-        roll, pitch, yaw = r.as_euler("xyz")
-        return [p[0], p[1], p[2], math.degrees(yaw), math.degrees(pitch), math.degrees(roll)]
 
     @staticmethod
     def _parse_pose6(raw, default):

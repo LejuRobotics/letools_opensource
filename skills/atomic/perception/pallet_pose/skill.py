@@ -112,8 +112,7 @@ class PalletPoseSkill(SkillBase):
             return Result.fail("Invalid parameters for PalletPoseSkill")
         if not params.pallet_tag:
             return Result.fail(
-                "pallet_tag 为空 —— 还没有标定过。先跑 "
-                "apps/test_camera_internal/pallet_calibration/pallet_calibrate.py，"
+                "pallet_tag 为空 —— 还没有标定过。请先完成托盘标定，"
                 "生成 config/pallet_tag.yaml")
         self.params = params
         self._done = False

@@ -1066,6 +1066,7 @@ class BehaviorTreeFactory:
                     expected_value=expected_value,
                     wait_for_child_completion=wait_for_child_completion,
                     check_before_iteration=node_params.get("check_before_iteration", False),
+                    max_iterations=node_params.get("max_iterations", 0),
                 )
 
             if node_name == "ForEach":

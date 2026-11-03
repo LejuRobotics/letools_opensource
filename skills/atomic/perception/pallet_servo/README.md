@@ -15,7 +15,6 @@
   `skills/atomic/perception/pallet_frame/README.md`
 - **三个数发到哪** → `/pallet_servo/dis`（§1「对外接口是话题，不是黑板」）
 - **现在能上真机吗** → §3 第 1 条（还剩 3 条）
-- **踩过的坑、评审记录** → `NOTES.md`（本文档只管接口和怎么跑）
 
 ---
 
@@ -129,6 +128,22 @@
 
 **符号约定：`e < 0` ⇔ 箱子这条边落在托盘参考边的内侧**（2026-09-30 起；原来是「内侧为正」，操作员裁定翻成「箱子在里面输出负数」）。
 
+⚠️ **邻居路线（`servo_slots` 里 `mode: neighbor` 的档；本现场是 2/4/5 档）
+用逐字相同的约定**（`neighbor.py`）：
+
+* `e_bottom > 0` ⇔ 手里箱**还没到位**（底边在参照线靠机器人这一侧）→ **前进**；
+  推过头为负 → **后退**。与「底边在伺服边下方发正、超过发负」是同一句话。
+* `e_right > 0` ⇔ 手里箱**偏画面右**。
+* **机器人挪到托盘对面（画面左右翻转）时不做任何符号翻转** —— 相机跟着
+  转 180°，画面**上下没反**，"往里走"两种视角下都还是画面里的"上"。
+  现场实测过：以为要翻、翻了反而反了。
+
+> ⚠️ **节点可按档位给输出加固定偏置**：`servo_slots` 每项可选
+> `e_right_bias_px` / `e_bottom_bias_px`（默认 0）。`NodePalletServo` 在写黑板、
+> 发话题、出叠加图**之前**执行 `e_* = 原始值 + bias`，所以话题/黑板上的值可能
+> 带一个**按档位固定**的常数偏移；`theta_rad` 不加偏置。偏置不改变算法，只改
+> "控制器把哪个实际位置当成 0"。配置见下面的「`servo_slots`：档位与输出偏置」。
+
 内法向 `n` 由**托盘自己的几何**定死（候选 `±(−d_v, d_u)`，取与「台面中心的投影 −
 参考边中点」点积为正的那个），所以**不依赖托盘在画面里的朝向**：
 
@@ -140,18 +155,20 @@ e = (箱子边的中点 − 它在参考边所在直线上的垂足) · n
 垂足落在**参考线段之外**时置 `foot_outside` warn，**仍然输出**（箱子已偏出这条边的
 范围，但垂距本身还是有效信息）。
 
-`theta` 的定号：`line_angle = atan2(Δv, Δu)`、**`theta = 托盘底边角 − 箱子底边角`**。
-图像 `u` 向右、`v` 向下，所以**正方向在屏幕上看起来是顺时针** ——
-**箱子在画面里顺时针转 → `theta` 为正**；折进 `(−90°, 90°]`。
+`theta` 的定号：`line_angle = atan2(Δv, Δu)`、**`theta = 箱子底边角 − 托盘底边角`**。
+与 `e_*` 同向：都是「手里箱 − 参照」。控制律 `dtheta = gain * theta_rad` 是正反馈
+口径，所以这个符号反了就是**越转越偏**；折进 `(−90°, 90°]`。
 
-> ⚠️ **极性 2026-09-29 翻过一次。** 原定义是 `箱子 − 托盘`，操作员现场实测"角度是反的"，
-> 改成现在这个。**改视觉层而不是让控制器取负**：极性是符号约定，两处一起改才一致
-> —— 下面的第 11 条原本写"要反转就在控制器取负"，那条对本次改动作废。
+> ⚠️ **极性翻过两次。** 2026-09-29 从「箱子 − 托盘」改成「托盘 − 箱子」；2026-10-20
+> 真机实测角度仍是反的，翻回「箱子 − 托盘」。**改视觉层而不是让控制器取负**：极性
+> 是符号约定，两处一起改才一致。
 >
 > ⚠️ **没有测试钉住这个符号**（收敛扫描只扫 `theta = 0`），改反了测试照样全绿，验收
 > 只能靠叠加图上眼看。
 
 `|theta| > 45°` **只置 warn、不拒绝输出**（`theta` 超出正常范围本身不是"算不出来"）。
+⚠️ **warn 与日志行里的 theta 都是弧度**（2026-10-08 起），与 `theta_rad` 同单位 ——
+warn 文案长这样：`theta +0.872rad 超出 ±0.785rad`。
 
 **诊断量**（出对比图、真机排查用）：`ref_bottom_px` / `ref_right_px`（两条托盘参考边
 的端点像素）、`box_bottom_px` / `box_right_px`（配到的箱子边端点）、`pallet_center_px`、
@@ -172,10 +189,12 @@ e = (箱子边的中点 − 它在参考边所在直线上的垂足) · n
 | `key` | `latest_servo_error` | 写伺服误差的键 |
 | `pallet_frame` | `camera` | 黑板上的托盘位姿按哪个坐标系解释。`"camera"` = 相机系（视觉链路，**不查 TF**、走配对）；`"base_link"` = 老路径（查 TF、**绕开配对**）。**认不出来的值退回 `camera`** 并记 WARNING |
 | `ref_edges` | `["y=0", "x=W"]` | 参考边。**两种形状**：`["边A","边B"]` 一组，或 `[["边A","边B"], [...]]` **多组**（按箱位切换，见下面「按箱位切换」）。第 1 个是底边（参与垂距与角度差）、第 2 个是右边（只参与垂距）。写法与坐标系见下面那张图 |
-| `pallet_size_mm` | — | 台面 `[W, H]` 毫米。**必须显式写**（参数优先，参数没给才退回读 `config_path`）。⚠️ **这个值错了不会报错**，只会让参考边投到错的位置，而三个数照样算得出来 |
+| `servo_slots` | —（全 `pallet`） | **每档走哪套伺服**：`[{"slot": 1, "mode": "pallet"}, {"slot": 2, "mode": "neighbor", "side": "right"}, ...]`。`mode` 只认 `pallet` / `neighbor`，`side` 只认 `left` / `right` / `none`（**画面口径**），写错**启动时**报配置错误。可选输出偏置与当前现场值见下面「`servo_slots`：档位与输出偏置」 |
+| `candidates_key` | `latest_box_candidates` | 邻居路线读的**候选列表**键（`NodeBoxObs` 写）。只有 `mode == "neighbor"` 的档用它；托盘路线一个字都不看 |
+| `pallet_size_mm` | — | 台面 `[W, H]` 毫米。**运行时优先用上游检测器上报的 `{pallet_key}_size_mm`**；这个参数只是检测器还没出数时的兜底（再退到 `config_path`）。主流程已不配它：pallet 档会等上游尺寸，neighbor 档不需要尺寸 |
 | `max_dt_s` | `0.05` | 配对允许的最大时间戳差（秒）。**只认正有限值**，否则退回默认值并记 WARNING |
 | `pair_cache` | `5` | **每侧**留几个观测供配对。**不是窗长** —— 与 `window` 是两个独立旋钮。⚠️ **回溯窗口 ≈ `pair_cache` × 伺服 tick 周期**（10 Hz 下 `5` ≈ **500 ms**），**必须大于托盘检测器的端到端延迟** |
-| `window` | `5` | **成对序列**上取几对做平均（1 = 不平滑）|
+| `window` | `3` | **成对序列**上取几对做平均（1 = 不平滑）。⚠️ 默认值与 `servo_slots` 无关，只影响平滑；板子上当前也是 `3` |
 | `agg` | `mean` | `mean` / `median`，**只作用在箱子四角上**（托盘一律走刚体平均）。拼错退回 `mean` 并记 WARNING |
 | `stale_s` | `0.0` | **延迟闸不是存活闸**：配对成功后这一对有多旧算陈旧（0 = 不查）。判在**去重之后**，所以某路停摆**永远轮不到它**（那时走的是 `None`）|
 | `live_timeout_s` | `5.0` | **存活闸**：某一侧多久没有新观测就记一次 WARNING（0 = 不查）。认不了的值退回默认值 —— 负值若按 0 处理就是静默关掉唯一的检测器存活告警。补的是 `None` 那两种含义**不可区分**的那一格 |
@@ -185,6 +204,7 @@ e = (箱子边的中点 − 它在参考边所在直线上的垂足) · n
 | `use_distortion` | `true` | 投影带不带畸变。认字符串布尔 `true/false`、`1/0`、`yes/no` |
 | `image_size` | — | `[w, h]`；有了就顺带查"整条边跑到图外"。规则同 `K` |
 | `camera_frame` | `camera_color_optical_frame` | 相机光学帧名 |
+| `camera` | `camera` | 向哪个相机命名空间要内参（`camera_info`）；只在 `K` / `D` / `image_size` **没给全**时才去问 |
 | `base_frames` | `[base_link, base_link_lb, base_footprint]` | 基座帧候选，按顺序试 |
 | `T_cam_base_param` | — | 显式 4×4，TF 查不到且缓存失效时用 |
 | `log_every_n` | `30` | 正常帧的节流日志间隔 |
@@ -194,7 +214,6 @@ e = (箱子边的中点 − 它在参考边所在直线上的垂足) · n
 | `overlay_out` | `/pallet_servo/overlay` | 叠加图发到哪个话题；**给空串 = 完全不发图**（省 CPU、省带宽）|
 | `overlay_period_s` | `0.2` | 发图降频周期。伺服 10 Hz，图 5 Hz 就够看，而画图 + 编码不便宜 |
 | `image_color` | `/camera/color/image_raw` | 叠加图的底图话题 |
-| `box_uv_in` | `/box/yolo_box` | YOLO 框话题（**只为画灰框**）；缺了不影响出数，只是图上少一层 |
 | `servo_error_out` | `/pallet_servo/dis` | 伺服误差发到哪个话题；**给空串 = 完全不发**（连发布器都不建）。它是**功能性输出**（下游控制器要用），默认**开** |
 | `servo_error_heartbeat_s` | `1.0` | 无效帧的重发周期（秒）。`0` = 只在内容改变时发 —— 但要接受"停摆了就彻底没消息"，那与"话题名写错了"分不开 |
 
@@ -229,12 +248,13 @@ e = (箱子边的中点 − 它在参考边所在直线上的垂足) · n
 | `y=<毫米>` / `x=<毫米>` | 与同名轴平行的直线。**板子里一律用这个** |
 | `y=0` / `y=H` / `x=W` / `x=0` | 台面矩形的四条边，**跟着 `pallet_size_mm` 走**。代码认，但板子里不要写 |
 
-绝对写法的**范围是 `0 ~ 对应边长`**（`y=` 比 H、`x=` 比 W），超出在**启动时**
-就拒（`ref_edge_out_of_range`），不留到第一帧。
+绝对写法**可以是台面外的任意位置**（2026-10-26 起取消范围检查 —— 参考边是
+"想对齐的位置"，允许对托盘边外某一处）。启动时只查**写法**与**两条不平行**。
 
 为什么板子里用绝对值：`y=H` 与 `y=1000` 在 H=1000 时是同一件事，但**绝对值只有
 一个意思** —— 看板子的人不用先去查 `pallet_size_mm` 是多少，也不会因为改了尺寸
-而让某条边悄悄跟着挪。代价是换托盘时 `ref_edges` 与 `pallet_size_mm` **要一起改**。
+而让某条边悄悄跟着挪。换托盘时仍建议把 `ref_edges` 与 `pallet_size_mm` 一起核对
+（尺寸变了，台面边界也跟着变）。
 
 `ref_edges` 四条边的物理含义（**换了建系顺序这张表整体变**，见 §3 第 2 条）：
 
@@ -243,7 +263,7 @@ e = (箱子边的中点 − 它在参考边所在直线上的垂足) · n
 | `"y=0"` | **下边** | `"x=0"` | 左边 |
 | `"y=H"` | 上边 | `"x=W"` | **右边** |
 
-⚠️ **摆放约定（2026-09-24 操作员确认）**：台面 `[1200, 1000]` mm，**1200 是长边、1000 是短边**。
+⚠️ **摆放约定（2026-09-24 操作员确认）**：台面 1200×1000 mm，**1200 是长边、1000 是短边**。
 摆放时 **短边（1000）与机器人平行**，即**长边（1200）垂直于机器人正面**；
 `origin` 取台面的**左下角**（`e1` 沿长边、`e2` 沿短边，`e1 × e2 = normal` 指向相机）。
 
@@ -260,6 +280,47 @@ e = (箱子边的中点 − 它在参考边所在直线上的垂足) · n
 [["y=0","x=1200"], ["y=1000","x=1200"]]      # 两组，call 1 / call 2 分别用
 ```
 
+⚠️ **档位总数 = 本表组数与 `servo_slots` 长度的较大者**（2026-10-17 改）。走邻居
+路线的档（`servo_slots` 里 `mode: neighbor`）**不读这张表** —— 它的基准是别的箱子
+的边，所以 `servo_slots` 比本表长**是合法的**（4 组参考边 + 5 档表全都能 call）。
+反过来也合法（多出来的档按 `pallet` 兜底，那些档有本表的对应组）。**只有
+「`servo_slots` 比本表长、多出来那档又写着 `pallet`」才是配置错误**，`initialise()`
+里逐档判并报出来。
+
+### `servo_slots`：档位与输出偏置
+
+`ref_edges` 只管托盘路线的基准；**每一档到底走托盘路线还是邻居路线**由
+`servo_slots` 决定。当前现场（`pallet_servo_real_v1/board.json`）长这样：
+
+```json
+[
+  {"slot": 1, "mode": "pallet"},
+  {"slot": 2, "mode": "neighbor", "side": "right",
+   "e_right_bias_px": -15.0, "e_bottom_bias_px": 5.0},
+  {"slot": 3, "mode": "pallet"},
+  {"slot": 4, "mode": "neighbor", "side": "none",
+   "e_right_bias_px": 0.0, "e_bottom_bias_px": 5.0},
+  {"slot": 5, "mode": "neighbor", "side": "left",
+   "e_right_bias_px": 15.0, "e_bottom_bias_px": 5.0}
+]
+```
+
+* `mode`：`pallet`（托盘路线）/ `neighbor`（邻居路线）。
+* `side`：侧邻居在**画面**的哪一侧，`left` / `right` / `none`。只有 `neighbor`
+  档有意义，但**每一项都照样校验**（拼错了不会等到切到那一档才发作）。
+* `e_right_bias_px` / `e_bottom_bias_px`（可选，默认 0）：该档**最终输出**的固定
+  偏置，`输出 = 算法原始值 + bias`。加在**写黑板 / 发话题 / 出叠加图之前**，
+  所以 `latest_servo_error`、`/pallet_servo/dis`、叠加图看到的是同一个值。
+  ⚠️ 它是**目标位置偏置**，不是误差修正：控制器把 `e_*` 驱到 0，所以
+  `e_right_bias_px = -15` 会让机械臂停在"原始差 +15px"的位置上。
+* 非法值（非数值 / NaN / inf）→ **启动时报配置错误**，不静默按 0。
+* 不配 / 空数组 → 全部按 `pallet`（与加这个键之前完全一致）。
+* 启动日志会打印各档实际生效的偏置：
+  `档位输出偏置（new = old + bias）：第 2 档 e_right -15px/e_bottom +5px，…`
+
+⚠️ **服务档位号就是本表的 `slot`**。当前板子的 2/3 档已按操作员要求对调
+（call 2 → 邻居 `right`，call 3 → 托盘），**不要"顺手改回去"**。
+
 **节点启动时是「未激活」的** —— 没 call 过之前一帧有效数据都不出，话题上发的是
 `valid=false` 的「伺服未启动」。要出数就 call：
 
@@ -269,31 +330,46 @@ rosservice call /pallet_servo/slot "slot: 2"   # 第 2 个箱子
 rosservice call /pallet_servo/slot "slot: 0"   # 本次伺服结束
 ```
 
-⚠️ **服务从 1 数，数组从 0 数** —— `slot=2` 用 `ref_edges[1]`。越界调用
-（`slot > 组数`、负数）返回 `ok=false` **且不改当前状态** —— 手滑发个 `3`
-不会把正在跑的伺服停掉。
+⚠️ **服务从 1 数，数组从 0 数** —— `slot=2` 用 `ref_edges[1]`（档走邻居路线时
+这个下标**用不上**，那把它是越界判据的一部分）。越界调用（`slot > 档位数`、负数）
+返回 `ok=false` **且不改当前状态** —— 手滑发个 `3` 不会把正在跑的伺服停掉。
 
 ⚠️ **整张表在 `initialise()` 里一次校验完** —— 第 3 组写错了启动时就报，
 不留到轮到它才发现（那时箱子已经在托盘上了）。
 
 ⚠️ **两个箱子同时在视野里时选箱可能挑错**：`latest_box_obs` 只有**一个**箱子，
-选箱按「置信度 + 面积 + 中心深度」打分。箱位 1 的没搬走、箱位 2 的已放下时，
-节点很可能挑到旧的，而**三个数照样算得出来**（只是基准是另一个箱位）、**不报错**。
-靠流程保证「先搬走再放」。
+选箱判据在**生产者**那边（`carton_obb`：到画面下方中心的距离 + 面积 + 中心深度，
+见那个包的 README）。箱位 1 的没搬走、箱位 2 的已放下时，可能挑到旧的那个，
+而**三个数照样算得出来**（只是基准是另一个箱位）、**不报错**。靠流程保证
+「先搬走再放」。
 
 ## 叠加图（`overlay_out`）
 
 发到 `/pallet_servo/overlay`（`sensor_msgs/Image`），底图取 `image_color`，
 按 `overlay_period_s` 降频。
 
-| 颜色 | 画的是什么 |
-|------|-----------|
-| **黄线** | 托盘的两条参考边，**标签就是你写的那两条原文**（`y=0` / `x=1200`）—— 现场照着图核对"我配的边对不对"用的就是它 |
-| **绿线** | 箱子的底边与右边 |
-| **青线** | 托盘台面矩形（四条边）|
-| **灰线** | YOLO 输入框（`box_uv_in`，**只是输入**）|
-| **蓝箭头** | 参考边的内法向 |
-| **红线** | 垂距线（箱子边的中点 → 参考边上的垂足）；**紫圆** = 垂足 |
+**每一层都是「有就画、没有就不画」—— 不要求两路检测都有结果。** 三个数要托盘与
+纸箱**都出了结果、而且配得上对**才算得出来，而排查时最需要的恰恰是"只有一边有
+结果"的那些帧：那种帧以前整张图都不发，于是操作员分不出是**这一路检测没出东西**
+还是**叠加图这条链坏了**。现在缺哪一路就不画哪一层，HUD 上写明缺在哪一步；
+**未激活**（还没 call 箱位）和**被拒的帧**（几何退化）也照出图。
+
+| 颜色 | 画的是什么 | 什么时候没有 |
+|------|-----------|------------|
+| **黄线** | 托盘的两条参考边，**标签就是你写的那两条原文**（`y=0` / `x=1200`）—— 现场照着图核对"我配的边对不对"用的就是它 | 托盘位姿、台面尺寸、`K` 三样不齐，或者还没 call 箱位（没有"这一帧用哪一组"可言）|
+| **青线** | 托盘台面矩形（四条边）| 同上 |
+| **绿线** | 有 `error`（三个数算出来了）时是箱子的**底边与右边**；没有 `error` 时是**箱子四角的四条边**（没有"哪两条参与伺服"的语义，要看的是整圈框歪不歪）| 上游没给箱子四角 |
+| **灰线** | 纸箱外接框（四角的 AABB，**只是输入**）| 黑板上的箱子观测缺 |
+| **蓝箭头** | 参考边的内法向 | **只有算出三个数才有** |
+| **红线** | 垂距线（箱子边的中点 → 参考边上的垂足）；**紫圆** = 垂足 | 同上 |
+
+图左上角还有一个 **HUD**（三行白字）：算出三个数时是三个量的读数 + 出处
+（`pallet_v` / `box_v` / `t_cam_base` / `box`）+ `size=` 与 `from_upstream=`；
+**没算出来时**第一行是 `⚠ 没有伺服差：<原因>`，第二行是
+`托盘 有/缺 / 纸箱 有/缺`。**它是拿来与 `rostopic echo /pallet_servo/dis` 对读的** ——
+所以几行里的数与话题消息**同源同单位**（`e_*` 像素、**`theta` 弧度**、
+2026-10-08 操作员裁定；从前 HUD 印度，与话题的 `theta_rad` 差 57.3 倍，
+"图上是对的"就成了一句空话）。
 
 **出图前先做数值自检**（`render.numeric_self_check`）：在「本该是某个颜色」的位置
 采样，色不对就把问题打出来。理由是人眼看到图不对时第一嫌疑应该是**画图代码**，
@@ -330,89 +406,7 @@ TF 用**短超时（0.05 s）+ 最近一次成功值缓存**—— 标定工具�
 
 # 2. 快速测试
 
-## 2.1 不用点（回放上一次的点击）
-
-**输入是一份抓好的帧**（`--capture` 落下的三件套）。下面这条命令里
-`--corners` / `--box-corners` 是**回放**已有的点击，所以不弹取点窗、结果可复现：
-
-```bash
-cd /data/Real_Downloads/LeTools        # 替换为本机 LeTools 根目录
-
-python3 apps/test_camera_internal/pallet_servo_sim/pick_servo_inputs.py \
-    --capture-dir /tmp/servo_sim \
-    --corners 486.0 416.6 82.4 425.7 137.3 41.4 439.7 37.2 \
-    --box-corners 425.3 449.8 245.7 453.9 255.4 197.9 405.8 196.9 \
-    --stage both --box-mode quad --out-dir /tmp/servo_sim
-```
-
-> 第一次用之前先抓一帧：`--capture --stage 1 --out-dir /tmp/servo_sim`
-> （要在**装了 ROS 的那台机器**上跑；抓帧会先落盘，之后反复点点都读同一份）。
-
-`--corners` / `--box-corners` 是**回放已有的点击**（8 个数 = 4 个点 × u v），
-所以**不弹取点窗**、结果可复现。预期输出：
-
-```text
- 求出 T_cam_pallet：平移 (-0.5846, 0.4474, 0.9333) m，台面 1052 x 1150 mm
- 参考边 y=0 投影到 [[89.6, 422.3], [491.9, 419.4]] px
- 数值自检通过（探针都取到了目标颜色）
- 三个量：e_bottom = -33.9 px   e_right = +67.4 px   theta = -0.30°
- 写出 /tmp/servo_sim/stage3_overlay.png
- 写出 /tmp/servo_sim/pallet_servo_sim.json
-```
-
-**看图**（不能跳，图是唯一的验证手段）：`/tmp/servo_sim/stage3_overlay.png`
-
-| 颜色 | 画的是什么 |
-|------|-----------|
-| **黄线** | 托盘的两条参考边（投影到画面上）|
-| **绿线** | 箱子的底边与右边（`render_overlay.py:40` `COLOR_BOX_EDGE = (0, 255, 120)`）|
-| **红线** | **垂距线**：箱子边的中点 → 参考边上的垂足（`COLOR_OFFSET = (0, 0, 255)`）|
-| **蓝箭头** | 参考边的内法向 |
-
-要确认的是：**蓝箭头指向托盘内部**，且**红线（垂距）方向与箭头一致**。
-（方向一致只在 `e < 0` 时表现为"沿箭头方向"—— 上面这个例子里 `e_bottom = −33.9 px`
-正好是这种情况。看符号以 §1 的契约为准，别只看箭头。）
-
-> ⚠️ 这三个数的**绝对值带一个常数偏置**（参考边整体偏了一点，成因见 `NOTES.md` §2
-> 闸门①）。**离线可以用它验符号与动态，不要拿它的绝对值当真机上的目标值。**
-> 这条不影响真机路径。
-
-## 2.2 自己点
-
-```bash
-# 抓一帧（真机；会先落盘到 out-dir，之后都读这一份）
-python3 apps/test_camera_internal/pallet_servo_sim/pick_servo_inputs.py \
-    --capture --stage 1 --out-dir /tmp/servo_sim
-
-# 阶段一：点托盘台面四角 → stage1_overlay.png（**在这儿看图确认参考边贴合托盘**）
-python3 apps/test_camera_internal/pallet_servo_sim/pick_servo_inputs.py \
-    --capture-dir /tmp/servo_sim --stage 1 --out-dir /tmp/servo_sim
-
-# 阶段二：接着同一份 stage1.json 点箱子四角（托盘不用重点）
-#    ⚠️ 阶段二**不能再 --capture** —— 那会重抓一帧覆盖 color.png，而 stage1.json
-#    记的是同一个路径，于是拿旧位姿配新图。工具会直接拒绝这种组合。
-python3 apps/test_camera_internal/pallet_servo_sim/pick_servo_inputs.py \
-    --capture-dir /tmp/servo_sim --stage 2 --box-mode quad --out-dir /tmp/servo_sim
-```
-
-分两阶段是因为**投影错了后面三个量全错，而且看不出来** —— 阶段一结束处有一道人工闸门。
-
-| 参数 | 干什么 |
-|------|--------|
-| `--capture` | **真机抓一帧**，先落盘再继续。主路径；**不能与 `--stage 2` 同用** |
-| `--capture-dir <目录>` | **读抓好的那一份**。内参/图尺寸/深度尺度**取自 `meta.json`**，不用手敲。抓一次，反复点 |
-| `--color + --depth + --fx/--fy/--cx/--cy` | 手敲内参。**敲错一个 `cx` 会让所有像素量整体偏，闸门不一定看得出来** —— 能用 `--capture-dir` 就别用这条 |
-| `--dataset <目录>` | 读一份外部的帧束目录（回放旁路，不依赖相机）|
-
-| 参数 | 干什么 |
-|------|--------|
-| `--box-mode aabb` | 点 2 个对角（左上、右下）—— YOLO 给的就是这两个 |
-| `--box-mode quad` | 点 4 个角，**必须按契约顺序**（§3 第 2 条）|
-
-产物落在 `--out-dir`：`stage1.json` / `stage1_overlay.png` / `stage3_overlay.png` /
-`pallet_servo_sim.json`。
-
-## 2.3 接进行为树
+## 2.1 接进行为树
 
 > **真机上现成的场景在 `orchestration/scenarios/pallet_servo_real_v1/`** ——
 > 那里托盘走**视觉托盘检测器**（`NodePalletObs` 订阅 `/pallet/detection`），箱子走
@@ -420,7 +414,7 @@ python3 apps/test_camera_internal/pallet_servo_sim/pick_servo_inputs.py \
 > 本节下面这段是**纯离线**的骨架：托盘和箱子都由那份 JSON 提供。
 > 前置条件、`K` 从哪抄、跑之前要改什么，都在那个场景的 `README.md` 里。
 
-工具最后会打印一段**可直接粘进场景 JSON** 的参数块，值必须与本次点点一致：
+下面的参数块必须与现场标定和取点结果一致：
 
 ```json
   "ref_edges":      ["y=0", "x=W"],
@@ -469,7 +463,6 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 ```bash
 # 脚本式（不在 CI 的收集范围内，要手动跑）
 python3 apps/test_kuavo_5w_skills/test_pallet_servo.py                  # 算法层 + 技能层
-python3 apps/test_camera_internal/pallet_servo_sim/test_capture_one_frame.py
 
 # CI 会跑（verify:opensource 跑的正是 pytest orchestration/nodes/tests/ -m unit）
 pytest orchestration/nodes/tests/test_node_pallet_servo.py -m unit -q
@@ -490,8 +483,8 @@ pytest orchestration/nodes/tests/test_box_obs_to_servo_e2e.py -m unit -q  # 端�
    | 1 | **箱子检测话题** | ✅ **已有**：`NodeBoxObs`（`orchestration/nodes/node_box_obs.py`）订阅 `/box/detection`（`box_detection_msgs/BoxDetection`），写 `latest_box_obs` |
    | 2 | **标定手性** | ✅ **已修**：标定工具现在会重排 + 手性自检 + **拒绝写出镜面标定**（见本条末尾） |
    | 3 | （老路径）`config/camera_config.yaml` 的 `launch_apriltag` | 当前 `false`，此时 `lifecycle_mixin` **根本不构造** `PerceptionAdapter`（`lifecycle_mixin.py:135`），`hardware.perception` 是 `None`，`NodePercep` 会爆。**要改成 `true`** |
-   | 4 | （老路径）`config/apriltag_tags.yaml` | 当前 id 1–4 / size 0.06，**和 maduo 用的标签对不上**，要填真实 id 与尺寸 |
-   | 5 | （老路径）`config/pallet_tag.yaml` | **必须重标**（见下）——老路径下 `pallet_size_mm` 不给就从这里读，两者都没有 = 启动时 FAILURE。**新链路写场景 `py_tree.json` 的 `pallet_size_mm`，不读这个文件** |
+   | 4 | （老路径）`config/apriltag_tags.yaml` | 当前 id 1–4 / size 0.06，要填现场标签的真实 id 与尺寸 |
+   | 5 | （老路径）`config/pallet_tag.yaml` | **必须重标**（见下）——老路径下 `pallet_size_mm` 不给就从这里读。**新链路不读这个文件**：尺寸优先用检测器上报的 `latest_pallet_size_mm`，两者都没有也能启动（pallet 档等上游尺寸，neighbor 档不受影响） |
    | 6 | **`pallet_servo_msgs` 编译过** | 只影响**发话题**：没编过时节点记一条 WARNING 说"只写黑板，行为树之外的控制器拿不到误差"，其余照常 |
 
    **`NodeBoxObs` 的三个参数就是接到真机的全部动作**：`topic`（默认 `/box/detection`）、
@@ -502,7 +495,7 @@ pytest orchestration/nodes/tests/test_box_obs_to_servo_e2e.py -m unit -q  # 端�
    ⚠️ **`valid == false` 的帧一个字节都不写黑板。** 上游 `.msg` 的注释原话：
    「`false` = 四角就是原始 YOLO 框，别拿去做伺服」——那时箱子旋转没恢复，
    拿它算出来的 `theta` 是**错的**，而四角看着规规矩矩是个矩形、`e_bottom_px` 也
-   像模像样。所以这种帧被跳过，下游继续用上一帧的好值。详见 `NOTES.md`。
+   像模像样。所以这种帧被跳过，下游继续用上一帧的好值。
 
    **接真机时把模拟源关掉**（伺服节点一行不改）：`NodeInjectServoInput` 的
    `enabled: false` —— 此时它**运行期一个键都不写**并返回 `SUCCESS`（不占着树，否则
@@ -526,7 +519,7 @@ pytest orchestration/nodes/tests/test_box_obs_to_servo_e2e.py -m unit -q  # 端�
    > **语义变了**：修好之后 `x=0` = 左边、`x=W` = 右边（以前是反的）。所以
    > **任何既有的 `config/pallet_tag.yaml` 都不能再用，必须重标**；`ref_edges`
    > 的取值也要按 §6.2 那张新表重挑。这也是**两条路径第一次真正一致**的时刻——
-   > §6.2 那个"写错了不报错、只是伺服错了边"的陷阱被填掉了。详见 `NOTES.md` §6。
+   > §6.2 那个"写错了不报错、只是伺服错了边"的陷阱被填掉了。
 
 2. **点击顺序是契约，不是偏好。** 托盘与箱子**都是** `右下 → 左下 → 左上 → 右上`。
    它决定托盘系的轴向、也决定箱子哪条边是"底边"。**点错顺序不会报错**，只会让参考边
@@ -638,11 +631,7 @@ pytest orchestration/nodes/tests/test_box_obs_to_servo_e2e.py -m unit -q  # 端�
 
 | 文档 | 内容 |
 |------|------|
-| **`docs/托盘伺服部署与跑通.md`** | **从零跑到三个差值**的操作手册：两条路径的完整命令、点击顺序、现场要定哪几个值、注意事项。**在一台新机器上部署就看这一份**，不解释原理 |
-| `NOTES.md` | 踩过的坑、人工闸门评审记录、日志与 dump 细节、`NodeBoxObs` 的三个决定、本次修的三处静默错 |
 | `pallet_frame/README.md` | **配对与平滑**：两个观测按图像时刻配对、五种 reject、`None` 的两种含义、`spread_*` 口径 |
 | `orchestration/nodes/node_pallet_obs.py` | 托盘观测生产者（`latest_pallet` + `_stamp`），订阅 `/pallet/detection` |
 | `pallet_pose/README.md` | `base_link` 老路径的托盘位姿模块（`latest_pallet` 的另一个生产者）|
 | `orchestration/nodes/node_box_obs.py` | 箱子观测生产者（`latest_box_obs`），订阅 `/box/detection` |
-| `apps/test_camera_internal/pallet_servo_sim/` | 点点工具与出图工具 |
-| `apps/test_camera_internal/pallet_calibration/` | 标定工具（会重排 + 手性自检 + 拒绝写出镜面标定）|

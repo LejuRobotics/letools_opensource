@@ -1,0 +1,9 @@
+{
+  "head_left_yaw_deg": 20.0,
+  "head_right_yaw_deg": -20.0,
+  "head_up_pitch_deg": -20.0,
+  "head_down_pitch_deg": 20.0,
+  "head_center_yaw_deg": 0.0,
+  "head_center_pitch_deg": 0.0,
+  "head_hold_duration_sec": 1.0
+}

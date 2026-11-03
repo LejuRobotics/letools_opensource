@@ -14,12 +14,29 @@
 import io
 import logging
 import logging.handlers
+import os
 import sys
 import threading
+import time
 
 import pytest
 
 from core.common import logger as logger_module
+
+
+@pytest.fixture(autouse=True)
+def _no_letools_log_env(monkeypatch):
+    """把 `LETOOLS_LOG_*` 环境变量从这个测试模块里清掉。
+
+    这几个变量是**故意**影响 `init_logging` 的输入（一键启动脚本靠它们把三个进程
+    指到同一个文件、打开按天清理）。于是本机一旦 export 过，用例里那些"默认值"
+    的预期就不成立了 —— **不是代码坏了，是测试跟着环境漂了**。
+    清掉之后每个用例只依赖它自己显式给的东西，跑在哪台机器上都一样。
+    """
+    for key in ('LETOOLS_LOG_DIR', 'LETOOLS_LOG_FILE', 'LETOOLS_LOG_TAG',
+                'LETOOLS_LOG_MAX_BYTES', 'LETOOLS_LOG_PURGE_DAYS',
+                'LETOOLS_LOG_ROLLOVER', 'LETOOLS_LOG_CONSOLE'):
+        monkeypatch.delenv(key, raising=False)
 
 
 @pytest.fixture
@@ -500,3 +517,182 @@ def test_file_handlers_stay_plain_text(configured_logging):
 
     assert rendered, "文件 handler 应输出"
     assert all("\x1b[" not in text for text in rendered), rendered
+
+
+# --------------------------------------------------------------------------- #
+# 满了"另开一个新文件" + 按天清理 + 环境变量（2026-10-15，托盘/纸箱检测日志用）
+#
+# 需求原文："单个 log 最大 50m，旧 log 3 天自动清理"，且满了要**另开一个新文件**
+# —— 不是 RotatingFileHandler 那种改名成 .1/.2 再删最旧的语义。
+# --------------------------------------------------------------------------- #
+def test_rolled_name_does_not_collide_with_the_timestamp(tmp_path):
+    """★ 下一个文件名**不能**把时间戳的最后一段当成序号。
+
+    基础名就以时间戳结尾（`..._143012`），拿 `_\\d+$` 去认序号会得到
+    `..._143013.log` —— 看起来像个新时间戳，实际是撞车。所以分隔符是 `_p`。
+    """
+    nxt = logger_module._next_rolled_path(tmp_path / 'LeTools_20261015_143012.log')
+    assert nxt.name == 'LeTools_20261015_143012_p02.log', nxt.name
+
+    nxt2 = logger_module._next_rolled_path(nxt)
+    assert nxt2.name == 'LeTools_20261015_143012_p03.log', nxt2.name
+
+    # 带角色 tag 的名字同样成立
+    tagged = logger_module._next_rolled_path(
+        tmp_path / 'LeTools_pallet_20261015_1430.log')
+    assert tagged.name == 'LeTools_pallet_20261015_1430_p02.log', tagged.name
+
+
+def test_size_capped_handler_opens_new_files_and_keeps_the_old_ones(tmp_path):
+    """★ 写满就**另开新文件**：旧的原样留着、**不改名**、**没有 .1/.2**。
+
+    这一条与 `RotatingFileHandler` 的差别正是需求要的：后者会把当前文件改名成
+    `.1` 并在 `backupCount` 到点时**删掉最旧的**。
+    """
+    first = tmp_path / 'LeTools_x_20261015_120000.log'
+    handler = logger_module.SizeCappedNewFileHandler(first, max_bytes=300)
+    handler.setFormatter(logging.Formatter('%(message)s'))
+
+    probe = logging.getLogger('size_capped_probe')
+    probe.handlers = [handler]
+    probe.propagate = False
+    probe.setLevel(logging.DEBUG)
+    try:
+        # 每 100 条查一次大小；每条约 41 字节，100 条 ~4KB >> 300B -> 必然切换
+        for _ in range(600):
+            probe.info('y' * 40)
+    finally:
+        handler.close()
+
+    files = sorted(p.name for p in tmp_path.glob('*.log'))
+    assert len(files) >= 2, f'应至少开出第二个文件，实际 {files}'
+    assert first.exists(), '第一个文件必须原样留着'
+    assert first.stat().st_size >= 300, '第一个文件应已经写超过阈值（才谈得上"满了"）'
+    assert handler.switches >= 1, handler.switches
+    # 改名轮转的指纹：同名前缀下出现 .1/.2
+    assert not list(tmp_path.glob('*.1')), '不该出现 RotatingFileHandler 的 .1'
+    assert all('_p' in n for n in files[1:]), f'新文件应带 _pNN 序号：{files}'
+
+
+def test_purge_old_logs_uses_mtime_and_skips_subdirs(tmp_path):
+    """★ 按 **mtime** 清理（不解析文件名），且**不递归**进子目录。"""
+    old = tmp_path / 'LeTools_old.log'
+    fresh = tmp_path / 'LeTools_fresh.log'
+    old.write_text('x')
+    fresh.write_text('x')
+    # 4 天前 / 1 天前
+    os.utime(old, (time.time() - 4 * 86400, time.time() - 4 * 86400))
+    os.utime(fresh, (time.time() - 1 * 86400, time.time() - 1 * 86400))
+
+    # 结构性目录（帧 dump 的 JSON）绝不能被顺手删掉
+    dump = tmp_path / 'pallet_servo_dump'
+    dump.mkdir()
+    stale_json = dump / '20261001-000000-000001.json'
+    stale_json.write_text('{}')
+    os.utime(stale_json, (time.time() - 30 * 86400,) * 2)
+
+    removed = logger_module.purge_old_logs(tmp_path, days=3)
+
+    assert removed == 1, removed
+    assert not old.exists(), '4 天前的应被删'
+    assert fresh.exists(), '1 天前的必须留着'
+    assert stale_json.exists(), '子目录不是 *.log，不该被删'
+
+
+def test_init_logging_reads_env_and_explicit_args_win(tmp_path, monkeypatch):
+    """环境变量驱动目录/上限/清理/换文件；**显式参数优先于环境变量**。"""
+    root_logger = logging.getLogger()
+    saved = list(root_logger.handlers)
+    root_logger.handlers.clear()
+    monkeypatch.setattr(logger_module, '_initialized', False)
+    monkeypatch.setattr(logger_module, '_active_log_file', None)
+    monkeypatch.setattr(logger_module, '_active_error_log_file', None)
+    monkeypatch.setattr(logger_module, '_trace_id', 'N/A')
+
+    env_dir = tmp_path / 'from_env'
+    monkeypatch.setenv('LETOOLS_LOG_DIR', str(env_dir))
+    monkeypatch.setenv('LETOOLS_LOG_TAG', '_pallet')
+    monkeypatch.setenv('LETOOLS_LOG_MAX_BYTES', '52428800')
+    monkeypatch.setenv('LETOOLS_LOG_ROLLOVER', 'new_file')
+    try:
+        # 不传 log_dir -> 用环境变量
+        logger_module.init_logging(level='INFO', console_output=False)
+        got = logger_module.get_active_log_file()
+        assert got.parent == env_dir, got
+        assert got.name.startswith('LeTools_pallet_'), got.name
+        assert env_dir.exists()
+        # 用的是"满了另开一个"那款 handler，不是改名轮转
+        file_handlers = [h for h in root_logger.handlers
+                         if isinstance(h, logging.handlers.RotatingFileHandler)]
+        assert not any(type(h) is logging.handlers.RotatingFileHandler
+                       for h in file_handlers), 'new_file 模式不该用 RotatingFileHandler'
+
+        # 显式参数优先于环境变量（单元测试靠这条隔离，不被外部 env 顶掉）
+        root_logger.handlers.clear()
+        monkeypatch.setattr(logger_module, '_initialized', False)
+        monkeypatch.setattr(logger_module, '_active_log_file', None)
+        monkeypatch.setattr(logger_module, '_active_error_log_file', None)
+        explicit = tmp_path / 'explicit'
+        logger_module.init_logging(log_dir=str(explicit), level='INFO',
+                                   console_output=False)
+        assert logger_module.get_active_log_file().parent == explicit
+    finally:
+        root_logger.handlers.clear()
+        root_logger.handlers.extend(saved)
+
+
+def test_shared_log_file_env_makes_every_process_write_one_file(tmp_path, monkeypatch):
+    """`LETOOLS_LOG_FILE` = 一键启动脚本让三个进程**共用同一个文件**的机制。
+
+    托盘检测 / 纸箱检测 / 行为树是三个独立进程；脚本分配一个带时间戳的路径、
+    通过环境变量传下去，各自以 append 打开 —— 排查一次故障只翻一个文件。
+    """
+    root_logger = logging.getLogger()
+    saved = list(root_logger.handlers)
+    root_logger.handlers.clear()
+    monkeypatch.setattr(logger_module, '_initialized', False)
+    monkeypatch.setattr(logger_module, '_active_log_file', None)
+    monkeypatch.setattr(logger_module, '_active_error_log_file', None)
+    monkeypatch.setattr(logger_module, '_trace_id', 'N/A')
+
+    shared = tmp_path / 'pallet_log' / 'pallet_20261015_143012.log'
+    monkeypatch.setenv('LETOOLS_LOG_FILE', str(shared))
+    try:
+        logger_module.init_logging(level='INFO', console_output=False)
+        got = logger_module.get_active_log_file()
+        assert got == shared, f'{got} != {shared}'
+        assert shared.parent.exists(), '目录应由 init_logging 建出来'
+    finally:
+        root_logger.handlers.clear()
+        root_logger.handlers.extend(saved)
+
+
+def test_console_output_can_be_turned_off(tmp_path, monkeypatch):
+    """★ `console_output=False` 时 root 上**不留任何写终端的 handler**。
+
+    这是一键启动脚本"三个进程共用一个日志文件"能成立的前提：脚本把检测器的
+    stdout **也**重定向进那个文件，而 logger 的控制台 handler 同样写 stdout ——
+    控制台不关的话，**每条日志会在同一个文件里出现两次**（一次详细格式、
+    一次控制台格式），文件难读、50MB 额度也翻倍地用掉。
+    """
+    root_logger = logging.getLogger()
+    saved = list(root_logger.handlers)
+    root_logger.handlers.clear()
+    monkeypatch.setattr(logger_module, '_initialized', False)
+    monkeypatch.setattr(logger_module, '_active_log_file', None)
+    monkeypatch.setattr(logger_module, '_active_error_log_file', None)
+    monkeypatch.setattr(logger_module, '_trace_id', 'N/A')
+    try:
+        logger_module.init_logging(log_dir=str(tmp_path), level='INFO',
+                                   console_output=False, file_output=True)
+        to_terminal = [h for h in root_logger.handlers
+                       if isinstance(h, logging.StreamHandler)
+                       and not isinstance(h, logging.FileHandler)]
+        assert to_terminal == [], to_terminal
+        # 但文件那一路必须在（关掉的只是终端那一份）
+        files = [h for h in root_logger.handlers
+                 if isinstance(h, logging.FileHandler)]
+        assert files, '关控制台不该把落盘也关掉'
+    finally:
+        root_logger.handlers.clear()
+        root_logger.handlers.extend(saved)

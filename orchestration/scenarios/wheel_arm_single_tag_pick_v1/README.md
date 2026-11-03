@@ -1,5 +1,8 @@
 # wheel_arm_single_tag_pick_v1
 
+本文中的相对路径（如 `orchestration/scenarios/wheel_arm_single_tag_pick_v1/`、`apps/test_upper_init/run_behavior_tree_json.py`）
+一律相对 **LeTools 仓库根目录**；各命令需在仓库根目录下执行。
+
 本场景是源脚本 `case_wheel_test_arm.py` 迁移至 LeTools 框架后的标准行为树场景。
 
 **核心业务边界**：聚焦于单 Tag 识别/注入、左右臂抓取关键点生成、双臂 Joint IK 规划求解、双臂 14 关节同步轨迹执行以及执行成功后的手臂复位。不包含放置（Place）、夹爪释放或独立抬升动作。
@@ -108,5 +111,5 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
    - `hardware_config.json` 指定 `leju_wheeled`。MuJoCo 不是 LeTools 内部的单独 Python adapter，而是由底层 ROS 控制器承载的物理仿真后端。
 6. **SDK 依赖（真跑前提）**：
    - 真跑（非 dry-run）依赖 `kuavo_humanoid_sdk` 已安装。`IK 求解`（`SourceIkCompat.arm_ik` → `robot_sdk.arm.arm_ik`）与`轨迹下发`（`SourceJointTrajectoryCompat.move_joint_traj_auto` → `_arm_sdk_manager.move_joint_traj_auto`）均经源 SDK 兼容层调用该包；缺失时生命周期阶段会跳过 SDK 管理器初始化（`_arm_sdk_manager` 保持 `None`），运行时抛 `RuntimeError("ArmSDKManager 未初始化")` / `RuntimeError("RobotSDK 未初始化")`。
-   - 安装方式：`bash scripts/install_local_sdk.sh`（从本地 `drivers/leju/kuavo_humanoid_sdk` 源码安装到当前 Python 环境），验证：`python3 -c "from kuavo_humanoid_sdk import KuavoRobot; print('SDK Ready')"`。
+   - 安装方式：`./scripts/install_sdk.sh`（按 `scripts/kuavo_humanoid_sdk_tools/sdk_version.env` 锁定的版本安装到当前 Python 环境），验证：`python3 -c "from kuavo_humanoid_sdk import KuavoRobot; print('SDK Ready')"`。
    - 当前 dry-run 模式下此依赖被 `STUDIO_DRY_RUN` 短路，不影响结构验证。

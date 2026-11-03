@@ -5,6 +5,7 @@ from ..domain.pose import Pose6D
 from ..domain.enums import FrameType, MPCControlMode, ArmSide
 from ..domain.end_effector import DualGripperCommand, GripperCommand, HandFingerCommand, SG100HandCommand
 from ..domain.chassis_options import MoveToTargetOptions
+from ..domain.ik import IkSolveRequest
 
 class IHardware(ABC):
     """
@@ -130,6 +131,23 @@ class IHardware(ABC):
         """手臂关节轨迹控制 (14个自由度)。
 
         .. note:: 角度单位由适配器的 ``angle_unit`` 配置决定，默认为度（deg）。Pose6D 对象内部始终使用弧度。
+        """
+        pass
+
+    @abstractmethod
+    def publish_arm_joint_setpoint(self, positions_deg: List[float]) -> Result:
+        """发布一帧手臂关节设定点（14个自由度，非阻塞）。
+
+        与 ``send_arm_joint_trajectory`` 的区别是**不等待**：只把这一帧的目标
+        角度发到关节设定点话题，不订阅到达时间、不 sleep、不宣称关节已到位。
+        逐帧流式下发（如 IK 伺服）用它；需要「下发-等到位」的场景仍用
+        ``send_arm_joint_trajectory``。
+
+        :param positions_deg: 14 个关节位置（度），顺序为
+            [左臂 7 关节, 右臂 7 关节]，每臂
+            [肩俯仰, 肩横滚, 肩偏航, 肘俯仰, 肘偏航, 腕俯仰, 腕横滚]
+        :return: Result；``success`` 只表示发布调用完成，不代表控制器已收到
+            该帧，也不代表关节已到位。异常按适配器既有约定转成失败结果。
         """
         pass
 
@@ -394,7 +412,7 @@ class IHardware(ABC):
         :param is_left: 是否为左臂 (True: 左臂, False: 右臂)
         :param is_local: 是否使用局部坐标系 (True: 局部, False: 世界)
         :param is_whole_body: 是否使用全身运动 (True: 全身, False: 仅手臂)
-        :param pose_desired: 期望位姿 [x, y, z, roll, pitch, yaw] (6维向量)
+        :param pose_desired: 期望位姿 [x, y, z, yaw, pitch, roll] (6维向量)
         :param total_time_desired: 期望求解总时间（秒）
         :param max_attempts: 最大求解尝试次数
         :param linear_error_max: 最大允许线位移误差（米）
@@ -409,6 +427,67 @@ class IHardware(ABC):
                  - pos_priority_linear_error: 位置优先解的线位移误差
                  - pos_priority_angular_error: 位置优先解的角位移误差
                  - q_pos_priority_best: 位置优先解的关节角度
+        """
+        pass
+
+    # --- 3.6 IK 与几何查询 ---
+    @abstractmethod
+    def get_arm_joint_positions(self) -> Result:
+        """获取当前 14 个手臂关节角度（弧度）。
+
+        :return: Result，data 为 14 维列表（弧度），顺序为
+            [左臂 7 关节, 右臂 7 关节]，每臂
+            [肩俯仰, 肩横滚, 肩偏航, 肘俯仰, 肘偏航, 腕俯仰, 腕横滚]
+
+        .. note:: 与 ``send_arm_joint_trajectory`` 不同，本方法返回**弧度**，
+           不随适配器的 ``angle_unit`` 变化。
+        """
+        pass
+
+    @abstractmethod
+    def solve_ik(self, request: IkSolveRequest) -> Result:
+        """双臂 IK 求解（一次请求同时求左右臂）。
+
+        位姿为 IK 模型根坐标系（轮臂为 ``waist_yaw_link``）下的四元数位姿。
+        实现应在主服务失败、或解相对 q0 的关节跳变超过
+        ``request.max_joint_step_deg`` 时自动回退到备用服务。
+
+        :param request: 含左右目标位姿与 q0 初值的求解请求
+        :return: Result，data 为 ``core.domain.ik.IkSolution``
+                 （14 维关节角、服务端 FK 的双手位姿、耗时）
+        """
+        pass
+
+    @abstractmethod
+    def get_transform(self, target_frame: str, source_frame: str,
+                      timeout: float = 0.2) -> Result:
+        """查询 ``source_frame`` 在 ``target_frame`` 下的位姿。
+
+        :param target_frame: 目标坐标系（如 ``odom``）
+        :param source_frame: 源坐标系（如 ``zarm_l7_end_effector``）
+        :param timeout: TF 查询超时（秒）
+        :return: Result，data 为 ``core.domain.transform.Transform``
+                 （position [x,y,z] 米 + orientation [qx,qy,qz,qw]）
+        """
+        pass
+
+    @abstractmethod
+    def check_joint_path(self, start_q14: List[float], goal_q14: List[float],
+                         sampling_deg: float = 3.0, timeout: float = 5.0) -> Result:
+        """检查一段 14 关节直线插值路径是否有效（MoveIt 碰撞校验）。
+
+        插值与采样（按单关节最大变化 ``sampling_deg`` 切片）由适配器内部完成，
+        调用方只给起点、终点。
+
+        :param start_q14: 起点关节角（弧度，14 维）
+        :param goal_q14: 终点关节角（弧度，14 维）
+        :param sampling_deg: 相邻采样点的单关节最大变化（度）
+        :param timeout: 等待 /joint_states 与服务的超时（秒）
+        :return: Result，服务调用成功时 data 含
+                 ``valid``（路径是否有效）、``samples``（采样点数）、
+                 ``invalid_index``（首个无效采样点下标，仅无效时）、
+                 ``contacts``（接触详情，仅无效时）。
+                 **路径无效不算调用失败**：``success`` 只表示"判定得出来"。
         """
         pass
 

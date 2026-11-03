@@ -624,8 +624,8 @@ python3 apps/test_kuavo_5w_refactored/01_base_control/test_cmd_vel_world.py
 
 ## 📖 相关文档
 
-- [IHardware 接口定义](../../interfaces/i_hardware.py)
-- [应用层测试 README](../../../apps/test_kuavo_5w_app/README.md)
+- [IHardware 接口定义](../../../../../core/interfaces/i_hardware.py)
+- [应用层测试说明](../../../../../docs/03-接口详细文档/06-apps-测试与示例应用.md)
 
 ---
 

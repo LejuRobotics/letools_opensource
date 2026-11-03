@@ -1,0 +1,120 @@
+<launch>
+    <!-- 纸箱 OBB：图像 → ONNX(OBB) → /box/detection（四角）-->
+    <!-- 算法在 scripts/obb_decoder.py（纯函数，不 import ROS） -->
+
+    <arg name="image_color"   default="/camera/color/image_raw"/>
+    <arg name="image_depth"   default="/camera/depth/image_raw"/>
+    <arg name="camera_info"   default="/camera/color/camera_info"/>
+    <arg name="detection_out" default="/box/detection"/>
+    <arg name="model_path"    default=""/>
+    <arg name="imgsz"         default="640"/>
+    <arg name="conf"          default="0.25"/>
+    <arg name="nms_iou"       default="0.45"/>
+    <!-- 旋转框 NMS 的第二条判据：交/较小面积，专管「小框整个套在大框里」。
+         IoU 对那一类天生够不着（碎框 IoU 0.25、IoMin 1.0）。
+         阈值依据与实测见 config/carton_obb.yaml。 -->
+    <arg name="nms_iomin"     default="0.85"/>
+    <arg name="window"        default="3"/>
+    <!-- 每几帧进一个处理槽（相机 30Hz → 30/process_every Hz）。
+         ⚠️ **它直接决定 `/box/detection` 的上限，而 `/pallet/dis` 是配对后
+         输出的，被 min(托盘率, 纸箱率) 封顶** —— 2026-10-19 实测：默认 3 时
+         纸箱只有 7.8Hz，把 `/pallet/dis` 从 12.3Hz 拖到 7~8Hz。
+         单帧推理+解码+选箱实测 27~40ms，30Hz 输入撑得住，故改 1。
+         要降载就改这里（2 = 15Hz、3 = 10Hz），不要用 `max_rate_hz` 兜。 -->
+    <arg name="process_every" default="1"/>
+    <arg name="agg"           default="mean"/>
+    <arg name="max_rate_hz"   default="0.0"/>
+    <!-- 心跳周期（秒）。**成功、没检到、没数据都打** —— 用来把「在跑」与
+         「工作线程死了 / 相机停了」分开。本节点原来的日志点全是一次性的或只在
+         异常/节流时打，正常工作时一片安静，与挂掉长得一模一样
+         （托盘链 2026-09-29 踩过这个坑，它补了心跳，这条此前没有）。0 = 关掉。 -->
+    <arg name="heartbeat_s"   default="5.0"/>
+    <!-- 检测门控（2026-10-18）：true = 只在伺服节点广播"有档位激活"（mode>=1）
+         之后才算、才发布；空闲时**启动先跑一帧预热**再待命。
+         默认 false = 一直算（旧的独立 roslaunch 跑法行为不变）。
+         ⚠️ 依赖 `std_msgs/Int32` 话题 `/pallet_servo/detect_mode`（伺服节点发，
+         latched）。检测器先起也没关系 —— 拿到当前值之前按"关"处理。 -->
+    <arg name="gated"         default="false"/>
+    <!-- 选箱判据：离画面下方中心越近分越高（绝对刻度 px）+ 面积 + 中心深度。
+         ⚠️ d_near_px / d_far_px 是 640x480 口径；换分辨率要跟着改。 -->
+    <arg name="d_near_px"       default="100.0"/>
+    <arg name="d_far_px"        default="450.0"/>
+    <arg name="score_w_dcenter" default="0.5"/>
+    <arg name="score_w_area"    default="0.2"/>
+    <arg name="score_w_depth"   default="0.3"/>
+    <arg name="z_near_mm"       default="500.0"/>
+    <arg name="z_far_mm"        default="1500.0"/>
+    <arg name="box_python"    default=""
+         doc="解释器的绝对路径；空串 = 用系统 python3（默认）"/>
+
+    <!-- 推理后端（2026-10-20）
+         auto   ：启动时探测公共 TensorRT 服务 `/carton_obb/infer`（dev 的
+                  `carton_obb_trt_service`）。在就用它的输出，不在就本地 ONNX。
+         shared ：强制用公共服务（探测不到打 ERROR 并退回本地）。
+         local  ：强制本地 ONNX，不探测。
+         ⚠️ 两条路的解码 / NMS / 选箱 / 时间窗**是同一段代码**：服务端只负责
+         前处理 + 推理，这里请求它不做 NMS，去重与选箱都在本地做。
+         ⚠️ 探测只在**启动时**做一次；共享服务中途挂掉，连续失败
+         `shared_fail_limit` 次后切回本地，不自动切回。 -->
+    <arg name="infer_mode"    default="auto"/>
+    <arg name="infer_service" default="/carton_obb/infer"/>
+    <arg name="infer_probe_s" default="2.0"/>
+    <arg name="shared_fail_limit" default="3"/>
+
+    <!-- ⚠️ **按需自己给 cuDNN 的 LD_LIBRARY_PATH。** onnxruntime 的 CUDA provider
+         **不会**自己去 conda 环境的 `site-packages/nvidia/` 里找库；不给的话
+         **不报错，只是静默退回 CPU**（同机实测 4.0ms vs 9.7ms）。
+
+         **本仓库不设这个变量** —— 它依赖具体机器的 conda 路径，写在这里就是
+         把一个环境细节钉死进代码。需要的机器在自己的 shell 里给：
+             L=<conda-env>/lib/python3.*/site-packages/nvidia
+             export LD_LIBRARY_PATH=$L/cudnn/lib:$L/cublas/lib:$L/cuda_runtime/lib:$LD_LIBRARY_PATH
+
+         判据是启动日志里那行 `onnxruntime x.y.z，provider=...` ——
+         不是 CUDAExecutionProvider 就说明退回 CPU 了。 -->
+
+    <node name="carton_obb_detect" pkg="carton_obb"
+          type="carton_obb_detect.py" output="screen"
+          launch-prefix="$(arg box_python)">
+
+        <!-- ⚠️ **rosparam / param 必须写在 <node> 里面。** 写在 <launch> 顶层会落到
+             全局 `/conf`，而节点读的是私有 `~conf` —— 两者不是一个键，改配置完全
+             没反应、**静默用代码里的默认值**。（旧包踩过这个坑，原样继承教训。） -->
+        <rosparam command="load" file="$(find carton_obb)/config/carton_obb.yaml"/>
+
+        <param name="image_color"   value="$(arg image_color)"/>
+        <param name="image_depth"   value="$(arg image_depth)"/>
+        <param name="camera_info"   value="$(arg camera_info)"/>
+        <param name="detection_out" value="$(arg detection_out)"/>
+        <param name="model_path"    value="$(arg model_path)"/>
+        <param name="imgsz"         value="$(arg imgsz)"/>
+        <param name="conf"          value="$(arg conf)"/>
+        <param name="nms_iou"       value="$(arg nms_iou)"/>
+        <param name="nms_iomin"     value="$(arg nms_iomin)"/>
+        <param name="window"        value="$(arg window)"/>
+        <param name="process_every" value="$(arg process_every)"/>
+        <param name="agg"           value="$(arg agg)"/>
+        <param name="max_rate_hz"   value="$(arg max_rate_hz)"/>
+        <param name="heartbeat_s"   value="$(arg heartbeat_s)"/>
+        <param name="gated"         value="$(arg gated)"/>
+        <param name="infer_mode"    value="$(arg infer_mode)"/>
+        <param name="infer_service" value="$(arg infer_service)"/>
+        <param name="infer_probe_s" value="$(arg infer_probe_s)"/>
+        <param name="shared_fail_limit" value="$(arg shared_fail_limit)"/>
+
+        <!-- 选箱判据（离画面下方中心越近分越高 + 面积 + 深度）。
+             命令行是覆盖口，一键脚本从 board.json 传进来。 -->
+        <param name="d_near_px"       value="$(arg d_near_px)"/>
+        <param name="d_far_px"        value="$(arg d_far_px)"/>
+        <param name="score_w_dcenter" value="$(arg score_w_dcenter)"/>
+        <param name="score_w_area"    value="$(arg score_w_area)"/>
+        <param name="score_w_depth"   value="$(arg score_w_depth)"/>
+        <param name="z_near_mm"       value="$(arg z_near_mm)"/>
+        <param name="z_far_mm"        value="$(arg z_far_mm)"/>
+
+        <!-- onnxruntime / OpenBLAS 在这个规模的模型上开多线程是纯开销，
+             而且会和 ROS 回调线程抢核 -->
+        <env name="OMP_NUM_THREADS" value="1"/>
+        <env name="OPENBLAS_NUM_THREADS" value="1"/>
+    </node>
+</launch>

@@ -30,6 +30,12 @@ class InferenceControl(BaseAction):
         self._init_result = None
 
     def initialise(self):
+        if _DRY_RUN:
+            self.feedback_message = "dry-run inference_control"
+            self._skill = None
+            self._init_result = None
+            return
+
         try:
             hw = get_shared_hardware()
         except Exception:
@@ -45,9 +51,6 @@ class InferenceControl(BaseAction):
             device=str(self.params.get("device", "cuda")),
             inference_env=str(self.params.get("inference_env", "sim")),
             gripper_pre_position=float(self.params.get("gripper_pre_position", 50)),
-            gripper_close_threshold=float(self.params.get("gripper_close_threshold", 0.3)),
-            gripper_hold_frames=int(self.params.get("gripper_hold_frames", 5)),
-            post_close_steps=int(self.params.get("post_close_steps", 10)),
             timeout=float(max_steps),
         )
         self._skill = InferenceControlSkill(hardware=hw)

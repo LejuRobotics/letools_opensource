@@ -271,11 +271,22 @@ class LejuEndEffector:
         if not self._connected or self._ee_type != EndEffectorType.QIANGNAO_HAND:
             return Result.fail("Hand driver not ready")
 
+        # 对端存活校验：话题无订阅者时 rospy 不序列化也不报错，直接返回 False，
+        # 命令会被静默丢弃。与 send_sg100_command 的同类校验保持一致，
+        # 显式失败而不是让调用方以为下发成功。
+        if self._hand_pub.get_num_connections() == 0:
+            return Result.fail(
+                "Qiangnao hand driver not ready: "
+                "话题 /control_robot_hand_position 无订阅者，命令会被丢弃"
+            )
+
         try:
             from kuavo_msgs.msg import robotHandPosition
             msg = robotHandPosition()
-            msg.left_hand_position = left_cmd.positions
-            msg.right_hand_position = right_cmd.positions
+            # robotHandPosition 的左右手字段是 uint8[]，必须转成整数，
+            # 否则序列化阶段报 "must be unsigned integer type"。
+            msg.left_hand_position = [int(round(p)) for p in left_cmd.positions]
+            msg.right_hand_position = [int(round(p)) for p in right_cmd.positions]
             self._hand_pub.publish(msg)
             return Result.ok("Hand command published")
         except Exception as e:

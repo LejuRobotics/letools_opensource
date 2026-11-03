@@ -13,6 +13,7 @@ class RepeatUntil(py_trees.decorators.Decorator):
     ``SUCCESS``。启用 ``wait_for_child_completion`` 后，则等待当前一轮结束，
     再根据子树结果退出。子树失败则立即向上传递 ``FAILURE``。
     启用 ``check_before_iteration`` 后，每轮开始前也检查条件，满足时跳过该轮。
+    ``max_iterations`` 限制成功完成的轮数，0 表示不限制；失败不计数。
     """
 
     def __init__(
@@ -24,8 +25,15 @@ class RepeatUntil(py_trees.decorators.Decorator):
         expected_value=True,
         wait_for_child_completion=False,
         check_before_iteration=False,
+        max_iterations=0,
     ):
+        if isinstance(max_iterations, bool) or not isinstance(max_iterations, int):
+            raise TypeError("max_iterations 必须是 int")
+        if max_iterations < 0:
+            raise ValueError("max_iterations 必须大于等于 0")
         super().__init__(name=name, child=child)
+        self.max_iterations = max_iterations
+        self.iterations = 0
         self.condition_key = condition_key
         self.condition_path = condition_path
         self.expected_value = expected_value
@@ -35,6 +43,8 @@ class RepeatUntil(py_trees.decorators.Decorator):
         self.blackboard.register_key(key=condition_key, access=Access.READ)
 
     def tick(self):
+        if self.status != Status.RUNNING:
+            self.iterations = 0
         starting_iteration = (
             self.status != Status.RUNNING
             or self.decorated.status == Status.INVALID
@@ -59,6 +69,9 @@ class RepeatUntil(py_trees.decorators.Decorator):
         yield from super().tick()
 
     def update(self):
+        if self.decorated.status == Status.SUCCESS:
+            self.iterations += 1
+
         try:
             condition_value = self._condition_value()
         except KeyError:
@@ -92,8 +105,11 @@ class RepeatUntil(py_trees.decorators.Decorator):
             self.feedback_message = "子流程失败"
             return Status.FAILURE
         if self.decorated.status == Status.SUCCESS:
+            if self.max_iterations and self.iterations >= self.max_iterations:
+                self.feedback_message = f"已完成 {self.iterations}/{self.max_iterations} 轮"
+                return Status.SUCCESS
             self.decorated.stop(Status.INVALID)
-            self.feedback_message = "本轮成功，继续下一轮"
+            self.feedback_message = f"已完成 {self.iterations} 轮，继续下一轮"
             return Status.RUNNING
         return Status.RUNNING
 

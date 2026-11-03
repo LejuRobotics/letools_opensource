@@ -12,16 +12,19 @@
           {"name": "NodeHeadSequence", "label": "head_seq", "params": {
             "head_search_yaws":   {"value": "${head_search_yaws}",   "source": "INPUT", "data_type": "list"},
             "head_search_pitchs": {"value": "${head_search_pitchs}", "source": "INPUT", "data_type": "list"},
-            "scan_timeout":       {"value": "${tag_scan_timeout}",   "source": "INPUT", "data_type": "float"}
+            "scan_timeout":       {"value": "${tag_scan_timeout}",   "source": "INPUT", "data_type": "float"},
+            "use_virtual_tag":    {"value": "${use_virtual_tag}",     "source": "INPUT", "data_type": "bool"}
           }, "childs": [], "childBoard": []},
           {"name": "NodePercep", "label": "percep_tag", "params": {
-            "tag_ids": {"value": "${tag_ids}", "source": "INPUT", "data_type": "list"}
+            "tag_ids": {"value": "${tag_ids}", "source": "INPUT", "data_type": "list"},
+            "use_virtual_tag": {"value": "${use_virtual_tag}", "source": "INPUT", "data_type": "bool"}
           }, "childs": [], "childBoard": []},
           {"name": "NodeWaitForBlackboard", "label": "wait_for_tag", "params": {
             "tag_id":                   {"value": "${pick_tag_id}",              "source": "INPUT", "data_type": "int"},
             "stand_in_tag_pos":         {"value": "${stand_in_tag_pos}",        "source": "INPUT", "data_type": "list"},
             "stand_in_tag_euler":       {"value": "${stand_in_tag_euler}",      "source": "INPUT", "data_type": "list"},
             "use_virtual_tag":          {"value": "${use_virtual_tag}",         "source": "INPUT", "data_type": "bool"},
+            "wait_for_head_scan":       {"value": "${use_virtual_tag}",         "source": "INPUT", "data_type": "bool"},
             "real_tag_timeout_sec":     {"value": "${real_tag_timeout_sec}",    "source": "INPUT", "data_type": "float"},
             "virtual_tag_pose_in_odom": {"value": "${virtual_tag_pose_in_odom}","source": "INPUT", "data_type": "list"}
           }, "childs": [], "childBoard": []}

@@ -233,9 +233,9 @@ results['底盘位置到达时间'] = test_cmd_pose_reach_time(hardware)
 
 ## 📚 相关文档
 
-- [状态反馈修复报告](STATE_FEEDBACK_FIX_REPORT.md) - 详细的修复过程和原理
-- [话题修正报告](TOPIC_CORRECTION_REPORT.md) - ROS话题名称和类型的修正
-- [官方接口文档](../../../../kuavo-ros-opensource/docs/4开发接口/Kuavo%205-W%20接口使用文档.md)
+- 状态反馈修复报告 - 详细的修复过程和原理
+- 话题修正报告 - ROS话题名称和类型的修正
+- [官方接口文档](https://gitcode.com/OpenLET/kuavo-ros-opensource/blob/master/docs/4开发接口/Kuavo%205-W%20接口使用文档.md)
 
 ---
 

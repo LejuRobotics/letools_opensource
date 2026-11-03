@@ -11,6 +11,7 @@
 |------|------|-----------|---------|
 | `arm_ee_traj_local_sdk_move.py` | `ArmEeTrajLocalSdkMove` | `arm_ee_traj_local_sdk` | `arm_v1` |
 | `arm_ee_traj_world_sdk_move.py` | `ArmEeTrajWorldSdkMove` | `arm_ee_traj_world_sdk` | `arm_v1` |
+| `arm_joint_timed_move.py` | `ArmJointTimedMove` | `arm_joint_timed` | `instructional_case_02` |
 | `arm_joint_traj_sdk_move.py` | `ArmJointTrajSdkMove` | `arm_joint_traj_sdk` | `atomic_v1` `arm_v1` |
 | `arm_reset_sdk_move.py` | `ArmResetSdkMove` | `arm_reset_sdk` | `arm_v1` |
 | `move_arm_base_joint_trajectories.py` | `MoveArmBaseJointTrajectories` | 旧版 arm_control | `smoke_v1` |
@@ -26,10 +27,16 @@
 
 | 文件 | 类名 | 对应 Skill | 场景使用 |
 |------|------|-----------|---------|
-| `head_control_sdk_move.py` | `HeadControlSdkMove` | `head_control_sdk` | `atomic_v1` |
+| `head_control_sdk_move.py` | `HeadControlSdkMove` | `head_control_sdk` | `atomic_v1`、`instructional_case_01` 至 `04` |
 | `move_head.py` | `MoveHead` | 旧版 head_control | **未使用** ❌ |
 | `leg_joint_sdk_move.py` | `LegJointSdkMove` | `leg_joint_sdk` | `atomic_v1` |
 | `leg_short_move.py` | `LegShortMove` | `leg_control` (旧版) | `smoke_v1` |
+
+### 通用 TimedCmd
+
+| 文件 | 类名 | 对应 Skill | 场景使用 |
+|------|------|-----------|---------|
+| `multi_timed_command_move.py` | `MultiTimedCommandMove` | `multi_timed_command` | `instructional_case_03`、`04` |
 
 ### 编排工具
 
@@ -70,5 +77,3 @@ class XxxMove(BaseAction):
 JSON 中 `"name"` 字段即为节点类名。Factory 通过 `_build_node_index()` 自动发现：
 - 文件名 `arm_joint_traj_sdk_move.py` → 类名 `ArmJointTrajSdkMove`
 - 转换规则：`_snake_to_pascal("arm_joint_traj_sdk_move")` → `ArmJointTrajSdkMove`
-
-

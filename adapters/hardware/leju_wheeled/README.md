@@ -23,7 +23,7 @@
 11. [常见陷阱与注意事项](#11-常见陷阱与注意事项)
 12. [测试与调试](#12-测试与调试)
 13. [变更历史](#13-变更历史)
-14. [TODO / 已知问题](#14-todo--已知问题)
+14. [已知限制](#14-已知限制)
 
 ---
 
@@ -812,32 +812,12 @@ diff <(grep -E '^\s*def ' hardware.py.bak) <(cat mixins/*.py | grep -E '^\s*def 
 
 ---
 
-## 14. TODO / 已知问题
-
-### 🚧 待实现
-
-- [ ] **`send_joint_trajectory`** 当前为占位（保留接口）
-  - 位置：`mixins/arm_control_mixin.py`
-  - 需从原始版本中迁移真实逻辑（如有需要）
-
-- [ ] **`send_base_pose_sdk`** 当前使用速度控制模拟，因为 TimedCmdAPI 不直接支持位姿控制
-  - 位置：`mixins/sdk_control_mixin.py`
-  - 需寻找更合适的底层 API
-
-### ⚠️ 已知限制
+## 14. 已知限制
 
 - **`send_base_pose` 是阻塞调用**：会等待运动完成（可能数秒）。如需非阻塞，使用 `send_timed_base_pose()`
 - **`hardware copy.py`** 保留作为历史参考，但**不会被包导入**
 - **SDK 管理器可选**：若初始化失败，所有 `_sdk` 方法将返回 `Result.fail`，但不影响 ROS 模式工作
 - **手臂归位需要空间**：`arm_reset()` 过程中手臂会自由运动，确保周围 1m 内无障碍物
-
-### 💡 未来改进方向
-
-- [ ] 为每个 Mixin 编写单元测试（pytest）
-- [ ] 引入类型检查（`mypy` strict mode）
-- [ ] 为常用流程添加上下文管理器（如 `with hw.mpc_mode('ArmOnly'): ...`）
-- [ ] 增加性能监控埋点（响应时间、ROS 消息丢失率等）
-- [ ] 删除历史备份文件 `hardware copy.py` 和 `hardware.py.bak`（待稳定后）
 
 ---
 

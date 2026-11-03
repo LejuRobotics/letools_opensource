@@ -39,6 +39,8 @@ class ArmEETimedCmdParams(SkillParams):
     desire_time: float = 3.0  # 每段期望执行时间(秒) — 越大越平滑
     frame: str = "local"       # 'world' 或 'local'
     timeout: float = 120.0
+    prepare_arm_control: bool = True   # 发令前切到手臂外部控制模式 set_arm_control_mode(2)
+    release_arm_control: bool = True   # 执行后释放外部保持 set_arm_control_mode(0)
 
 
 @define_manifest(
@@ -59,6 +61,10 @@ class ArmEETimedCmdParams(SkillParams):
          "description": "每段期望时间(秒), 越大越平滑"},
         {"name": "frame", "type": "string", "default": "local",
          "description": "坐标系: 'world' / 'local'"},
+        {"name": "prepare_arm_control", "type": "bool", "default": "True",
+         "description": "发令前切换到手臂外部控制模式 set_arm_control_mode(2)；关闭则需自行保证已在模式 2"},
+        {"name": "release_arm_control", "type": "bool", "default": "True",
+         "description": "执行完成后释放外部保持 set_arm_control_mode(0)"},
     ],
     inputs=[],
     outputs=[],
@@ -111,6 +117,11 @@ class ArmEETimedCmdSkill(SkillBase):
             return Result.fail(f"Hardware missing {fn_name}()")
 
         try:
+            prepared = self._prepare_arm_control()
+            if not prepared.success:
+                self._done = True
+                return prepared
+
             for i, (lwp, rwp) in enumerate(zip(left_wps, right_wps)):
                 logger.info(
                     "[timed_cmd] waypoint %d/%d: left=%s right=%s time=%.1fs",
@@ -133,9 +144,10 @@ class ArmEETimedCmdSkill(SkillBase):
                 time.sleep(desire_time + 1.0)
 
             # ── 后置: 释放 arm_control_mode=0 ──
-            logger.info("[timed_cmd] 后置: set_arm_control_mode(0) — 保持当前位姿")
-            self.hardware.set_arm_control_mode(0)
-            time.sleep(0.5)
+            released = self._release_arm_control()
+            if not released.success:
+                self._done = True
+                return released
 
         except Exception as e:
             self._done = True
@@ -145,6 +157,42 @@ class ArmEETimedCmdSkill(SkillBase):
         self._done = True
         logger.info("[timed_cmd] ✅ 全部 waypoint 执行完成")
         return Result.ok(f"{len(left_wps)} waypoints via TimedCmd done")
+
+    def _prepare_arm_control(self) -> Result:
+        """发令前切到手臂外部控制模式(2)，不做手臂复位。
+
+        模式未切到 2 时，TimedCmd 会被控制器静默丢弃：服务仍返回成功，
+        但手臂不动。因此这里把切换结果作为发令前提，失败即中止。
+        """
+        if not self.params.prepare_arm_control:
+            return Result.ok()
+
+        fn = getattr(self.hardware, "set_arm_control_mode", None)
+        if fn is None:
+            return Result.fail("Hardware does not implement set_arm_control_mode()")
+
+        result = fn(2)
+        logger.info(
+            "[timed_cmd] 前置: set_arm_control_mode(2) success=%s", result.success)
+        if not result.success:
+            return Result.fail(f"set_arm_control_mode(2) failed: {result.message}")
+        return Result.ok()
+
+    def _release_arm_control(self) -> Result:
+        """执行完成后释放外部保持 arm_control_mode=0，保持当前位姿不复位。"""
+        if not self.params.release_arm_control:
+            return Result.ok()
+
+        fn = getattr(self.hardware, "set_arm_control_mode", None)
+        if fn is None:
+            return Result.fail("Hardware does not implement set_arm_control_mode()")
+
+        logger.info("[timed_cmd] 后置: set_arm_control_mode(0) — 保持当前位姿")
+        result = fn(0)
+        if not result.success:
+            return Result.fail(f"set_arm_control_mode(0) failed: {result.message}")
+        time.sleep(0.5)
+        return Result.ok()
 
     def on_is_finished(self) -> bool:
         return self._done

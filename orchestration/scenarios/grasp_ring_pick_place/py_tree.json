@@ -17,10 +17,7 @@
         "max_episode_steps":       {"value": "${max_episode_steps}",       "source": "INPUT", "data_type": "int"},
         "device":                  {"value": "${device}",                  "source": "INPUT", "data_type": "string"},
         "inference_env":           {"value": "${inference_env}",           "source": "INPUT", "data_type": "string"},
-        "gripper_pre_position":    {"value": "${gripper_pre_position}",    "source": "INPUT", "data_type": "float"},
-        "gripper_close_threshold": {"value": "${gripper_close_threshold}", "source": "INPUT", "data_type": "float"},
-        "gripper_hold_frames":     {"value": "${gripper_hold_frames}",     "source": "INPUT", "data_type": "int"},
-        "post_close_steps":        {"value": "${post_close_steps}",        "source": "INPUT", "data_type": "int"}
+        "gripper_pre_position":    {"value": "${gripper_pre_position}",    "source": "INPUT", "data_type": "float"}
       }, "childs": [], "childBoard": []},
       {"name": "pose_after_grasp.json", "label": "pose_after_grasp", "params": {
         "q_place": {"value": "${q_place}", "source": "INPUT", "data_type": "list"}
@@ -58,9 +55,6 @@
       {"internal_name": "max_episode_steps",     "external_key": "max_episode_steps",     "type": "int"},
       {"internal_name": "device",                "external_key": "device",                "type": "string"},
       {"internal_name": "inference_env",         "external_key": "inference_env",         "type": "string"},
-      {"internal_name": "gripper_close_threshold", "external_key": "gripper_close_threshold", "type": "float"},
-      {"internal_name": "gripper_hold_frames",   "external_key": "gripper_hold_frames",   "type": "int"},
-      {"internal_name": "post_close_steps",      "external_key": "post_close_steps",      "type": "int"},
       {"internal_name": "place_target_x",       "external_key": "place_target_x",       "type": "float"},
       {"internal_name": "place_target_y",       "external_key": "place_target_y",       "type": "float"},
       {"internal_name": "place_target_z",       "external_key": "place_target_z",       "type": "float"},

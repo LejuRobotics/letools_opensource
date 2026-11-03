@@ -18,7 +18,7 @@ if [ -z "${ROS_DISTRO}" ]; then
 fi
 
 # 检查包是否已编译
-EXECUTABLE="devel/lib/kuavo_tf2_web_republisher/kuavo_tf2_web_republisher"
+EXECUTABLE="${SCRIPT_DIR}/devel/lib/kuavo_tf2_web_republisher/kuavo_tf2_web_republisher"
 if [ ! -f "${EXECUTABLE}" ]; then
     echo "错误：未找到编译后的可执行文件"
     echo "请先运行："

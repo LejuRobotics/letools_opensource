@@ -99,6 +99,29 @@ def _load_board_into_blackboard(blackboard_client, board_path: str):
         apply_blackboard_data_from_json(blackboard_client, board_path, use_group_prefix=False)
 
 
+def _discover_runtime_config(explicit_path, board_path):
+    """Find the scenario runtime config, defaulting to board.json when enabled."""
+    if explicit_path:
+        path = os.path.abspath(os.path.expanduser(explicit_path))
+        if not os.path.isfile(path):
+            raise RuntimeError(f"--config 指定的配置不存在: {path}")
+        return path
+
+    env_path = os.environ.get("RING_SIM_CONFIG", "").strip()
+    if env_path:
+        path = os.path.abspath(os.path.expanduser(env_path))
+        if not os.path.isfile(path):
+            raise RuntimeError(f"RING_SIM_CONFIG 指向的配置不存在: {path}")
+        return path
+
+    if board_path and os.path.isfile(board_path):
+        with open(board_path, "r", encoding="utf-8") as f:
+            board = json.load(f)
+        if isinstance(board, dict) and board.get("runtime_config") is True:
+            return os.path.abspath(board_path)
+    return ""
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run orchestration behavior tree from JSON")
     parser.add_argument(
@@ -109,6 +132,11 @@ def main():
     parser.add_argument("--tree", default="", help="主树 py_tree.json 路径")
     parser.add_argument("--subtrees", default="", help="子树集合 py_tree_child.json 路径（可选）")
     parser.add_argument("--board", default="", help="黑板 board.json 路径（可选）")
+    parser.add_argument(
+        "--config",
+        default="",
+        help="可选；圆环场景默认直接使用 board.json 中的运行配置",
+    )
     parser.add_argument(
         "--hardware-config",
         default="",
@@ -195,12 +223,18 @@ def main():
         )
     )
 
+    runtime_config_path = _discover_runtime_config(args.config, board_path)
+    if runtime_config_path:
+        os.environ["RING_SIM_CONFIG"] = runtime_config_path
+
     print("[apps] 启动参数")
     print(f"  - workdir: {os.getcwd()}")
     print(f"  - tree: {tree_path}")
     print(f"  - subtrees: {subtrees_path or '(none)'}")
     print(f"  - board: {board_path or '(none)'}")
     print(f"  - hardware config: {hardware_config_path or '(default)'}")
+    if runtime_config_path:
+        print(f"  - runtime config: {runtime_config_path}")
     logger.info(
         "[apps] 启动参数\n"
         "  - workdir: %s\n"

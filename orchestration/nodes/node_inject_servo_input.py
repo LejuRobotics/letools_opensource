@@ -14,8 +14,7 @@ false`` 把它关掉即可。
 它写的是**真实链路里的那两个键**，所以伺服节点一行都不用改；这就是设计文档
 要的"接缝留好，真机接入时下游代码一行不改"。
 
-输入文件由 ``apps/test_camera_internal/pallet_servo_sim/pick_servo_inputs.py``
-生成。``box`` 是**一条**时只写一次；是**列表**时逐 tick 播放一条、版本号递增
+输入文件由离线取点工具生成（工具不随开源包提供）。``box`` 是**一条**时只写一次；是**列表**时逐 tick 播放一条、版本号递增
 ——这样离线就能看到伺服误差随箱子移动而"实时"变化。
 
 本节点是个**源节点**，所以有东西可写时持续返回 **RUNNING**（`NodePercep` /
@@ -252,8 +251,7 @@ class NodeInjectServoInput(BaseAction):
             payload = json.loads(self._sim_path.read_text(encoding="utf-8"))
         except OSError as exc:
             self._reject(
-                f"读不到模拟输入 {self._sim_path}: {exc} —— 先跑 "
-                f"apps/test_camera_internal/pallet_servo_sim/pick_servo_inputs.py")
+                f"读不到模拟输入 {self._sim_path}: {exc} —— 请先用离线取点工具生成该文件")
             return
         except ValueError as exc:
             # `json.JSONDecodeError` 是 `ValueError`（`UnicodeDecodeError` 也是）：

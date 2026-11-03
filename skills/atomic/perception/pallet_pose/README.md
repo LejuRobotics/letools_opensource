@@ -1,5 +1,8 @@
 # 托盘位姿（AprilTag 反识别）
 
+本文中的相对路径（如 `skills/atomic/perception/pallet_pose/`）
+一律相对 **LeTools 仓库根目录**；各命令需在仓库根目录下执行。
+
 用场景里位置固定的 AprilTag 标定出「Tag ↔ 木托盘」的刚体变换，之后每帧由 Tag 位姿
 反推木托盘位姿。
 
@@ -21,7 +24,6 @@ latest_pallet + _version   供抓取类节点消费
 | `algorithm.py` | 纯函数：标定、反识别、时间窗。**零框架依赖**，可脱离环境回归 |
 | `skill.py` | `PalletPoseSkill`，接进技能层；不接 `hardware` 参数（纯计算）|
 | `orchestration/nodes/node_pallet_pose.py` | 行为树节点：读黑板 tag、写黑板托盘 |
-| `apps/test_camera_internal/pallet_calibration/` | 标定工具（走真机相机 + tkinter 点角点）|
 | `apps/test_kuavo_5w_skills/test_pallet_pose.py` | 算法层回归 + 技能层单测 |
 | `orchestration/nodes/tests/test_node_pallet_pose.py` | 节点单测（进 CI）|
 
@@ -70,19 +72,11 @@ latest_pallet + _version   供抓取类节点消费
 
 # 2. 标定一次
 
-```bash
-python3 apps/test_camera_internal/pallet_calibration/pallet_calibrate.py --help
-```
-
-采 **5 帧**，每帧点一次托盘台面四角，求解后写 `config/pallet_tag.yaml`。
-`--dry-run` 可以只求解、打印自检、不落盘。
+运行前需要完成一次「Tag ↔ 木托盘」标定，结果写入 `config/pallet_tag.yaml`。标定工具不随开源包提供，如需标定请联系维护者。
 
 **标定期间 tag 板和木托盘都不能动**（相机可以动）。标定一次即可；**任一被移动都要重标**。
 
-> ⚠️ **点击顺序必须固定**，工具会用原始点击顺序建系。
-> **仓库里 `pick_pallet_corners.py:14` 那句「点击顺序无所谓」是错的**
-> （`order_quad()` 全仓库零调用点）—— 详见
-> `pallet_servo/NOTES.md` §5。
+> ⚠️ **托盘台面四角的点击顺序必须固定**为 `右下 → 左下 → 左上 → 右上`，算法按原始点击顺序建系。
 
 # 3. 运行前提（**不满足会直接报错**）
 
@@ -93,9 +87,8 @@ python3 apps/test_camera_internal/pallet_calibration/pallet_calibrate.py --help
    要真跑必须改成 `true`。
    （本仓库没有替你改，因为那会影响现场部署行为。）
 2. **`config/apriltag_tags.yaml` 里要有你要用的 tag id 和真实尺寸**。
-   现有条目是 id 1–4 / size 0.06，**和 maduo 用的标签不同**。
+   现有条目是 id 1–4 / size 0.06，使用其他标签时需要改成实际的 id 和尺寸。
    检测器本身支持逐 tag 尺寸。
-3. **标定要有图形界面**（点角点用 tkinter）。
 
 # 4. 快速测试
 
@@ -107,9 +100,7 @@ python3 apps/test_kuavo_5w_skills/test_pallet_pose.py
 pytest orchestration/nodes/tests/test_node_pallet_pose.py -m unit -v
 ```
 
-算法层回归拿的是 maduo 项目导出的**同一份输入**重算、和那边的**同一份输出**逐位
-比对 —— 算法是从那边搬过来的，这是唯一能证明没搬错的手段。fixture 由
-`maduo/export_regression_fixture.py` 生成。
+算法层回归用固定的输入与期望输出（fixture）逐位比对，用于确认算法实现没有偏差。
 
 **在场景里干跑一次**（验证能被工厂按类名解析、黑板键注册成功，不碰硬件）：
 
@@ -208,4 +199,4 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 2. **两条路径的 `x=0` / `x=W` 是反的**：离线点点的参考边写 `["y=0","x=W"]`，
    tag 路径要写 `["y=0","x=0"]` —— 写错了不报错，只是伺服错了边。
 
-**详见 `pallet_servo/NOTES.md` §6**（含三选一的处置方案）。
+

@@ -26,7 +26,7 @@
 
 ## 第一层：Adapter（硬件适配层）
 
-**代码位置**：[adapters/hardware/](adapters/hardware/)
+**代码位置**：[adapters/hardware/](../../../adapters/hardware/)
 
 适配层是整个系统的硬件抽象入口。通过**工厂模式**创建硬件实例：
 
@@ -59,7 +59,7 @@ send_base_pose(x=0.5, y=0, yaw=0, frame=LOCAL)
 
 ## 第二层：Atomic Skill（原子技能层）
 
-**代码位置**：[skills/atomic/refactored_sdk/](skills/atomic/refactored_sdk/)
+**代码位置**：[skills/atomic/refactored_sdk/](../../../skills/atomic/refactored_sdk/)
 
 每个原子技能是对 IHardware 某个方法的**薄封装**，继承自 `SkillBase` → `ISkill`。
 
@@ -77,14 +77,14 @@ is_finished()      → on_is_finished()    # 判别是否完成
 
 | 技能文件 | 技能类 | 调用的 Adapter 方法 | 作用 |
 |---------|--------|-------------------|------|
-| [base_pose_local.py](skills/atomic/refactored_sdk/base_pose_local.py) | `BasePoseLocalSkill` | `hardware.send_base_pose(frame=LOCAL)` | 底盘本体系相对位姿移动 |
-| [arm_joint_traj_sdk.py](skills/atomic/refactored_sdk/arm_joint_traj_sdk.py) | `ArmJointTrajSdkSkill` | `hardware.send_arm_joint_traj_sdk(joint_traj, total_time)` | 14 关节手臂轨迹 |
-| [leg_joint_sdk.py](skills/atomic/refactored_sdk/leg_joint_sdk.py) | `LegJointSdkSkill` | `hardware.send_leg_joint_sdk(joint_angles, total_time)` | 4 关节腿部控制 |
-| [head_control_sdk.py](skills/atomic/refactored_sdk/head_control_sdk.py) | `HeadControlSdkSkill` | `hardware.control_head_sdk(yaw, pitch)` | 头部 2 轴控制 |
-| [arm_reset_sdk.py](skills/atomic/refactored_sdk/arm_reset_sdk.py) | `ArmResetSdkSkill` | `hardware.arm_reset()` | 手臂安全归位 |
-| [torso_reset_sdk.py](skills/atomic/refactored_sdk/torso_reset_sdk.py) | `TorsoResetSdkSkill` | `hardware.reset_torso_to_initial()` | 躯干复位 |
-| [wait_seconds.py](skills/atomic/refactored_sdk/wait_seconds.py) | `WaitSecondsSkill` | `time.sleep()` | 等待指定秒数 |
-| [wait_for_enter.py](skills/atomic/refactored_sdk/wait_for_enter.py) | `WaitForEnterSkill` | `input()` | 等待键盘输入 |
+| [base_pose_local.py](../../../skills/atomic/refactored_sdk/base_pose_local.py) | `BasePoseLocalSkill` | `hardware.send_base_pose(frame=LOCAL)` | 底盘本体系相对位姿移动 |
+| [arm_joint_traj_sdk.py](../../../skills/atomic/refactored_sdk/arm_joint_traj_sdk.py) | `ArmJointTrajSdkSkill` | `hardware.send_arm_joint_traj_sdk(joint_traj, total_time)` | 14 关节手臂轨迹 |
+| [leg_joint_sdk.py](../../../skills/atomic/refactored_sdk/leg_joint_sdk.py) | `LegJointSdkSkill` | `hardware.send_leg_joint_sdk(joint_angles, total_time)` | 4 关节腿部控制 |
+| [head_control_sdk.py](../../../skills/atomic/refactored_sdk/head_control_sdk.py) | `HeadControlSdkSkill` | `hardware.control_head_sdk(yaw, pitch)` | 头部 2 轴控制 |
+| [arm_reset_sdk.py](../../../skills/atomic/refactored_sdk/arm_reset_sdk.py) | `ArmResetSdkSkill` | `hardware.arm_reset()` | 手臂安全归位 |
+| [torso_reset_sdk.py](../../../skills/atomic/refactored_sdk/torso_reset_sdk.py) | `TorsoResetSdkSkill` | `hardware.reset_torso_to_initial()` | 躯干复位 |
+| [wait_seconds.py](../../../skills/atomic/refactored_sdk/wait_seconds.py) | `WaitSecondsSkill` | `time.sleep()` | 等待指定秒数 |
+| [wait_for_enter.py](../../../skills/atomic/refactored_sdk/wait_for_enter.py) | `WaitForEnterSkill` | `input()` | 等待键盘输入 |
 
 ### 技能实现示例：ArmJointTrajSdkSkill
 
@@ -114,7 +114,7 @@ class ArmJointTrajSdkSkill(SkillBase):
 
 ## 第三层：Atomic Node（原子节点层）
 
-**代码位置**：[orchestration/nodes/](orchestration/nodes/)
+**代码位置**：[orchestration/nodes/](../../../orchestration/nodes/)
 
 每个原子节点是 `py_trees.behaviour.Behaviour` 的子类（通过 `BaseAction`），负责将技能接入行为树引擎。
 
@@ -191,14 +191,14 @@ class BasePoseLocalMove(BaseAction):
 
 | 节点类 | 文件 | 对应技能 |
 |--------|------|---------|
-| `BasePoseLocalMove` | [base_pose_local_move.py](orchestration/nodes/base_pose_local_move.py) | `BasePoseLocalSkill` |
-| `ArmJointTrajSdkMove` | [arm_joint_traj_sdk_move.py](orchestration/nodes/arm_joint_traj_sdk_move.py) | `ArmJointTrajSdkSkill` |
-| `LegJointSdkMove` | [leg_joint_sdk_move.py](orchestration/nodes/leg_joint_sdk_move.py) | `LegJointSdkSkill` |
-| `HeadControlSdkMove` | [head_control_sdk_move.py](orchestration/nodes/head_control_sdk_move.py) | `HeadControlSdkSkill` |
-| `ArmResetSdkMove` | [arm_reset_sdk_move.py](orchestration/nodes/arm_reset_sdk_move.py) | `ArmResetSdkSkill` |
-| `TorsoResetSdkMove` | [torso_reset_sdk_move.py](orchestration/nodes/torso_reset_sdk_move.py) | `TorsoResetSdkSkill` |
-| `WaitSeconds` | [wait_seconds.py](orchestration/nodes/wait_seconds.py) | `WaitSecondsSkill` |
-| `WaitForEnter` | [wait_for_enter.py](orchestration/nodes/wait_for_enter.py) | `WaitForEnterSkill` |
+| `BasePoseLocalMove` | [base_pose_local_move.py](../../../orchestration/nodes/base_pose_local_move.py) | `BasePoseLocalSkill` |
+| `ArmJointTrajSdkMove` | [arm_joint_traj_sdk_move.py](../../../orchestration/nodes/arm_joint_traj_sdk_move.py) | `ArmJointTrajSdkSkill` |
+| `LegJointSdkMove` | [leg_joint_sdk_move.py](../../../orchestration/nodes/leg_joint_sdk_move.py) | `LegJointSdkSkill` |
+| `HeadControlSdkMove` | [head_control_sdk_move.py](../../../orchestration/nodes/head_control_sdk_move.py) | `HeadControlSdkSkill` |
+| `ArmResetSdkMove` | [arm_reset_sdk_move.py](../../../orchestration/nodes/arm_reset_sdk_move.py) | `ArmResetSdkSkill` |
+| `TorsoResetSdkMove` | [torso_reset_sdk_move.py](../../../orchestration/nodes/torso_reset_sdk_move.py) | `TorsoResetSdkSkill` |
+| `WaitSeconds` | [wait_seconds.py](../../../orchestration/nodes/wait_seconds.py) | `WaitSecondsSkill` |
+| `WaitForEnter` | [wait_for_enter.py](../../../orchestration/nodes/wait_for_enter.py) | `WaitForEnterSkill` |
 
 ### 节点 — 技能 — 适配器调用关系
 

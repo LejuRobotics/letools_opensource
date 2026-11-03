@@ -1,0 +1,206 @@
+{
+  "tree": {
+    "name": "Sequence",
+    "label": "four_head_arm_torso_phases",
+    "params": {
+      "memory": {
+        "value": "True",
+        "source": "CUSTOM",
+        "data_type": "string"
+      }
+    },
+    "childs": [
+      {
+        "name": "Parallel",
+        "label": "phase_1_home",
+        "params": {
+          "policy": {
+            "value": "success_on_all",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [
+          {
+            "name": "HeadControlSdkMove",
+            "label": "head_center",
+            "params": {
+              "yaw_deg": {
+                "source": "READ_BOARD",
+                "board_key": "head_center_yaw_deg"
+              },
+              "pitch_deg": {
+                "source": "READ_BOARD",
+                "board_key": "head_center_pitch_deg"
+              }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "MultiTimedCommandMove",
+            "label": "arm_and_torso_home",
+            "params": {
+              "commands": {
+                "source": "READ_BOARD",
+                "board_key": "home_commands"
+              },
+              "desire_time": {
+                "source": "READ_BOARD",
+                "board_key": "motion_duration_sec"
+              }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ],
+        "childBoard": []
+      },
+      {
+        "name": "Parallel",
+        "label": "phase_2_turn_left",
+        "params": {
+          "policy": {
+            "value": "success_on_all",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [
+          {
+            "name": "HeadControlSdkMove",
+            "label": "head_left",
+            "params": {
+              "yaw_deg": {
+                "source": "READ_BOARD",
+                "board_key": "head_left_yaw_deg"
+              },
+              "pitch_deg": {
+                "source": "READ_BOARD",
+                "board_key": "head_center_pitch_deg"
+              }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "MultiTimedCommandMove",
+            "label": "arm_and_torso_left",
+            "params": {
+              "commands": {
+                "source": "READ_BOARD",
+                "board_key": "forward_and_left_commands"
+              },
+              "desire_time": {
+                "source": "READ_BOARD",
+                "board_key": "motion_duration_sec"
+              }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ],
+        "childBoard": []
+      },
+      {
+        "name": "Parallel",
+        "label": "phase_3_turn_right",
+        "params": {
+          "policy": {
+            "value": "success_on_all",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [
+          {
+            "name": "HeadControlSdkMove",
+            "label": "head_right",
+            "params": {
+              "yaw_deg": {
+                "source": "READ_BOARD",
+                "board_key": "head_right_yaw_deg"
+              },
+              "pitch_deg": {
+                "source": "READ_BOARD",
+                "board_key": "head_center_pitch_deg"
+              }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "MultiTimedCommandMove",
+            "label": "arm_and_torso_right",
+            "params": {
+              "commands": {
+                "source": "READ_BOARD",
+                "board_key": "forward_and_right_commands"
+              },
+              "desire_time": {
+                "source": "READ_BOARD",
+                "board_key": "motion_duration_sec"
+              }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ],
+        "childBoard": []
+      },
+      {
+        "name": "Parallel",
+        "label": "phase_4_return_home",
+        "params": {
+          "policy": {
+            "value": "success_on_all",
+            "source": "CUSTOM",
+            "data_type": "string"
+          }
+        },
+        "childs": [
+          {
+            "name": "HeadControlSdkMove",
+            "label": "head_return_center",
+            "params": {
+              "yaw_deg": {
+                "source": "READ_BOARD",
+                "board_key": "head_center_yaw_deg"
+              },
+              "pitch_deg": {
+                "source": "READ_BOARD",
+                "board_key": "head_center_pitch_deg"
+              }
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "MultiTimedCommandMove",
+            "label": "arm_and_torso_return_home",
+            "params": {
+              "commands": {
+                "source": "READ_BOARD",
+                "board_key": "home_commands"
+              },
+              "desire_time": {
+                "source": "READ_BOARD",
+                "board_key": "motion_duration_sec"
+              }
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ],
+        "childBoard": []
+      }
+    ],
+    "childBoard": []
+  },
+  "interface": {
+    "inputs": [],
+    "outputs": [],
+    "custom": [],
+    "process": []
+  }
+}

@@ -5,7 +5,8 @@
 import ROS** —— 那是分层硬约束。但"从 TF 查法向"这件事本质上要 ROS，所以它落在
 这里，紧挨着调用它的节点。
 
-    normal_from_tf(buf, target_frame, source_frame, stamp, missing)  ->  (3,) | None
+    normal_from_tf(buf, target_frame, source_frame, stamp, missing, stale)
+                                                              ->  (3,) | None
 
 ⚠️ **`CHAIN` 与 maduo 的 `tools/tf_normal_from_bag.py` 共用同一份定义**
 （那条链 13 段，那边用来从 bag 离线查、这边在线查）。改链时**两边都要改**。
@@ -13,6 +14,11 @@ import ROS** —— 那是分层硬约束。但"从 TF 查法向"这件事本质
 ⚠️ **缺任何一段都返回 `None`，绝不静默返回单位阵** —— 单位阵 = 法向竖直向下，
 而检测**不会崩、不会报错**，只是换个 score 继续算。调用方据此**不发布**并给出
 明确报错。理由见 `pallet_detect/README.md` §3 第 1 条。
+
+⚠️ **整条链按时刻查，不逐段混时刻。** 先按图像 `stamp` 把 13 段**整条**拼一遍；
+只要有一段缺，就**整条**退回最新值（`Time(0)`）再拼一遍。逐段各自"缺了就取最新"
+会把不同时刻的关节/头部位姿拼进同一个变换，在机器人运动时是一个静默的几何错。
+退回最新值时通过 `stale` 把原始 `stamp` 交出去，调用方必须把它写进日志/心跳。
 """
 from __future__ import annotations
 
@@ -22,7 +28,8 @@ from skills.atomic.perception.pallet_detect.payload import CHAIN  # noqa: F401
 
 
 def normal_from_tf(buf, target_frame: str, source_frame: str = 'base_link',
-                   stamp=None, missing: list | None = None) -> np.ndarray | None:
+                   stamp=None, missing: list | None = None,
+                   stale: list | None = None) -> np.ndarray | None:
     """从 TF 查 `source_frame` 的 +z 在 `target_frame`（相机系）里的方向（= 台面法向先验）。
 
     逐段查 `tools/tf_normal_from_bag.CHAIN`（13 段），拼出 `T_source_target`。
@@ -33,23 +40,36 @@ def normal_from_tf(buf, target_frame: str, source_frame: str = 'base_link',
     detect 单独对法向极其敏感，错 5° 就是 ~180mm（见模块 docstring；
     但 refine 的平面拟合能修回来，前提是 `plane=True`）。
 
+    ⚠️ **过期 TF 的宽容只在这里做一次，而且整条链一起退。** 先按 `stamp` 拼
+    完整 13 段；任一段缺就**整条**按 `Time(0)`（最新值）重拼。绝不逐段混用
+    不同时刻 —— 那样拼出来的 `T_base_cam` 不对应任何一个真实时刻，机器人运动时
+    是一个静默的几何错。退回最新值时把**原始 `stamp`** append 到 `stale`
+    （调用方用它写日志/心跳）。`stamp=None` 只查最新值，不算 stale。
+
     ⚠️ 相机系是**光学系**（+x 右 +y 下 +z 前），所以：
         up_in_camera = T_base_camera[:3, :3].T @ [0, 0, 1]
 
     `missing`：给一个 list 时，缺的那一段 `(parent, child)` 会被 append 进去
     （调用方要拿它写日志/`rejects`）。**这是唯一的副作用，不影响返回值。**
+    `stale`：给一个 list 时，发生"整条链退回最新值"会把原始 `stamp` append
+    进去。**这是唯一的副作用。**
     """
     # ⚠️ 这里**不** `import tf2_ros`：本函数只用 `buf` 的 `lookup_transform` 接口，
     # 不依赖 tf2_ros 这个模块本身。加上那个 import 会让它**没有 ROS 就 import 不了**，
     # 而它是纯函数、单元测试要用假 buffer 直接调（`test_pallet_detection_node.py`）。
-    T = np.eye(4, dtype=np.float64)
-    for parent, child in CHAIN:
-        edge = _lookup_edge(buf, parent, child, stamp)
-        if edge is None:
-            if missing is not None:
-                missing.append((parent, child))
-            return None
-        T = T @ edge
+    T = _compose_chain(buf, 0.0 if stamp is None else stamp)
+    if T is None and stamp is not None:
+        # ★ **整条链**退回最新值，不是逐段退。`Time(0)` 是 tf2 的"最新值"约定。
+        latest_missing: list = []
+        T = _compose_chain(buf, 0.0, missing=latest_missing)
+        if T is not None:
+            if stale is not None:
+                stale.append(float(stamp))
+        elif missing is not None:
+            # 两遍都失败：报**最新值**那遍缺的边（这才是"现在缺什么"）。
+            missing.extend(latest_missing)
+    if T is None:
+        return None
     up = T[:3, :3].T @ np.array([0.0, 0.0, 1.0])
     norm = float(np.linalg.norm(up))
     if not np.isfinite(norm) or norm < 1e-9:
@@ -60,12 +80,15 @@ def normal_from_tf(buf, target_frame: str, source_frame: str = 'base_link',
 
 
 def camera_origin_from_tf(buf, target_frame: str, source_frame: str = 'base_link',
-                          stamp=None, missing: list | None = None):
+                          stamp=None, missing: list | None = None,
+                          stale: list | None = None):
     """`source_frame`（相机光学系）原点在 `target_frame`（base_link）里的位置，**米**。
 
     返回 `(3,) | None`。**与 `normal_from_tf` 走同一条 `CHAIN`**，只是取的是平移
     而不是旋转 —— 两者拼的是同一个 `T_base_cam`，所以这里再走一遍只是为了避免
     把两个返回值捆成一个接口（调用方经常只要法向）。
+
+    TF 的取法、过期宽容与 `missing` / `stale` 语义**与 `normal_from_tf` 完全一致**。
 
     ⚠️ **用来把"沿法向的相对高度"换算成"base_link 的绝对高度"**：
     某个点在相机系是 `P`（米），它沿法向的高度是 `h = P·n`，而它在 base_link 的
@@ -80,14 +103,17 @@ def camera_origin_from_tf(buf, target_frame: str, source_frame: str = 'base_link
 
     ⚠️ 缺任何一段都返回 `None`，与 `normal_from_tf` 同一条规矩。
     """
-    T = np.eye(4, dtype=np.float64)
-    for parent, child in CHAIN:
-        edge = _lookup_edge(buf, parent, child, stamp)
-        if edge is None:
-            if missing is not None:
-                missing.append((parent, child))
-            return None
-        T = T @ edge
+    T = _compose_chain(buf, 0.0 if stamp is None else stamp)
+    if T is None and stamp is not None:
+        latest_missing: list = []
+        T = _compose_chain(buf, 0.0, missing=latest_missing)
+        if T is not None:
+            if stale is not None:
+                stale.append(float(stamp))
+        elif missing is not None:
+            missing.extend(latest_missing)
+    if T is None:
+        return None
     t = np.asarray(T[:3, 3], dtype=np.float64)
     if not np.all(np.isfinite(t)):
         if missing is not None:
@@ -96,26 +122,40 @@ def camera_origin_from_tf(buf, target_frame: str, source_frame: str = 'base_link
     return t
 
 
-def _lookup_edge(buf, parent: str, child: str, stamp):
-    """查一段 `T_parent_child`（4x4）。查不到返回 None。
+def _compose_chain(buf, stamp, missing: list | None = None):
+    """在**单一时刻**拼完 13 段；任一段缺就返回 None（不做逐段时间回退）。
 
-    先按 `stamp` 查（动态 TF 必须按时刻查，否则拿到的是"现在"的那一段，
-    与图像帧对不上）；查不到再退回"最新值"（`Time(0)` —— tf2 的约定，见
-    `Buffer.lookup_transform` 的 docstring：*0 will get the latest*）。
-    仍查不到再试一次反方向（TF 里只登记了一个方向是常事）—— 与
-    `tf_normal_from_bag.lookup` 同一条规矩：**缺边返回 None，不静默造一个**。
+    `stamp` 用 0 表示 tf2 的"最新值"。缺边时把 `(parent, child)` 写进 `missing`
+    （给了才写）。
     """
-    candidates = ((parent, child), (child, parent))
-    for stamp_try in ([stamp, 0.0] if stamp is not None else [0.0]):
-        for target, source in candidates:
-            try:
-                tr = buf.lookup_transform(target, source, _ros_time(stamp_try))
-            except Exception:                        # noqa: BLE001
-                continue
-            E = _transform_to_matrix(tr)
-            if E is None:
-                continue
-            return E if (target, source) == (parent, child) else np.linalg.inv(E)
+    T = np.eye(4, dtype=np.float64)
+    for parent, child in CHAIN:
+        edge = _lookup_edge(buf, parent, child, stamp)
+        if edge is None:
+            if missing is not None:
+                missing.append((parent, child))
+            return None
+        T = T @ edge
+    return T
+
+
+def _lookup_edge(buf, parent: str, child: str, stamp):
+    """查一段 `T_parent_child`（4x4），**只查给定的这一个时刻**。查不到返回 None。
+
+    时间回退由 `_compose_chain` 的调用方在**整条链**上做（见 `normal_from_tf` 的
+    docstring）：这里只负责"这个时刻、这一段，有没有"。反方向也试一次（TF 里
+    只登记了一个方向是常事）—— 与 `tf_normal_from_bag.lookup` 同一条规矩：
+    **缺边返回 None，不静默造一个**。
+    """
+    for target, source in ((parent, child), (child, parent)):
+        try:
+            tr = buf.lookup_transform(target, source, _ros_time(stamp))
+        except Exception:                          # noqa: BLE001
+            continue
+        E = _transform_to_matrix(tr)
+        if E is None:
+            continue
+        return E if (target, source) == (parent, child) else np.linalg.inv(E)
     return None
 
 

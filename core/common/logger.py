@@ -2,7 +2,9 @@
 import logging
 import logging.handlers
 import os
+import re
 import sys
+import time
 import uuid
 import threading
 from pathlib import Path
@@ -216,6 +218,150 @@ class _ConsoleNoiseFilter(logging.Filter):
         return True
 
 
+_ROLL_RE = re.compile(r'^(.*)_p(\d+)$')
+
+
+def _next_rolled_path(current: Path) -> Path:
+    """当前日志文件写满之后，**下一个**叫什么。
+
+    规则是「同目录、同前缀、`_pNN` 序号 +1」：
+
+        LeTools_20261015_143012.log          -> ..._143012_p02.log
+        LeTools_pallet_20261015_1430.log     -> ..._1430_p02.log
+        LeTools_pallet_20261015_1430_p02.log -> ..._1430_p03.log
+
+    ⚠️ 分隔符必须是 `_p` 而**不能是**裸的下划线数字：基础名本身就以时间戳结尾
+    （`..._143012`），拿 `_\\d+$` 去认序号会认到**时间戳的最后一段**上，于是下一个
+    文件叫 `..._143013.log` —— 看起来像个新时间戳，实际是撞车。（这里是写测试时
+    验算出来才改的。）
+
+    ⚠️ **故意不看"文件是否已存在"**，只按序号递增。这样**多个进程会收敛到同一个
+    新文件**上（各自都从 `_p02` 开始往后走），而不是各开各的；单进程时也自然地
+    一路 `_p02`/`_p03` 下去。改成"找不存在的下一个"反而会让先跨过阈值的那个进程
+    把别人推去 `_p03`，文件越分越散。
+    """
+    current = Path(current)
+    stem = current.stem
+    ext = current.suffix or '.log'
+    m = _ROLL_RE.match(stem)
+    if m:
+        head, n = m.group(1), int(m.group(2))
+    else:
+        head, n = stem, 1
+    return current.parent / f'{head}_p{n + 1:02d}{ext}'
+
+
+class SizeCappedNewFileHandler(logging.FileHandler):
+    """写满 `max_bytes` 就**关掉当前文件、换一个新名字继续写**。
+
+    与 `logging.handlers.RotatingFileHandler` 的区别是**不改名、不删**：
+    RotatingFileHandler 的语义是把当前文件改成 `.1`/`.2`…、并在 `backupCount`
+    到点时**删掉最旧的一份**；这里要的是"满了另开一个"，旧文件原样留着，
+    删除交给按天清理（`purge_old_logs`）。
+
+    ⚠️ **多进程可以共用同一个文件**（`LETOOLS_LOG_FILE`）：所有进程都以 append
+    打开，Linux 的 `O_APPEND` 保证每次 `write` 都落到文件末尾、不会互相覆盖。
+    但**换文件是各自判断的** —— 三个进程未必在同一时刻跨过阈值，所以目录里可能
+    出现多个文件。新名字按「当前序号 +1」算（见 `_next_rolled_path`），
+    所以它们会**往同一个新文件上收敛**，时间线仍然是连着的。
+
+    ⚠️ 文件大小用 `os.path.getsize` 量，**不用 `stream.tell()`** —— 多进程追加时，
+    别人写进去的那部分自己的流位置看不见。每次 `emit` 都 stat 在高频日志下太贵，
+    所以每 `_CHECK_EVERY` 条查一次（阈值 50MB 时这点误差无所谓）。
+    """
+
+    _CHECK_EVERY = 100
+
+    def __init__(self, path, max_bytes: int, mode: str = 'a',
+                 encoding: str = 'utf-8'):
+        self._max_bytes = int(max_bytes)
+        self._since_check = 0
+        self._switches = 0
+        super().__init__(str(path), mode=mode, encoding=encoding, delay=False)
+
+    def emit(self, record):
+        if self._max_bytes > 0:
+            self._since_check += 1
+            if self._since_check >= self._CHECK_EVERY:
+                self._since_check = 0
+                try:
+                    if os.path.getsize(self.baseFilename) >= self._max_bytes:
+                        self._switch()
+                except OSError:
+                    pass                      # 量不到就不换，别把日志搞丢
+        super().emit(record)
+
+    def _switch(self):
+        """换到下一个文件。**不调 `Handler.close()`** —— 那会把 handler 从
+        logging 的注册表里摘掉，之后写不进任何东西。这里只换流。"""
+        self.acquire()
+        try:
+            self.flush()
+            if self.stream is not None:
+                self.stream.close()
+            self.baseFilename = os.path.abspath(
+                str(_next_rolled_path(Path(self.baseFilename))))
+            self.stream = self._open()
+            self._switches += 1
+        finally:
+            self.release()
+
+    @property
+    def switches(self) -> int:
+        """已经换过几次文件（测试与排查用）。"""
+        return self._switches
+
+
+def _make_file_handler(path, max_bytes: int, backup_count: int,
+                       new_file_mode: bool):
+    """建主/错误日志的文件 handler。
+
+    `new_file_mode` 用 `SizeCappedNewFileHandler`（满了**另开新文件**），
+    否则维持改动前的 `RotatingFileHandler`（改名 `.1/.2`，保留 `backup_count` 份）。
+
+    抽成函数是因为**两处必须同款** —— 只改主日志的话，错误日志会悄悄退回
+    改名轮转，排查时看到的文件结构对不上。
+    """
+    if new_file_mode:
+        return SizeCappedNewFileHandler(path, max_bytes)
+    return logging.handlers.RotatingFileHandler(
+        path, maxBytes=max_bytes, backupCount=backup_count, encoding='utf-8')
+
+
+def purge_old_logs(log_dir, days: float = 3.0, pattern: str = '*.log') -> int:
+    """删掉 `log_dir` 下 mtime 早于 `now - days*86400` 的日志，返回删除个数。
+
+    ⚠️ **只 `glob(pattern)`（默认 `*.log`），不递归** —— `log/` 下还有
+    `pallet_servo_dump/` 这类结构性目录（帧 dump 的 JSON），不能被顺手删掉。
+
+    ⚠️ 用**文件系统 mtime** 判断，**不解析文件名里的时间戳**：命名格式改过好几次
+    （`kuavo_studio_*` → `LeTools_*`），解析必然漏。
+
+    删不掉（权限 / 竞态）时**静默跳过**：清理失败不该拖垮进程启动。
+    """
+    cutoff = time.time() - float(days) * 86400.0
+    removed = 0
+    for p in Path(log_dir).glob(pattern):
+        try:
+            if p.is_file() and p.stat().st_mtime < cutoff:
+                p.unlink()
+                removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def _env_int(name: str) -> Optional[int]:
+    """读一个整数环境变量；没设 / 认不出来 -> None（让调用方回退）。"""
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == '':
+        return None
+    try:
+        return int(float(str(raw).strip()))
+    except ValueError:
+        return None
+
+
 def init_logging(
     log_dir: str = None,
     level: str = None,
@@ -225,11 +371,15 @@ def init_logging(
     console_output: bool = None,
     file_output: bool = None,
     config_path: str = None,
-    force: bool = False
+    force: bool = False,
+    log_tag: str = None,
+    log_file: str = None,
+    purge_days: float = None,
+    rollover: str = None
 ) -> None:
     """
     初始化统一日志系统
-    
+
     :param log_dir: 日志目录路径（如果为 None，则从配置文件读取）
     :param level: 日志级别 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     :param log_format: 日志格式 (simple, detailed, json)
@@ -240,27 +390,78 @@ def init_logging(
     :param config_path: 配置文件路径（如果为 None，使用默认路径）
     :param force: 已初始化时是否强制重新配置。rospy.init_node() 会重装 root 上的
                   handler，调用方需在其后用 force=True 重新收敛日志配置。
+    :param log_tag: 文件名里的角色标记，`_pallet` -> `LeTools_pallet_<ts>.log`。
+                    多个进程各写各的文件时用它一眼区分是谁写的。
+    :param log_file: **直接指定主日志文件的完整路径**。一键启动脚本用它让
+                    托盘检测 / 纸箱检测 / 行为树**三个进程写同一个文件**（都以
+                    append 打开，O_APPEND 保证不互相覆盖）。
+    :param purge_days: 启动时清理多少天前的旧日志（`None` = 不清）。
+    :param rollover: `'rotate'`（默认，按 `max_bytes` 改名轮转、保留 `backup_count`
+                     份）或 `'new_file'`（写满就**另开一个新文件**，不改名不删）。
+
+    ## 环境变量（**参数 > 环境变量 > 配置文件 > 默认**）
+
+    解析顺序刻意让**显式参数优先**：单元测试会传 `log_dir=tmp_path`，环境变量
+    不该把它顶掉。一键启动脚本走的是"不传参数、只设环境变量"那条路，两者不冲突。
+
+    | 变量 | 作用 |
+    |---|---|
+    | `LETOOLS_LOG_DIR` | 日志目录（默认取配置里的 `log`） |
+    | `LETOOLS_LOG_FILE` | 主日志文件全路径（设了就**共用这一个文件**） |
+    | `LETOOLS_LOG_TAG` | 文件名角色标记（没给 `LOG_FILE` 时生效） |
+    | `LETOOLS_LOG_MAX_BYTES` | 单文件上限（默认 10MB；托盘那套用 50MB） |
+    | `LETOOLS_LOG_PURGE_DAYS` | 启动清理几天前的日志（不设 = 不清） |
+    | `LETOOLS_LOG_ROLLOVER` | `new_file` 才换新文件，否则维持原轮转 |
+
+    ⚠️ **不设这些变量时行为与改动前完全一致** —— 其它场景（studio / 导航 / 抓取）
+    的日志路径、轮转、保留份数一个字节都不变。
     """
     global _log_dir, _initialized, _active_log_file, _active_error_log_file
-    
+
     if _initialized and not force:
         return
-    
+
     # 从配置文件加载默认值
     config = _load_log_config(config_path)
-    
+
     # 使用传入参数或配置文件中的值
-    log_dir = log_dir or config.get('log_dir', 'log')
+    # ⚠️ 顺序是 **参数 > 环境变量 > 配置文件 > 默认**（见 docstring）
+    log_dir = (log_dir or os.environ.get('LETOOLS_LOG_DIR')
+               or config.get('log_dir', 'log'))
     level = level or config.get('level', 'INFO')
     log_format = log_format or config.get('format', 'detailed')
-    max_bytes = max_bytes or config.get('max_bytes', 10 * 1024 * 1024)
+    max_bytes = (max_bytes or _env_int('LETOOLS_LOG_MAX_BYTES')
+                 or config.get('max_bytes', 10 * 1024 * 1024))
     backup_count = backup_count if backup_count is not None else config.get('backup_count', 5)
     console_output = console_output if console_output is not None else config.get('console_output', True)
     file_output = file_output if file_output is not None else config.get('file_output', True)
-    
+    log_tag = (log_tag if log_tag is not None
+               else os.environ.get('LETOOLS_LOG_TAG', ''))
+    log_file = log_file or os.environ.get('LETOOLS_LOG_FILE') or None
+    if purge_days is None:
+        purge_days = _env_int('LETOOLS_LOG_PURGE_DAYS')
+    rollover = (rollover or os.environ.get('LETOOLS_LOG_ROLLOVER', 'rotate') or 'rotate')
+    new_file_mode = str(rollover).strip().lower() in ('new_file', 'newfile', 'new')
+
     # 设置日志目录
     _log_dir = Path(log_dir)
     _log_dir.mkdir(parents=True, exist_ok=True)
+
+    # 显式指定的共用日志文件，**它自己的目录也要建**。
+    # 一键启动脚本给的是 `log/pallet_log/pallet_<ts>.log`，而 `log/pallet_log/`
+    # 在首次部署时并不存在 —— 不建的话 handler 会在 `open()` 处
+    # `FileNotFoundError`，**节点直接起不来**（这台机器上不明显，实机上就是
+    # "托盘检测没起来"，且日志一个字都没有）。
+    if log_file:
+        Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+
+    # 按天清理旧日志。**默认不清**（purge_days=None），只有显式要求才动手 ——
+    # 其它场景的目录里可能躺着别的东西，不能"顺手"删。
+    if purge_days and float(purge_days) > 0:
+        removed = purge_old_logs(_log_dir, float(purge_days))
+        if removed:
+            print(f"purged {removed} log file(s) older than {purge_days}d "
+                  f"in {_log_dir}")
 
     # 在创建 Formatter 之前确定 Trace ID（Formatter 通过 %(trace_id)s 读取它）
     if _trace_id == 'N/A':
@@ -312,21 +513,27 @@ def init_logging(
         console_handler.addFilter(_ConsoleNoiseFilter(root_logger.level > logging.DEBUG))
         root_logger.addHandler(console_handler)
     
-    # 文件处理器（按大小轮转）
+    # 文件处理器
     if file_output:
         # 创建相对路径过滤器（基于当前工作目录）
         rel_path_filter = RelativePathFilter(Path.cwd())
-        
+
+        # `shared` = 主日志文件是**外部显式指定的**（一键脚本让多进程共用一个文件）。
+        # ⚠️ **必须在下面 `log_file` 被覆盖成"实际路径"之前记下来** —— 那个名字
+        # 紧接着会被复用（`log_file = _active_log_file`），之后再判 `if log_file:`
+        # 永远为真，`LeTools_error_*.log` 的命名约定就悄悄没了。
+        shared = bool(log_file)
+
         # 主日志文件（精确到秒，避免覆盖；重新配置时复用已打开的文件）
         if _active_log_file is None:
-            _active_log_file = _log_dir / f"LeTools_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            if shared:
+                _active_log_file = Path(log_file)
+            else:
+                _active_log_file = _log_dir / (
+                    f"LeTools{log_tag}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
         log_file = _active_log_file
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=max_bytes,
-            backupCount=backup_count,
-            encoding='utf-8'
-        )
+        file_handler = _make_file_handler(
+            log_file, max_bytes, backup_count, new_file_mode)
         # 文件日志使用详细格式（含文件和行号，便于问题定位）
         file_fmt = file_formatter if log_format == 'detailed' else formatter
         file_handler.setFormatter(file_fmt)
@@ -334,17 +541,22 @@ def init_logging(
         file_handler.addFilter(TraceIdFilter())  # 注入 Trace ID
         file_handler.setLevel(getattr(logging, level.upper(), logging.INFO))
         root_logger.addHandler(file_handler)
-        
+
         # 错误日志文件（精确到秒，避免覆盖；重新配置时复用已打开的文件）
         if _active_error_log_file is None:
-            _active_error_log_file = _log_dir / f"LeTools_error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            if shared:                       # 判据用 `shared`，不能用 `log_file`（见上）
+                # 与主日志**同一个共用文件**的情形：错误日志也按同一个基准名走，
+                # 否则三个进程会各按自己的 tag+时间戳另起一个错误文件，
+                # "一个目录看全"就散成了 1 个主文件 + N 个错误文件。
+                _p = Path(log_file)
+                _active_error_log_file = _p.with_name(
+                    f"{_p.stem}_error{_p.suffix or '.log'}")
+            else:
+                _active_error_log_file = _log_dir / (
+                    f"LeTools{log_tag}_error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
         error_log_file = _active_error_log_file
-        error_handler = logging.handlers.RotatingFileHandler(
-            error_log_file,
-            maxBytes=max_bytes,
-            backupCount=backup_count,
-            encoding='utf-8'
-        )
+        error_handler = _make_file_handler(
+            error_log_file, max_bytes, backup_count, new_file_mode)
         error_formatter = logging.Formatter(
             '[%(asctime)s] [TRACE:%(trace_id)s] [%(levelname)s] [%(rel_path)s:%(lineno)d] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'

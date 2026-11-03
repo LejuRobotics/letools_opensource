@@ -348,9 +348,9 @@ class TestArmEEWorld(unittest.TestCase):
 
 ## 🔗 相关文档
 
-- **接口文档**: [Kuavo 5-W 接口使用文档.md](../../../kuavo-ros-opensource/docs/4开发接口/Kuavo%205-W%20接口使用文档.md)
+- **接口文档**: [Kuavo 5-W 接口使用文档.md](https://gitcode.com/OpenLET/kuavo-ros-opensource/blob/master/docs/4开发接口/Kuavo%205-W%20接口使用文档.md)
 - **适配器实现**: [hardware.py](../../adapters/hardware/leju_wheeled/hardware.py)
-- **底层测试**: [test_kuavo_wheel_real](../../../kuavo-ros-opensource/src/demo/test_kuavo_wheel_real/)
+- **底层测试**: [test_kuavo_wheel_real](https://gitcode.com/OpenLET/kuavo-ros-opensource/tree/master/src/demo/test_kuavo_wheel_real)
 
 ---
 

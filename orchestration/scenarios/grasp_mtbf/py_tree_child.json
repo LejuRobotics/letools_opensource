@@ -1,0 +1,126 @@
+{
+  "pick_one.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "pick_one",
+      "params": {"memory": {"source": "CUSTOM", "data_type": "bool", "value": true}},
+      "childs": [
+        {
+          "name": "MultiTimedCommandMove",
+          "label": "move_to_pick_align",
+          "params": {
+            "commands": {"source": "READ_BOARD", "data_type": "json", "board_key": "pick_align"},
+            "desire_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "pick_align_duration"},
+            "focus_ee": {"source": "READ_BOARD", "data_type": "bool", "board_key": "focus_ee"},
+            "is_sync": {"source": "READ_BOARD", "data_type": "bool", "board_key": "is_sync"},
+            "settle_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "motion_settle_time"}
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "MultiTimedCommandMove",
+          "label": "move_to_pick_approach",
+          "params": {
+            "commands": {"source": "READ_BOARD", "data_type": "json", "board_key": "pick_approach"},
+            "desire_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "pick_approach_duration"},
+            "focus_ee": {"source": "READ_BOARD", "data_type": "bool", "board_key": "focus_ee"},
+            "is_sync": {"source": "READ_BOARD", "data_type": "bool", "board_key": "is_sync"},
+            "settle_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "motion_settle_time"}
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "MultiTimedCommandMove",
+          "label": "move_to_pick",
+          "params": {
+            "commands": {"source": "READ_BOARD", "data_type": "json", "board_key": "pick"},
+            "desire_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "pick_duration"},
+            "focus_ee": {"source": "READ_BOARD", "data_type": "bool", "board_key": "focus_ee"},
+            "is_sync": {"source": "READ_BOARD", "data_type": "bool", "board_key": "is_sync"},
+            "settle_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "motion_settle_time"}
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "MultiTimedCommandMove",
+          "label": "move_to_pick_lift",
+          "params": {
+            "commands": {"source": "READ_BOARD", "data_type": "json", "board_key": "pick_lift"},
+            "desire_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "pick_lift_duration"},
+            "focus_ee": {"source": "READ_BOARD", "data_type": "bool", "board_key": "focus_ee"},
+            "is_sync": {"source": "READ_BOARD", "data_type": "bool", "board_key": "is_sync"},
+            "settle_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "motion_settle_time"}
+          },
+          "childs": [],
+          "childBoard": []
+        }
+      ],
+      "childBoard": []
+    }
+  },
+  "place_one.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "place_one",
+      "params": {"memory": {"source": "CUSTOM", "data_type": "bool", "value": true}},
+      "childs": [
+        {
+          "name": "MultiTimedCommandMove",
+          "label": "move_to_place_above",
+          "params": {
+            "commands": {"source": "READ_BOARD", "data_type": "json", "board_key": "place_above"},
+            "desire_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "place_above_duration"},
+            "focus_ee": {"source": "READ_BOARD", "data_type": "bool", "board_key": "focus_ee"},
+            "is_sync": {"source": "READ_BOARD", "data_type": "bool", "board_key": "is_sync"},
+            "settle_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "motion_settle_time"}
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "MultiTimedCommandMove",
+          "label": "move_to_place",
+          "params": {
+            "commands": {"source": "READ_BOARD", "data_type": "json", "board_key": "place"},
+            "desire_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "place_duration"},
+            "focus_ee": {"source": "READ_BOARD", "data_type": "bool", "board_key": "focus_ee"},
+            "is_sync": {"source": "READ_BOARD", "data_type": "bool", "board_key": "is_sync"},
+            "settle_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "motion_settle_time"}
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "MultiTimedCommandMove",
+          "label": "move_to_place_release",
+          "params": {
+            "commands": {"source": "READ_BOARD", "data_type": "json", "board_key": "place_release"},
+            "desire_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "place_release_duration"},
+            "focus_ee": {"source": "READ_BOARD", "data_type": "bool", "board_key": "focus_ee"},
+            "is_sync": {"source": "READ_BOARD", "data_type": "bool", "board_key": "is_sync"},
+            "settle_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "motion_settle_time"}
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "MultiTimedCommandMove",
+          "label": "move_to_place_retreat",
+          "params": {
+            "commands": {"source": "READ_BOARD", "data_type": "json", "board_key": "place_retreat"},
+            "desire_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "place_retreat_duration"},
+            "focus_ee": {"source": "READ_BOARD", "data_type": "bool", "board_key": "focus_ee"},
+            "is_sync": {"source": "READ_BOARD", "data_type": "bool", "board_key": "is_sync"},
+            "settle_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "motion_settle_time"}
+          },
+          "childs": [],
+          "childBoard": []
+        }
+      ],
+      "childBoard": []
+    }
+  }
+}

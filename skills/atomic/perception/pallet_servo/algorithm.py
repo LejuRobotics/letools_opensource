@@ -6,8 +6,8 @@
 
     e_bottom_px  箱子底边 → 托盘底边（图像投影）的带符号垂距
     e_right_px   箱子右边 → 托盘右边（图像投影）的带符号垂距
-    theta_rad    托盘底边 − 箱子底边 的角度差，带符号，正常 ±45°
-                 （**屏幕顺时针为正**，定号与那次翻转见 `servo_error` 里的注释）
+    theta_rad    箱子底边 − 托盘底边 的角度差，带符号，正常 ±45°
+                 （**屏幕顺时针为正**，定号与那两次翻转见 `servo_error` 里的注释）
 
 本模块**只做纯函数**：不 import 框架的任何东西，不碰 ROS、硬件、黑板，也不
 记日志。这样它可以脱离一切环境做逐位回归（与 `pallet_pose/algorithm.py` 同一
@@ -131,9 +131,9 @@ def ref_edge_points_mm(edge_spec: str, size_mm) -> Optional[
     台面在该系里是矩形 `[0, W] × [0, H]`、`z = 0`（见 `PalletFrame`）。
     写法见 `parse_edge_spec` —— 四条边界边，或 `y=<毫米>` / `x=<毫米>` 的绝对线。
 
-    注意"非法"只指**写法**：越界的绝对写法（如 `y=99999`）照样返回一段台面外
-    的点。范围校验在 `parse_ref_edges(..., size_mm)` 里，本函数拿不到 `size_mm`
-    的约束，管不了这一层。
+    注意"非法"只指**写法**：绝对写法可以落在台面外（例如对齐托盘外的某个点），
+    照样返回对应的点。`parse_ref_edges` 也不再按台面尺寸限制范围 —— 参考边是
+    **操作员想对齐的位置**，不是物理托盘的约束。
     """
     try:
         W, H = float(size_mm[0]), float(size_mm[1])
@@ -240,16 +240,17 @@ def ref_edge_px(T_cam_pallet, size_mm, edge_spec, K, D=None, image_size=None,
     return px
 
 
-def parse_ref_edges(ref_edges, size_mm=None) -> Union[Tuple[str, str], Reject]:
-    """校验并规范化 `ref_edges`：两条互相不平行的合法参考边。
+def parse_ref_edges(ref_edges) -> Union[Tuple[str, str], Reject]:
+    """校验并规范化 `ref_edges`：两条**写法合法且互相不平行**的参考边。
 
     合法性是**启动时**就该查出来的配置错误，不是每帧的几何退化——配错了每帧
     都会失败，早失败一句好过每帧失败一句。位置的语义是固定的：**第 1 个是
     「底边」**（参与垂距与角度差），**第 2 个是「右边」**（只参与垂距）。
 
-    `size_mm` 给了就顺带查**绝对写法的范围**（`0 ≤ 值 ≤ 对应边长`）——
-    `y=H+200` 这种笔误在这里就死，不留到第一帧。**不传就跳过范围校验**
-    （给"尺寸还没定"的调用方留路）。
+    ⚠️ **不再限制绝对写法落在台面内**（2026-10-26 操作员裁定）：参考边是
+    **"想对齐的位置"**，可以刻意落在托盘外（例如对托盘边外某一处）。这里只查
+    写法（能解析成 `y=` / `x=`）与两条线不平行 —— 几何上平行的两条边没有
+    "垂距"可言，那仍然是配置错误。
     """
     if not isinstance(ref_edges, (list, tuple)) or len(ref_edges) != 2:
         return Reject("ref_edges_arity",
@@ -268,27 +269,6 @@ def parse_ref_edges(ref_edges, size_mm=None) -> Union[Tuple[str, str], Reject]:
         return Reject("ref_edges_parallel",
                       f"{ref_edges[0]} 与 {ref_edges[1]} 平行——垂距在平行边上没有意义")
 
-    if size_mm is not None:
-        if isinstance(size_mm, (str, bytes, bytearray)):
-            return Reject("size_mm_bad",
-                          f"size_mm 是字符串 {size_mm!r} —— 要的是两个数"
-                          f"（量不了绝对写法的范围）")
-        try:
-            W, H = float(size_mm[0]), float(size_mm[1])
-        except (TypeError, IndexError, ValueError):
-            return Reject("size_mm_bad",
-                          f"size_mm 不是两个数：{size_mm!r}（量不了绝对写法的范围）")
-        for spec, parsed in ((ref_edges[0], first), (ref_edges[1], second)):
-            if parsed[0] != "abs":
-                continue
-            _, axis, value = parsed
-            limit = H if axis == "y" else W
-            if value < 0.0 or value > limit:
-                # 实际值与边界都按**十进制原样**写出来（不用 :g）：调用方拿板子上
-                # 写的那个数来比对，`1201.0` 不该变成 `1201`。
-                return Reject("ref_edge_out_of_range",
-                              f"参考边 {spec!r} 落在台面外：{axis}={value}mm "
-                              f"超出 0~{limit}mm（台面 {W:g}x{H:g}）")
     return str(ref_edges[0]), str(ref_edges[1])
 
 
@@ -615,6 +595,39 @@ class ServoError:
     right_inward_px: np.ndarray
     box_source: str = "aabb"
     warn: List[str] = field(default_factory=list)
+    # —— 邻居路线专有的诊断量（2026-10-17）——
+    # `(上邻居四角, 侧邻居四角)`，各 `(4, 2)`；没有侧邻居时第二项是 `None`。
+    # **托盘路线永远是 `None`**（那一路没有"邻居"这个概念），所以出图那边用
+    # `getattr(error, "neighbor_quads", None)` 取、取不到就不画那一层。
+    #
+    # 挂在这个对象上而不是另开一条传递路径：它要跟着 `error` 一起流到出图那一段
+    # （`render_servo_overlay` 的 `neighbor_quads`），挂在已有的载体上**零新接口**。
+    #
+    # ⚠️ **`compare=False` 是必须的**：`ServoError` 是 dataclass，默认 `eq=True`
+    # 会把新字段算进相等性 —— 而两帧的邻居框差一个像素就算"不相等"，那些"同一对
+    # 观测不重复处理"的判据会全部失效。它是**纯诊断量**，不参与任何相等性判断
+    # （`warn` 用 `default_factory` 同属这一类）。
+    neighbor_quads: Optional[Tuple[Optional[np.ndarray], Optional[np.ndarray]]] = \
+        field(default=None, compare=False)
+    # 邻居路线出图要"手里箱现在在哪"（灰框）—— 托盘路线的四角是调用方传进
+    # `servo_error` 的，这一路没有那个入口，所以由节点从 `NeighborError` 塞进来。
+    # 同样是**纯诊断量**，`compare=False`（理由见上一段）。
+    held_quad_px: Optional[np.ndarray] = field(default=None, compare=False)
+    # 手里箱**参与计算的那两条边**（出图用绿线画它、黄线画它平移后的位置）。
+    # 由 `neighbor.py` 交出来，节点不自己推 —— 同一条边只能有一个定义。
+    held_bottom_px: Optional[np.ndarray] = field(default=None, compare=False)
+    held_side_px: Optional[np.ndarray] = field(default=None, compare=False)
+    # 出图平移用的方向（邻居路线）：
+    #   `u_bottom` = **参考边法向的加权平均**（指向"往里走"）—— 底边黄线沿它平移；
+    #   `u_far`    = 手里箱中心 -> 上邻居中心，**只作诊断**（带横向/透视偏移，
+    #                实测与竖直差 27.5°，沿它平移会把黄线斜着推出去）；
+    #   `u_side`   = 画面 +u（右）—— 横向黄线沿 `−u_side` 平移。
+    # 画法是"手里箱的边沿这个方向平移 e_* 像素" —— 红线长度因此**恒等于**
+    # HUD 上那个数（画参照边的话对不上，见 `render_neighbor_overlay`）。
+    u_bottom: Optional[np.ndarray] = field(default=None, compare=False)
+    u_side_shift: Optional[np.ndarray] = field(default=None, compare=False)
+    u_far: Optional[np.ndarray] = field(default=None, compare=False)
+    u_side: Optional[np.ndarray] = field(default=None, compare=False)
     # —— 出处：算法层不填，由节点盖上去 ——
     pallet_version: int = -1
     box_version: int = -1
@@ -622,10 +635,17 @@ class ServoError:
     stamp: float = 0.0
 
     def to_log_line(self) -> str:
-        """一行给人读的摘要，供节点节流打印（设计文档 §6.2「正常帧」）。"""
+        """一行给人读的摘要，供节点节流打印（设计文档 §6.2「正常帧」）。
+
+        ⚠️ **theta 用弧度**（2026-10-08 操作员裁定）：与话题 `/pallet_servo/dis`
+        的 `theta_rad` **同单位**。从前这里换算成度，而这行字会进
+        `feedback_message`（行为树 HUD）与日志 —— 拿话题读数来核对时，两个数
+        差 57.3 倍。**人看得到的每一处都必须与对外接口同单位**，否则"图上/日志
+        上是对的"就成了一句空话。`e_*` 本来就是像素，不存在这个问题。
+        """
         line = (f"e_bottom={self.e_bottom_px:+.1f}px "
                 f"e_right={self.e_right_px:+.1f}px "
-                f"theta={math.degrees(self.theta_rad):+.2f}deg "
+                f"theta={self.theta_rad:+.6f}rad "
                 f"box={self.box_source} pallet_v={self.pallet_version} "
                 f"box_v={self.box_version} t_cam_base={self.t_cam_base_src}")
         if self.warn:
@@ -685,19 +705,25 @@ def servo_error(T_cam_pallet, size_mm, ref_edges, obs: BoxObservation, K,
     off_bottom = replace(off_bottom, e_px=-off_bottom.e_px)
     off_right = replace(off_right, e_px=-off_right.e_px)
 
-    # ⚠️ **极性 2026-09-29 翻过一次**（操作员现场实测"角度是反的"）。
-    #    定义改成 `theta = 托盘底边角 − 箱子底边角`，于是**屏幕上顺时针转 → theta 为正**。
-    #    改这里而不是在控制器里取负：这是**符号约定**，视觉层与 README 一起改才一致
-    #    （README §6 第 11 条原本写"要反转就在控制器取负"，那条对本次改动作废）。
+    # ⚠️ **极性 2026-10-20 又翻了一次**（真机实测"theta 是反的"）。现在的定义是
+    #    `theta = 箱子底边角 − 托盘底边角` —— 与 `e_*` 一样是「手里箱 − 参照」。
+    #    2026-09-29 那次翻成「托盘 − 箱子」在控制器 `dtheta = gain * theta_rad`
+    #    （正反馈口径）下方向是反的，真机越转越偏。
+    #    改这里而不是在控制器里取负：这是**符号约定**，视觉层与 README 一起改才一致。
     #    ⚠️ **没有任何测试钉住这个符号** —— `test_render_servo_overlay` 只扫 theta=0，
     #    这里改反了测试照样全绿，所以验收只能靠叠加图上眼看。
-    theta = fold_line_angle(line_angle(ref_bottom[0], ref_bottom[1])
-                            - line_angle(edges["bottom"][0], edges["bottom"][1]))
+    theta = fold_line_angle(line_angle(edges["bottom"][0], edges["bottom"][1])
+                            - line_angle(ref_bottom[0], ref_bottom[1]))
 
     warn: List[str] = []
     if abs(theta) > theta_warn_rad:
-        warn.append(f"theta {math.degrees(theta):+.1f}° 超出 "
-                    f"±{math.degrees(theta_warn_rad):.0f}°")
+        # ⚠️ **弧度**（2026-10-08）：与 `theta_rad` 同单位。这条 warn 会经
+        # `NodePalletServo` 拼进叠加图的 HUD 与 dump 的 `reason`，紧挨着那行
+        # `theta=+0.872665rad` —— 两行用两个单位，看的人得自己做一次换算，
+        # 而现场判读本来就只有这一张图。阈值本身仍是 `THETA_WARN_RAD`
+        # （= `radians(45)`，README 里按 45° 记载）。
+        warn.append(f"theta {theta:+.3f}rad 超出 "
+                    f"±{theta_warn_rad:.3f}rad")
     if off_bottom.foot_outside:
         warn.append(f"底边垂足落在参考边 {edge_bottom} 的线段外"
                     f"（箱子已偏出这条边的范围）")
@@ -741,7 +767,7 @@ def parse_bool_param(raw, name: str) -> bool:
     口径与 `leju_claw_control.LejuClawControl._as_bool` 一致（判断分支逐条相同，
     只有报错文案更具体）。
 
-    **比 `base_move_to_blackboard_goal_jibot_move._as_bool` 故意更严**，不是笔误：
+    **比一般的字符串转布尔故意更严**，不是笔误：
     那个还认 `"on"`、非字符串一律 `bool(value)` 兜底、而且**永不抛**；这里三条都
     不做，既不认识又解释不了的值**抛 `ValueError`**，由调用方决定怎么处置
     （注入类节点当成"关掉 + 报错"，伺服节点用默认值 + WARNING —— 处置不同，

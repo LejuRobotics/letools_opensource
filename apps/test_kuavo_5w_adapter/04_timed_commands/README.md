@@ -1,5 +1,8 @@
 # 04_timed_commands - 时序组合指令模块
 
+本文中的相对路径（如 `apps/test_kuavo_5w_adapter/04_timed_commands/`、`infrastructure/ros_packages`）
+一律相对 **LeTools 仓库根目录**；各命令需在仓库根目录下执行。
+
 ## 📖 概述
 
 本模块用于测试Kuavo 5-W机器人的时序组合指令功能。通过`/mobile_manipulator_timed_single_cmd`和`/mobile_manipulator_timed_multi_cmd`服务发送带时间参数的控制指令序列，实现精确的时序运动控制。
@@ -29,7 +32,7 @@ cd test_logs_*
 # 执行测试并填写报告
 ```
 
-详见 [TEST_RESOURCES_SUMMARY.md](TEST_RESOURCES_SUMMARY.md)
+测试资源汇总文件未随仓库提交。
 
 ---
 
@@ -208,9 +211,9 @@ python3 apps/test_kuavo_5w_app/04_timed_commands/test_leg_joint_sequence.py
 
 ## 📚 相关文档
 
-- [底层测试脚本](../../test_kuavo_5w/04_timed_commands/) - ROS原生实现
-- [PROGRESS_TRACKING.md](../PROGRESS_TRACKING.md) - 项目进度追踪
-- [PHASE_COMPLETION_REPORT.md](../PHASE_COMPLETION_REPORT.md) - 阶段性完成报告
+- 底层 ROS 原生测试位于内部目录，公开制成品不包含
+- PROGRESS_TRACKING.md - 项目进度追踪
+- PHASE_COMPLETION_REPORT.md - 阶段性完成报告
 
 ---
 

@@ -1,0 +1,4 @@
+# 权重不进 git —— 与 module_internal/zhaofeng_feeding/yolo_weights/ 同一做法。
+# 目录本身要留着，所以用 `*` + 白名单。
+!.gitignore
+!README.md

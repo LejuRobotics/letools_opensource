@@ -10,17 +10,23 @@
 
 </div>
 
+本文中的相对路径（如 `apps/`、`orchestration/main.py`）
+一律相对 **LeTools 仓库根目录**；各命令需在仓库根目录下执行。
+
 > ## 📚 文档导航
 >
 > | 📖 文档 |  链接 |
 > |:---|:---:|
-> | 零基础完整学习教程 | [beginner_tutorial.md](docs/beginner_tutorial.md) |
-> | 启动指南 | [user_guides.md](docs/user_guides.md) |
-> | 常见问题 (FAQ) | [FAQ_常见问题.md](docs/FAQ_常见问题.md) |
-> | 主要身体部位 API 参考 | [upper_body_api.md](adapters/upper_body_api.md) |
-> | 相机与底盘 API 参考 | [camera_chassis_api.md](adapters/camera_chassis_api.md) |
+> | 文档站首页（先从这里选路线） | [docs/README.md](docs/README.md) |
+> | 第一个 dry-run（不连 ROS、不连机器人） | [01-最小可运行示例.md](docs/04-简单案例运行/01-最小可运行示例.md) |
+> | 机器人背景知识（按需阅读） | [01-机器人基础通识.md](docs/01-介绍/01-机器人基础通识.md) |
+> | 分层架构（权威说明） | [04-系统架构与分层.md](docs/01-介绍/04-系统架构与分层.md) |
+> | 启动与安装步骤 | [03-安装步骤.md](docs/02-环境安装/03-安装步骤.md) |
+> | 常见问题 (FAQ) | [06-常见问题FAQ/](docs/06-常见问题FAQ/) |
+> | 主要身体部位 API 参考 | [01-上半身控制接口.md](docs/03-接口详细文档/API参考/01-上半身控制接口.md) |
+> | 相机与底盘 API 参考 | [02-相机与底盘接口.md](docs/03-接口详细文档/API参考/02-相机与底盘接口.md) |
 
-`LeTools` 把机器人能力拆成几层：
+`LeTools` 把机器人能力拆成几层。执行一个场景时，控制命令的大致流向如下：
 
 ```text
 apps 示例/测试脚本
@@ -31,14 +37,14 @@ skills 原子技能
     ↓
 adapters 硬件适配器（含 SDK 管理服务）
     ↓
-core 接口/数据模型
-    ↓
 drivers + infrastructure 底层 SDK / ROS / 相机 / 消息包
     ↓
 仿真或真机
 ```
 
-新手可以把它理解成一个"动作积木系统"：`core` 定义积木接口，`adapters` 把接口接到机器人，`skills` 封装单个动作，`orchestration` 把动作排成任务，`apps` 提供可直接运行的例子。
+`core` 不在这条链上：它定义接口与数据模型（`IHardware`、`Result`、`Pose6D` 等）并提供通用工具，被上面每一层引用。
+`adapters` 把接口接到机器人，`skills` 封装单个动作，`orchestration` 把动作排成任务，`apps` 提供可直接运行的例子。
+模块之间允许的 import 方向与已知例外见 [04-系统架构与分层.md](docs/01-介绍/04-系统架构与分层.md)。
 
 ***
 
@@ -69,9 +75,17 @@ drivers + infrastructure 底层 SDK / ROS / 相机 / 消息包
 ***
 
 ## 🛠️ 安装
-详细部署安装步骤请参考[user_guides.md](docs/user_guides.md) 
+详细部署安装步骤请参考[03-安装步骤.md](docs/02-环境安装/03-安装步骤.md)
 
-**1. 编译 ROS 工作空间**
+**1. 安装 Python 依赖**
+
+```bash
+cd ~/letools_opensource
+pip3 install -r requirements.txt                       # colorlog、py_trees、scipy>=1.4
+python3 -m pip install --upgrade "numpy>=1.19.5,<1.27.0"   # 保持 NumPy 1.x，原因见依赖版本清单
+```
+
+**2. 编译 ROS 工作空间**
 
 ```bash
 cd ~/letools_opensource/infrastructure/ros_packages
@@ -97,7 +111,7 @@ source devel/setup.bash
 > catkin build
 > ```
 
-**2. 安装 SDK**
+**3. 安装 SDK**
 
 ```bash
 cd ~/letools_opensource
@@ -142,7 +156,7 @@ ROS 中常见概念：
 
 </details>
 
-> 🚀 仿真环境部署与运行见 [用户指南](docs/user_guides.md)
+> 🚀 仿真环境部署与运行见 [安装步骤](docs/02-环境安装/03-安装步骤.md)
 
 ***
 
@@ -158,6 +172,9 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
   --dry-run --tick-once
 ```
 
+成功时输出末尾包含 `[apps][dry-run] tick 后根状态: Status.SUCCESS`（dry-run 的退出码只反映加载是否成功，不反映 tick 结果）。dry-run 只验证 import、JSON 结构和节点加载，不验证 ROS 服务与实际运动，
+详见 [01-最小可运行示例.md](docs/04-简单案例运行/01-最小可运行示例.md)。
+
 ***
 
 ### 🧠 Step 2 — 运行硬件示例
@@ -171,7 +188,7 @@ export PYTHONPATH=$(pwd):$PYTHONPATH
 python3 apps/test_kuavo_5w_sdk_adapter/sdk/01_head/test_head_control.py
 ```
 
-> 📘 示例脚本按 `sdk/01_head` \~ `sdk/06_feedback` 分类，详见 [示例目录](apps/test_kuavo_5w_sdk_adapter/README.md)
+> 📘 示例脚本按 `apps/test_kuavo_5w_sdk_adapter/sdk/` 下的子目录分类，实际目录名依次为 `01_head`、`02_arm`、`03_lower_body`、`04_base`、`05_mode`、`06_feedback`；各测试目录的定位见 [apps 测试与示例应用](docs/03-接口详细文档/06-apps-测试与示例应用.md)
 
 ***
 
@@ -234,7 +251,7 @@ adapters/hardware/leju_wheeled/*.py
 
 > 📘 **推荐阅读顺序：** 新手建议按以下顺序阅读和运行：
 >
-> 1. `apps/test_kuavo_5w_sdk_adapter/README.md`
+> 1. [apps 测试与示例应用](docs/03-接口详细文档/06-apps-测试与示例应用.md)
 > 2. `apps/test_kuavo_5w_sdk_adapter/sdk/01_head/`，先跑头部示例
 > 3. `core/interfaces/i_hardware.py`，理解硬件能力边界
 > 4. `adapters/hardware/leju_wheeled/hardware.py`，理解 mixin 组合方式
@@ -280,26 +297,21 @@ LeTools
 │   └── parser/                  # 任务解析器
 ├── apps/                        # 示例和测试入口
 │   ├── test_kuavo_5w_sdk_adapter/   # 当前推荐的新接口验收测试
-│   ├── test_kuavo_5w_internal/      # 偏底层 ROS API 测试
 │   ├── test_kuavo_5w_adapter/       # Adapter 层硬件测试
-│   ├── test_kuavo_5w_sdk_internal/  # SDK 级测试
 │   ├── test_kuavo_5w_orchestration/ # 行为树节点测试（编排层每个节点一个脚本）
 │   ├── test_kuavo_5w_skills/        # 原子技能测试（技能层每个技能一个脚本）
 │   ├── test_camera_adapter/         # 相机适配器测试
-│   ├── test_camera_internal/        # 相机视觉测试
 │   ├── test_upper_init/             # JSON 行为树启动器
 │   ├── jibot_adapter/               # JiBot 上位机迁移测试（适配器层）
-│   ├── jibot_internal/              # JiBot 上位机迁移测试（内部接口）
 │   └── jiateng_adapter/             # 嘉腾底盘适配器测试
 ├── infrastructure/              # ROS 基础设施
 │   └── ros_packages/            # catkin 工作空间
-├── ci_scripts/         # CI/开源构建脚本
 ├── config/                      # 配置文件
 ├── scripts/                     # 安装与运行脚本
-└── docs/                        # 文档
+└── docs/                        # 文档站：01-介绍 … 07-补充内容（入口 `docs/README.md`）
 ```
 
-> 📘 一句话总结：`core` 定规则，`adapters` 接硬件，`drivers/infrastructure` 管底层通信，`skills` 封动作，`orchestration` 排任务，`apps` 负责把这些能力跑起来。
+> 📘 小结：`core` 定规则，`adapters` 接硬件，`drivers/infrastructure` 管底层通信，`skills` 封动作，`orchestration` 排任务，`apps` 负责把这些能力跑起来。
 
 <details>
 <summary>📖 目录与关键文件说明</summary>
@@ -362,7 +374,7 @@ LeTools
 | ---------------------------------- | -------------------------------------- |
 | `drivers/leju/end_effector.py`     | 乐聚末端执行器封装，给 adapter 的末端执行器 mixin 使用    |
 | `drivers/leju/kuavo_humanoid_sdk/` | SDK submodule 目标目录，安装成功后包含底层 Kuavo SDK |
-| `drivers/README.md`                | 驱动层说明                                  |
+| [drivers 层与 SDK 说明](docs/03-接口详细文档/07-drivers-与-SDK.md) | drivers 层与 SDK 的说明        |
 
 > 如果 SDK 子模块没有下载成功，`drivers/leju/kuavo_humanoid_sdk` 可能为空或不存在，SDK 控制脚本会 import 失败。
 
@@ -421,16 +433,12 @@ LeTools
 | 路径                                                      | 作用                                                  |
 | ------------------------------------------------------- | --------------------------------------------------- |
 | `apps/test_upper_init/run_behavior_tree_json.py`        | 推荐的 JSON 行为树启动器                                     |
-| `apps/test_kuavo_5w_internal/`                          | 偏底层 ROS API 测试，覆盖底盘、腿部、手臂、定时指令、力控、服务、反馈             |
 | `apps/test_kuavo_5w_adapter/`                           | Adapter 层硬件测试，覆盖标准接口、服务、状态反馈和高级定时命令                 |
-| `apps/test_kuavo_5w_sdk_internal/`                      | SDK 级测试，包含 SDK 初始化、TimedCmd API、低层 SDK、手臂控制研究       |
 | `apps/test_kuavo_5w_sdk_adapter/`                       | 当前推荐的新接口验收测试，按 `sdk/01_head` 到 `sdk/06_feedback` 分类 |
 | `apps/test_kuavo_5w_orchestration/`                     | 行为树节点测试，编排层每个节点一个验收脚本                              |
 | `apps/test_kuavo_5w_skills/`                            | 原子技能测试，每个技能一个独立验收脚本                                 |
 | `apps/test_camera_adapter/`                             | 相机适配器测试：初始化、图像、深度、点云、TF、RViz、感知                     |
-| `apps/test_camera_internal/`                            | 相机视觉测试：相机启动、AprilTag、RViz 显示                        |
 | `apps/jibot_adapter/`                                   | JiBot 上位机迁移测试（适配器层）：底盘移动、目标点移动、到达检查、速度控制开关          |
-| `apps/jibot_internal/`                                  | JiBot 上位机迁移测试（内部接口）：底盘移动、到达检查等底层脚本                    |
 | `apps/jiateng_adapter/`                                 | 嘉腾底盘适配器测试
 
 ### `infrastructure/` ROS 基础设施
@@ -475,13 +483,7 @@ LeTools
 
 ### `docs/` 文档
 
-| 路径                                                        | 作用                 |
-| --------------------------------------------------------- | ------------------ |
-| `docs/docs_internal/guides/SDK_Integration_Guide.md`      | SDK 安装和集成说明        |
-| `docs/docs_internal/guides/LOGGING_*`                     | 日志系统说明             |
-| `docs/docs_internal/guides/ROS_ADAPTER_BEST_PRACTICES.md` | ROS 适配器开发规范        |
-| `docs/docs_internal/guides/CAMERA_HARDWARE_TEST_GUIDE.md` | 相机硬件测试指南           |
-| `docs/docs_internal/architecture/`                        | 行为树、迁移蓝图、测试映射等架构文档 |
+文档首页见 [`docs/README.md`](docs/README.md)（按 01–07 章组织，首页提供快速开始与二次开发两条阅读路线）。
 
 </details>
 
@@ -495,7 +497,7 @@ LeTools
 |   🦾 **手臂控制**   | 双臂 14 关节轨迹、末端局部/世界坐标控制、手臂复位、IK 可达性检查              | `apps/test_kuavo_5w_sdk_adapter/sdk/02_arm/`                    |
 |   🦿 **腿部/躯干**  | 腿部 4 关节控制、躯干 6DoF、躯干复位、腿臂并行动作                     | `apps/test_kuavo_5w_sdk_adapter/sdk/03_lower_body/`             |
 |   🗣️ **头部控制**  | yaw/pitch 控制、头部居中、左右上下扫描                          | `apps/test_kuavo_5w_sdk_adapter/sdk/01_head/`                   |
-|   📷 **相机/视觉**  | Orbbec/RealSense 启动、RGB/深度/点云、AprilTag、YOLO、二维码读取 | `apps/test_camera_adapter/`, `apps/test_camera_internal/`        |
+|   📷 **相机/视觉**  | Orbbec/RealSense 启动、RGB/深度/点云、AprilTag、YOLO、二维码读取 | `apps/test_camera_adapter/`                                     |
 |   ✋ **末端执行器**   | 夹爪/灵巧手控制、抓取、放置、双臂手部姿态                             | `drivers/leju/end_effector.py`                                 |
 |    💪 **力控**    | 末端期望力、外力仿真、挥空检测、接触力参数                             | `adapters/hardware/leju_wheeled/mixins/force_control_mixin.py` |
 |   🔄 **模式切换**   | MPC 模式、ArmOnly/FullBody、快速模式、手臂控制模式               | `apps/test_kuavo_5w_sdk_adapter/sdk/05_mode/`                   |
@@ -585,7 +587,6 @@ LeTools
 | ROS 包 | `infrastructure/ros_packages/src/ros_sensor_integration/ros_realsense/` | RealSense 相机驱动        |
 | ROS 包 | `infrastructure/ros_packages/src/ros_vision/`                           | AprilTag、YOLO、工业检测节点  |
 | 示例    | `apps/test_camera_adapter/`                                             | 相机适配层测试               |
-| 示例    | `apps/test_camera_internal/`                                              | 相机启动、AprilTag、RViz 显示 |
 
 </details>
 
@@ -720,7 +721,7 @@ orchestration/nodes/my_action_move.py           # MyActionMove
 
 ## 💬 常见问题
 
-遇到问题先查阅 **[FAQ_常见问题.md](docs/FAQ_常见问题.md)**，汇总了从飞书反馈表中整理的高频问题及解决方案，涵盖环境搭建、SDK 安装、版本兼容、手臂/底盘/相机控制等 10 大类。
+遇到问题先查阅 **[06-常见问题FAQ/](docs/06-常见问题FAQ/)**，汇总了环境搭建、SDK 安装、版本兼容、行为树运行、相机与视觉、性能与稳定性等方面的常见问题及解决方案。
 
 以下是几个最常见的快速解决：
 
@@ -746,7 +747,7 @@ catkin build
 <details>
 <summary>❓ 已安装 python3-empy，但报 No module named 'catkin_pkg'</summary>
 
-如果日志中出现 `/home/dsy/anaconda3/bin/python3`，说明 conda Python 抢占了 ROS 编译环境。
+如果日志中出现 `/home/<用户名>/anaconda3/bin/python3`，说明 conda Python 抢占了 ROS 编译环境。
 
 ```bash
 conda deactivate
@@ -821,23 +822,7 @@ rm -rf .git/modules/drivers/leju/kuavo_humanoid_sdk
 
 我们鼓励反馈问题，使之可被搜索、归档，也方便后来者复用。
 
-### 📝 提交渠道
-
-| 角色 | 提交方式 |
-|:---|:---|
-| 🧑‍💻 **外部用户** | 前往 [GitCode Issues](https://gitcode.com/OpenLET/letools_opensource/issues) 使用 Issue 模板填写完整信息 |
-| 🏢 **乐聚员工** | 通过飞书的LeTools问题反馈表单提交 |
-
-> 📋 **员工提交必填字段：** 问题提出人 · 问题类型 · LeTools 版本/环境 · 具体内容等
-
-### 🔄 处理流程
-
-| 阶段 | 说明 |
-|:---|:---|
-| 📝 **提交问题** | 通过上述对应渠道提交，附上完整信息 |
-| 👤 **管理员分配** | 管理员在 **1 个工作日内** 评估优先级、指定责任人并设定时间节点 |
-| 🔧 **处理与反馈** | 责任人在「工作进度/受理意见」中更新处理进展 |
-| ✅ **解决归档** | 完成后填写「交付意见」并标记「是否解决」 |
+请前往 [GitCode Issues](https://gitcode.com/OpenLET/letools_opensource/issues) 使用 Issue 模板提交问题，并附上版本、运行命令和第一个错误日志。需要填写的信息见 [FAQ：反馈模板怎么填](docs/06-常见问题FAQ/07-开闭源与文档.md)。
 
 ## 📄 许可证
 

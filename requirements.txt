@@ -10,3 +10,9 @@
 
 colorlog
 py_trees
+
+# scipy：core/common/transform.py 等调用 scipy.spatial.transform.Rotation.from_matrix，
+# 该名字在 scipy 1.4 起才有（1.3.x 只有 from_dcm）。Ubuntu 20.04 自带的 python3-scipy
+# 是 1.3.3，会让位姿转换在运行期抛 AttributeError 并连带影响依赖它的用例。
+# 只设下界、不设上界：让各 Python 版本各自解析到可用的最新版本（3.8 会落到 1.10.1）。
+scipy>=1.4

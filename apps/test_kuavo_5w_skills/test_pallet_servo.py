@@ -248,35 +248,27 @@ def test_absolute_mm_edge_specs_parse():
     print("    绝对毫米写法：语法解析 + 端点投影都对")
 
 
-def test_absolute_mm_out_of_range_is_rejected():
-    """超出台面的绝对值是**配置错误**，启动时就拒（不是每帧的几何退化）。
+def test_absolute_mm_outside_the_pallet_is_allowed():
+    """绝对写法允许落在台面外（2026-10-26 操作员裁定）。
 
-    范围只用 `size_mm` 判 —— 纯函数不知道相机在哪，也不该知道。
+    参考边是**"想对齐的位置"**，不是物理托盘的约束 —— 例如要对托盘边外
+    某一处时，`x=W+1` / `y=H+200` / 负数都必须放行。`parse_ref_edges` 只查
+    写法与"两条不平行"。
     """
     W, H = SIZE_MM
 
-    # 恰好落在边界上：合法（y=H 就是远边）
-    assert parse_ref_edges(["y=0", f"x={W}"], SIZE_MM) == ("y=0", f"x={W}")
-
-    # 越界：拒，且原因里带实际值与边界
-    out = parse_ref_edges(["y=0", f"x={W + 1}"], SIZE_MM)
-    assert isinstance(out, Reject), out
-    assert out.code == "ref_edge_out_of_range", out
-    assert str(W + 1) in out.detail and str(W) in out.detail, out.detail
-
-    out = parse_ref_edges([f"y={H + 200}", "x=0"], SIZE_MM)
-    assert isinstance(out, Reject), out
-    assert out.code == "ref_edge_out_of_range", out
-
-    # 负数也越界
-    out = parse_ref_edges(["y=-1", "x=0"], SIZE_MM)
-    assert isinstance(out, Reject), out
-    assert out.code == "ref_edge_out_of_range", out
-
-    # **不传 size_mm 时跳过范围校验**（给"尺寸还没定"的调用方留路）
+    assert parse_ref_edges(["y=0", f"x={W}"]) == ("y=0", f"x={W}")
+    assert parse_ref_edges(["y=0", f"x={W + 1}"]) == ("y=0", f"x={W + 1}")
+    assert parse_ref_edges([f"y={H + 200}", "x=0"]) == (f"y={H + 200}", "x=0")
+    # 负数也允许（同样是"台面外的一个位置"）
+    assert parse_ref_edges(["y=-1", "x=0"]) == ("y=-1", "x=0")
     assert parse_ref_edges([f"y={H + 9999}", "x=0"]) == (f"y={H + 9999}", "x=0")
 
-    print("    绝对毫米越界：传尺寸时拒、不传时放行")
+    # 写法/平行仍然是配置错误
+    bad = parse_ref_edges(["y=0", "y=800"])
+    assert isinstance(bad, Reject) and bad.code == "ref_edges_parallel", bad
+
+    print("    绝对毫米越界：允许（只查写法与平行）")
 
 
 def test_parallel_check_uses_the_axis_not_the_first_character():
@@ -284,13 +276,13 @@ def test_parallel_check_uses_the_axis_not_the_first_character():
     # 同轴：平行，拒
     for bad in (["y=0", "y=H"], ["y=0", "y=800"], ["y=800", "y=H"],
                 ["x=0", "x=W"], ["x=0", "x=1150"]):
-        out = parse_ref_edges(bad, SIZE_MM)
+        out = parse_ref_edges(bad)
         assert isinstance(out, Reject), (bad, out)
         assert out.code == "ref_edges_parallel", (bad, out)
 
     # 不同轴：过
     for good in (["y=0", "x=800"], ["y=800", "x=W"], ["x=0", "y=800"]):
-        out = parse_ref_edges(good, SIZE_MM)
+        out = parse_ref_edges(good)
         assert not isinstance(out, Reject), (good, out)
 
     print("    平行判据：按轴判，符号/绝对混用也认得出")
@@ -422,17 +414,8 @@ def test_synthetic_recovers_known_offsets_exactly():
     u ∈ [CX, CX+1200]、v ∈ [CY, CY+800]。
     """
     T = straight_down_camera()
-    # 期望值：底边离托盘边 137 px、右边离托盘边 88 px、**托盘相对箱子 +7°**。
-    # ⚠️ **2026-09-30 符号变了**：`e` 反过来（箱子在托盘内侧为**负**，操作员约定）。
-    #   量值仍是 137 / 88，只是带符号的期望值取负。
-    # ⚠️ `theta` **没有跟着翻**（它不在这次改动的范围里）。而这套测试的
-    #   `theta` 期望**从来就跟实现反号** —— 改符号之前它就是错的，只是被"两个
-    #   都反"抵掉了：实现算 `托盘角 − 箱子角`，这个场景里参考边是 +0.0000°、
-    #   箱子底边是 +7.0000°，所以实现给 −7°；而 `want_theta = +7°` 按的是
-    #   §3.2 那句 `theta = 箱子角 − 托盘角`（README 的 2026-09-29 那条注记说
-    #   现场实测把它翻过来了，但**测试的期望没跟着改**）。
-    #   现在实现没动它，所以期望值也**保持原样**，不去顺手"修正" ——
-    #   翻一个是 bug、翻两个才对；要动 `theta` 的极性得单独裁决。
+    # 期望值：底边离托盘边 137 px、右边 88 px（箱子在托盘内侧 -> 负）；
+    # 箱子底边相对参考边 +7°（`theta = 箱子角 − 参照角`，2026-10-20 极性）。
     want_bottom, want_right = -137.0, -88.0
     want_theta = math.radians(7.0)
 
@@ -451,10 +434,11 @@ def test_synthetic_recovers_known_offsets_exactly():
     assert not isinstance(err, Reject), err
     assert abs(err.e_bottom_px - want_bottom) < 1e-9, err.e_bottom_px
     assert abs(err.e_right_px - want_right) < 1e-9, err.e_right_px
-    # ⚠️ 见上面那段：`theta` 的期望与实现差一个负号（历史遗留、两个符号抵掉了），
-    # 所以这里比的是 `-want_theta` —— **这不是"为了让测试过而改"**，是把那笔旧账
-    # 写下来。要真正消除它得单独裁决 `theta` 的极性。
-    assert abs(err.theta_rad + want_theta) < 1e-12, err.theta_rad
+    # ⚠️ **2026-10-20 `theta` 极性翻正了**：实现现在是「箱子角 − 参照角」，
+    # 这个场景里箱子底边 +7°、参考边 0°，所以输出 +7° —— 与 `want_theta` 同号。
+    # （旧注释说实现是「托盘角 − 箱子角」、期望要取负；那次翻转之后这条已经
+    #  不成立，这里跟着实现改回来。）
+    assert abs(err.theta_rad - want_theta) < 1e-12, err.theta_rad
     assert err.box_source == "quad", err.box_source
     assert err.warn == [], err.warn
     print(f"    精确还原：e_bottom={err.e_bottom_px:.3f}px（期望 {want_bottom}）、"
@@ -891,7 +875,7 @@ def main() -> int:
         ("Reject 是值对象", test_reject_is_a_frozen_hashable_value),
         ("ref_edges 校验", test_parse_ref_edges),
         ("绝对毫米写法", test_absolute_mm_edge_specs_parse),
-        ("绝对毫米越界被拒", test_absolute_mm_out_of_range_is_rejected),
+        ("绝对毫米越界允许（台面外）", test_absolute_mm_outside_the_pallet_is_allowed),
         ("平行判据按轴", test_parallel_check_uses_the_axis_not_the_first_character),
         ("绝对=符号：三个量一致", test_absolute_and_symbolic_specs_give_identical_servo_error),
         ("点击置换：反向环序", test_permutation_reverses_the_operator_ring),

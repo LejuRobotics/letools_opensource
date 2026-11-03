@@ -9,18 +9,39 @@
   "gripper_close_position": 0,
   "gripper_effort": 1.0,
   "ring_name": "ring_01",
-  "inference_config_path": "/home/zwl/merge8.4/letools_opensource/LeTools-Learning/configs/deploy/deploy.yaml",
+  "inference_config_path": "LeTools-Learning/configs/deploy/deploy.yaml",
   "policy_type": "act",
-  "pretrained_path": "/home/zwl/merge8.4/letools_opensource/LeTools-Learning/outputs/train/act_7/lerobot_grasp_ring_20260822_115555/checkpoints/last",
+  "pretrained_path": "LeTools-Learning/outputs/train/act_8/lerobot_grasp_ring_20261016_133258/checkpoints/080000",
   "task_prompt": "Pick and Place",
-  "max_episode_steps": 200,
+  "max_episode_steps": 1000,
   "device": "cuda",
   "inference_env": "sim",
-  "gripper_close_threshold": 0.3,
-  "gripper_hold_frames": 5,
-  "post_close_steps": 10,
+  "runtime_config": true,
   "place_target_x": 0.7,
   "place_target_y": -0.3,
   "place_target_z": 1.05,
-  "robot_yaw_deg": -90.0
+  "robot_yaw_deg": -90.0,
+  "paths": {
+    "kuavo_root": "../../../../kuavo-ros-opensource",
+    "letools_root": "../../..",
+    "learning_python": "REPLACE_WITH_YOUR_INFERENCE_PYTHON",
+    "bag_dir": "",
+    "collection_bags_root": "~/data/kuavo_bags",
+    "dataset_parent": "../../../LeTools-Learning/kuavo_data/ring_dataset",
+    "training_output": "../../../LeTools-Learning/outputs/train/ring_act",
+    "model_checkpoint": "",
+    "go_bag": ""
+  },
+  "container": {
+    "name": ""
+  },
+  "grasp_feedback": {
+    "description": "根据右夹爪驱动反馈确认抓取：先收到运动或到位状态，再收到连续保持 hold_seconds 秒的抓取状态（state=3）。",
+    "mode": "claw_only",
+    "claw_topic": "/leju_claw_state",
+    "right_claw_index": 1,
+    "hold_seconds": 3.0,
+    "max_feedback_age_seconds": 0.25,
+    "max_header_age_seconds": 1.0
+  }
 }

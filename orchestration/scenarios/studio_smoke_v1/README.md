@@ -1,4 +1,8 @@
 ﻿# studio_smoke_v1
+
+本文中的相对路径（如 `orchestration/scenarios/studio_smoke_v1/`、`orchestration/main.py`）
+一律相对 **LeTools 仓库根目录**；各命令需在仓库根目录下执行。
+
 ## 分层结构
 
 ```text
@@ -40,7 +44,7 @@ studio_smoke_v1 冒烟场景
 
 ## 运行
 
-入口用法详见 [orchestration/README.md](../../README.md#mainpy-使用说明)。
+入口用法详见 [行为树编排（orchestration）说明](../../../docs/03-接口详细文档/05-orchestration-行为树编排.md)。
 
 ```bash
 export PYTHONPATH=/path/to/LeTools:$PYTHONPATH

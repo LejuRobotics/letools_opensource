@@ -19,9 +19,8 @@ SCENARIO = Path(__file__).resolve().parents[2] / "scenarios/zhaofeng_feeding_int
 def board():
     py_trees.blackboard.Blackboard.clear()
     writer = py_trees.blackboard.Client(name="place-navigation-test")
-    for key in ("pick_batch", "place_item_index", "place_back_required"):
+    for key in ("pick_batch", "place_batch", "place_item_index"):
         writer.register_key(key=key, access=Access.WRITE)
-    writer.set("place_back_required", False)
     yield writer
     py_trees.blackboard.Blackboard.clear()
 
@@ -79,6 +78,7 @@ def test_first_hand_navigates_each_batch_and_every_hand_prepares(board, item_cou
     node = _place_loop(board, events)
     for batch in range(2):
         board.set("pick_batch", [{"active_arm": hand} for hand in ("right", "left")[:item_count]])
+        board.set("place_batch", list(board.get("pick_batch")))
         events.clear()
         node.tick_once()
         assert node.status == Status.RUNNING
@@ -96,13 +96,17 @@ def test_first_hand_navigates_each_batch_and_every_hand_prepares(board, item_cou
             perceive = events.index(("plan_current_hand_clear_place", index, "start"))
             compute = events.index(("compute_place_key_points_by_hand", index, "start"))
             control = events.index(("move_to_place_ready", index, "start"))
+            lift = events.index(("move_to_place_lift", index, "done"))
+            back = events.index(("move_to_place_back", index, "start"))
             assert observe < perceive < compute < control
+            assert lift < back
             assert events.index(("nav_to_place_observe", 0, "done")) < perceive
         node.stop(Status.INVALID)
 
 
 def test_navigation_failure_prevents_perception_and_place(board):
     board.set("pick_batch", [{"active_arm": "left"}])
+    board.set("place_batch", list(board.get("pick_batch")))
     events = []
     node = _place_loop(board, events, fail_navigation=True)
     node.tick_once()

@@ -1,0 +1,24 @@
+# Python dependencies for carton_obb_fp16.engine inference.
+#
+# Verified environment:
+#   Python: 3.8.10
+#   Architecture: aarch64 (NVIDIA Jetson)
+#   TensorRT: 8.5.2.2
+#   CUDA Runtime: 11.4
+#
+# TensorRT and CUDA are system dependencies on Jetson. Install them through
+# NVIDIA JetPack/APT rather than pip:
+#   libnvinfer8=8.5.2-1+cuda11.4
+#   python3-libnvinfer=8.5.2-1+cuda11.4
+#   cuda-cudart-11-4=11.4.298-1
+#
+# TensorRT engine files are environment-specific. Rebuild the engine from ONNX
+# when using another TensorRT/CUDA version or another GPU architecture.
+
+numpy==1.23.5
+opencv-python==4.12.0.88
+ultralytics==8.4.178
+
+# NVIDIA Jetson builds; install from NVIDIA's Jetson wheel source.
+torch==2.0.0+nv23.5
+torchvision==0.15.1a0+42759b1

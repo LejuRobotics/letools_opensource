@@ -21,7 +21,7 @@
 | `window.py` | `PalletFrameWindow`：两路缓存 + 配对 + 成对序列（**有状态**，也不 import ROS） |
 | `tests/test_pairing.py` | 脚本式自检（退出码 0/1，**不进 CI**）|
 
-> ⚠️ 本模块**不是** `box_frame/window.py` 的扩展：那个管「一路观测 + 多帧平均」，
+> ⚠️ 本模块**不是**箱子那条链（`carton_obb`）的扩展：那个管「一路观测 + 多帧平均」，
 > 本模块管「两路观测 + 配对」，是两件事。
 
 # 1. 接口
@@ -71,7 +71,7 @@ stamp 合法地就是 0，所以**单侧**为 0 不能判坏；但两路观测**
 from skills.atomic.perception.pallet_frame import (
     PalletFrameWindow, PalletObservation)
 
-win = PalletFrameWindow(max_dt_s=0.05, pair_cache=5, window=5,
+win = PalletFrameWindow(max_dt_s=0.05, pair_cache=5, window=3,
                         agg="mean", stale_s=0.0)
 win.push_pallet(PalletObservation(T_cam_pallet=T, stamp=3.300))
 win.push_box(box_observation)                    # BoxObservation，带 stamp
@@ -102,7 +102,7 @@ win.reset()      # 清空两路缓存 + 成对序列 + 归零水位线（时钟�
 |---|---|---|
 | `max_dt_s` | `0.05` | 配对允许的最大时间戳差。30fps 下一帧 = 33ms |
 | `pair_cache` | `5` | **每侧**留多少个观测供配对。**不是窗长**。⚠️ **回溯窗口 ≈ `pair_cache` × 伺服 tick 周期**（push 是按 tick 发生的，不是检测器一出帧就推）—— 10 Hz 下 `5` ≈ **500 ms**，**必须大于托盘检测器的端到端延迟** |
-| `window` | `5` | **成对序列**上取几对做平均（1 = 不平滑）—— **与 `pair_cache` 独立** |
+| `window` | `3` | **成对序列**上取几对做平均（1 = 不平滑）—— **与 `pair_cache` 独立** |
 | `agg` | `mean` | `mean` / `median`。**`median` 只在箱子四角上生效**，托盘一律走刚体平均 |
 | `stale_s` | `0.0` | **延迟闸不是存活闸**（见注意事项 ⑨）：配对后这一对有多旧 |
 

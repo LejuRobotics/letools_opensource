@@ -44,6 +44,11 @@ class NodePercep(BaseAction):
         if _is_dry_run():
             return Status.SUCCESS
 
+        if self.params.get("use_virtual_tag", False):
+            # 仿真仍扫头，但没有相机；由等待节点在扫头结束后注入 Tag。
+            self.feedback_message = "virtual tag mode: camera skipped"
+            return Status.RUNNING
+
         hw = get_shared_hardware()
         detections = hw.perception.get_tag_detections()
         target_ids = set(self.params.get("tag_ids", []))

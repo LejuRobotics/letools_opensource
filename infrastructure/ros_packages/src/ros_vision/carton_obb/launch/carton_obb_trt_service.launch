@@ -1,0 +1,23 @@
+<launch>
+    <!-- 留空时由原子能力解析仓库内 models/carton_obb_fp16.engine。 -->
+    <arg name="engine_path" default=""/>
+    <arg name="service_name" default="/carton_obb/infer"/>
+    <arg name="warmup" default="5"/>
+    <arg name="python" default=""/>
+    <arg name="image_topic" default="/camera/color/image_raw"/>
+    <arg name="camera_timeout" default="15.0"/>
+    <arg name="max_frame_age" default="0.5"/>
+
+    <node name="carton_obb_trt_service"
+          pkg="carton_obb"
+          type="carton_obb_trt_service.py"
+          output="screen"
+          launch-prefix="$(arg python)">
+        <param name="engine_path" value="$(arg engine_path)"/>
+        <param name="service_name" value="$(arg service_name)"/>
+        <param name="warmup" value="$(arg warmup)"/>
+        <param name="image_topic" value="$(arg image_topic)"/>
+        <param name="camera_timeout" value="$(arg camera_timeout)"/>
+        <param name="max_frame_age" value="$(arg max_frame_age)"/>
+    </node>
+</launch>

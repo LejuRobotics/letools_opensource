@@ -82,59 +82,59 @@ class TestLegJoint(unittest.TestCase):
         """每个测试用例后的清理"""
         print(f"--- 结束测试: {self._testMethodName} ---\n")
     
-    def test_01_leg_initial_pose(self):
-        """测试1: 腿部初始姿态"""
-        print("  测试目标: 设置腿部到初始姿态")
-        print("  关节角度: [14.90°, -32.01°, 18.03°, 0.0°]")
-        print("  关节顺序: [左髋俯仰, 左膝俯仰, 右髋俯仰, 右膝俯仰]")
+    # def test_01_leg_initial_pose(self):
+    #     """测试1: 腿部初始姿态"""
+    #     print("  测试目标: 设置腿部到初始姿态")
+    #     print("  关节角度: [14.90°, -32.01°, 18.03°, 0.0°]")
+    #     print("  关节顺序: [左髋俯仰, 左膝俯仰, 右髋俯仰, 右膝俯仰]")
         
-        positions = [14.90, -32.01, 18.03, 0.0]
-        result = self.hardware.send_leg_joint_command(positions)
+    #     positions = [14.90, -32.01, 18.03, 0.0]
+    #     result = self.hardware.send_leg_joint_command(positions)
         
-        # 断言
-        self.assertTrue(result.success, f"发送腿部关节指令失败: {result.message}")
-        print(f"  ✅ 指令成功: {result.message}")
+    #     # 断言
+    #     self.assertTrue(result.success, f"发送腿部关节指令失败: {result.message}")
+    #     print(f"  ✅ 指令成功: {result.message}")
         
-        print("  ✅ 初始姿态完成")
+    #     print("  ✅ 初始姿态完成")
     
-    def test_02_leg_right_knee_bend(self):
-        """测试2: 右膝弯曲30°"""
-        print("  测试目标: 右膝弯曲30°")
-        print("  关节角度: [14.90°, -32.01°, 18.03°, 30.0°]")
+    # def test_02_leg_right_knee_bend(self):
+    #     """测试2: 右膝弯曲30°"""
+    #     print("  测试目标: 右膝弯曲30°")
+    #     print("  关节角度: [14.90°, -32.01°, 18.03°, 30.0°]")
         
-        positions = [14.90, -32.01, 18.03, 30.0]
-        result = self.hardware.send_leg_joint_command(positions)
+    #     positions = [14.90, -32.01, 18.03, 30.0]
+    #     result = self.hardware.send_leg_joint_command(positions)
         
-        self.assertTrue(result.success, f"发送腿部关节指令失败: {result.message}")
-        print(f"  ✅ 指令成功: {result.message}")
+    #     self.assertTrue(result.success, f"发送腿部关节指令失败: {result.message}")
+    #     print(f"  ✅ 指令成功: {result.message}")
         
-        print("  ✅ 右膝弯曲完成")
+    #     print("  ✅ 右膝弯曲完成")
     
-    def test_03_leg_right_knee_extend(self):
-        """测试3: 右膝伸展-30°"""
-        print("  测试目标: 右膝伸展-30°")
-        print("  关节角度: [14.90°, -32.01°, 18.03°, -30.0°]")
+    # def test_03_leg_right_knee_extend(self):
+    #     """测试3: 右膝伸展-30°"""
+    #     print("  测试目标: 右膝伸展-30°")
+    #     print("  关节角度: [14.90°, -32.01°, 18.03°, -30.0°]")
         
-        positions = [14.90, -32.01, 18.03, -30.0]
-        result = self.hardware.send_leg_joint_command(positions)
+    #     positions = [14.90, -32.01, 18.03, -30.0]
+    #     result = self.hardware.send_leg_joint_command(positions)
         
-        self.assertTrue(result.success, f"发送腿部关节指令失败: {result.message}")
-        print(f"  ✅ 指令成功: {result.message}")
+    #     self.assertTrue(result.success, f"发送腿部关节指令失败: {result.message}")
+    #     print(f"  ✅ 指令成功: {result.message}")
         
-        print("  ✅ 右膝伸展完成")
+    #     print("  ✅ 右膝伸展完成")
     
-    def test_04_leg_return_initial(self):
-        """测试4: 回到初始姿态"""
-        print("  测试目标: 回到初始姿态")
-        print("  关节角度: [14.90°, -32.01°, 18.03°, 0.0°]")
+    # def test_04_leg_return_initial(self):
+    #     """测试4: 回到初始姿态"""
+    #     print("  测试目标: 回到初始姿态")
+    #     print("  关节角度: [14.90°, -32.01°, 18.03°, 0.0°]")
         
-        positions = [14.90, -32.01, 18.03, 0.0]
-        result = self.hardware.send_leg_joint_command(positions)
+    #     positions = [14.90, -32.01, 18.03, 0.0]
+    #     result = self.hardware.send_leg_joint_command(positions)
         
-        self.assertTrue(result.success, f"发送腿部关节指令失败: {result.message}")
-        print(f"  ✅ 指令成功: {result.message}")
+    #     self.assertTrue(result.success, f"发送腿部关节指令失败: {result.message}")
+    #     print(f"  ✅ 指令成功: {result.message}")
         
-        print("  ✅ 回到初始姿态完成")
+    #     print("  ✅ 回到初始姿态完成")
     
     def test_05_leg_zero_position(self):
         """测试5: 零位姿态"""

@@ -1,0 +1,69 @@
+# ============================================================
+# 相机配置模板（提交进仓库）
+#
+# 部署步骤：
+#   1. 复制本文件为 config/camera_config.yaml
+#      cp config/camera_config.template.yaml config/camera_config.yaml
+#   2. 按本机硬件修改下方标注 [必填] 的字段
+#   3. 启动程序。camera_config.yaml 不纳入 git，不会被覆盖或提交。
+#
+# 启动时若找不到 camera_config.yaml，或腕部相机配置不完整，相机初始化会失败并给出提示。
+# ============================================================
+
+camera:
+  # ---------- 总开关 ----------
+  enable_head: true                    # [必填] 是否启用头部 Orbbec 相机（未安装则 false）
+  enable_wrist_camera: false           # [必填] 腕部相机总开关；未安装任何腕部相机时保持 false
+
+  # ---------- 头部 Orbbec 相机（分辨率与帧率，0 表示使用驱动默认值） ----------
+  # 注意：分辨率、帧率需与下游模型输入尺寸匹配，修改前先确认。
+  color_width: 1280
+  color_height: 800
+  color_fps: 15
+  depth_width: 1280
+  depth_height: 800
+  depth_fps: 15
+
+  head_enable_frame_sync: true         # 驱动级帧同步
+  head_depth_registration: true        # 深度与彩色空间配准（D2C）
+  head_enable_point_cloud: false       # 点云仅在业务需要时开启
+  head_enable_colored_point_cloud: false
+
+  # ---------- 头部 RGBD 配对（Adapter 数据面，driver_only 模式下不生效） ----------
+  head_rgbd_sync: true
+  rgbd_sync_queue_size: 5
+  rgbd_sync_slop_sec: 0.040
+  rgbd_require_same_resolution: true
+
+  # 完整 Adapter 模式下等待首组 RGB/深度帧的超时时间（秒）
+  camera_startup_timeout_sec: 10.0
+
+  # 轻量驱动模式：本程序只负责 roslaunch 与静态 TF。
+  # 注意：实际生效值由程序参数 camera_driver_only 决定，此处仅供独立测试脚本使用。
+  driver_only: true
+
+  # ---------- 手腕相机（RealSense） ----------
+  # 某侧仅在 enable_wrist_camera 与 has_*_wrist 同时为 true 时启动。
+  # 未安装的一侧请保持 has_*_wrist: false，序列号可留空。
+  has_left_wrist: false                # [必填] 左腕是否实际安装
+  left_wrist_camera_sn: ""             # [必填] 左腕相机序列号（has_left_wrist 为 true 时必填）
+  has_right_wrist: false               # [必填] 右腕是否实际安装
+  right_wrist_camera_sn: ""            # [必填] 右腕相机序列号（has_right_wrist 为 true 时必填）
+
+  # 腕部 RealSense 分辨率与帧率（左右腕共用）
+  wrist_color_width: 848
+  wrist_color_height: 480
+  wrist_color_fps: 15
+  wrist_depth_width: 848
+  wrist_depth_height: 480
+  wrist_depth_fps: 15
+  wrist_align_depth: true              # 将深度对齐到腕部彩色坐标系
+
+  # RGB 校准叠加（默认关闭）
+  use_wrist_rgb_caminfo_overlay: false
+
+  # ---------- AprilTag / RViz ----------
+  launch_apriltag: false
+  apriltag_topic: /robot_tag_info
+
+  rviz: false

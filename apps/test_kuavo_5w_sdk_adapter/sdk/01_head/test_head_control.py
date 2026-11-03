@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 def test_center(hardware):
     """头部居中"""
     logger.info("=== 测试：头部居中 ===")
-    result = hardware.control_head_sdk(yaw=0.0, pitch=0.0)
+    result = hardware.control_head_sdk(yaw=0.0, pitch=-10.0)
     if result.success:
         logger.info("✅ 头部居中成功")
     else:
@@ -105,11 +105,11 @@ def main():
     try:
         hardware.initialize()
         test_center(hardware)
-        test_look_left(hardware)
-        test_look_right(hardware)
-        test_look_up(hardware)
-        test_look_down(hardware)
-        test_scan_sequence(hardware)
+        # test_look_left(hardware)
+        # test_look_right(hardware)
+        # test_look_up(hardware)
+        # test_look_down(hardware)
+        # test_scan_sequence(hardware)
         logger.info("🎉 头部控制测试完成")
     finally:
         hardware.shutdown()

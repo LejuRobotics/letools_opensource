@@ -6,7 +6,7 @@
 相机 ──► 视觉托盘检测器 ──► /pallet/detection ──► NodePalletObs ──┐
         （在本仓库之外）                            latest_pallet    │
                                                       +_stamp        ├─► NodePalletServo
-相机 ──► carton_box_yolo ──► box_detection ──► /box/detection ──────┤   latest_servo_error
+相机 ──► carton_obb ──────────────────────────► /box/detection ──────┤   latest_servo_error
                                                 NodeBoxObs           │   （e_bottom_px /
                                                 latest_box_obs ──────┘    e_right_px / theta_rad）
 ```
@@ -38,7 +38,7 @@ rostopic echo /pallet_servo/dis
 |---|------|---------|
 | 1 | `pallet_detection_msgs` 编译过 | `python3 -c "from pallet_detection_msgs.msg import PalletDetection"` |
 | 2 | **视觉托盘检测器**在跑、在发 `/pallet/detection` | `rostopic hz /pallet/detection` |
-| 3 | `carton_box_yolo` + `box_detection` 两个包在跑、在发 `/box/detection` | `rostopic hz /box/detection` |
+| 3 | `carton_obb` 在跑、在发 `/box/detection` | `rostopic hz /box/detection` |
 | 4 | `infrastructure/ros_packages` **编译过** | `ls <repo>/infrastructure/ros_packages/devel` |
 | 5 | `pallet_servo_msgs` 编译过（**发话题 + 箱位服务都要它**）| `python3 -c "from pallet_servo_msgs.msg import PalletServoError"` |
 
@@ -51,7 +51,7 @@ rostopic echo /pallet_servo/dis
 
 ## 参数改哪里
 
-**全部在 `board.json`**（本目录），24 个键分三组 `pallet` / `box` / `servo`，
+**全部在 `board.json`**（本目录），44 个键分三组 `pallet` / `box` / `servo`，
 每条带 `remark` 写清什么时候该改它。**改完重启行为树生效。**
 
 ```bash
@@ -63,7 +63,7 @@ grep -n '"key"' board.json     # 看有哪些键
 | 谁读 | 怎么读 |
 |---|---|
 | 行为树内三个节点 | `py_tree.json` 里写 `{"source": "READ_BOARD"}`，节点经黑板取值 |
-| 三个检测器（独立进程，看不见黑板）| `start_all.sh` 从板子读出来，当 `roslaunch` 命令行 arg 传下去 |
+| 两个检测器（独立进程，看不见黑板）| `start_all.sh` 从板子读出来，当 `roslaunch` 命令行 arg 传下去 |
 
 ⚠️ **`py_tree.json` 里那些 `READ_BOARD` 是"值从板子来"的标记 —— 不要把值写回去。**
 写回去等于板子上那份失效，而两处不一致时**没有报错**（节点用 JSON 里那个）。
@@ -77,7 +77,8 @@ grep -n '"key"' board.json     # 看有哪些键
 **不写就是启动即 FAILURE**（`NodePalletObs` 与 `NodePalletServo` 都读它）。
 
 ⚠️ **这个值错了不会报错**，只会让两条参考边投到错的位置 —— 而三个数照样算得出来。
-当前写的是 `[1200.0, 1000.0]`（毫米），**操作员已确认**。
+当前写的是 `[1000.0, 1200.0]`（毫米，按 **[短, 长]** 的顺序；内部取 min/max，
+顺序不影响解算），**操作员已确认**。
 
 ### 坐标系与参考边
 
@@ -87,7 +88,7 @@ grep -n '"key"' board.json     # 看有哪些键
 ⚠️ **轴向是相对相机定的，不是相对托盘物理定的** —— **换工位后必须在叠加图上
 重新确认一次**，别照抄上次的 `ref_edges`。
 
-⚠️ **摆放约定（2026-09-24 操作员确认）**：台面 `[1200, 1000]` mm，**1200 是长边、1000 是短边**。
+⚠️ **摆放约定（2026-09-24 操作员确认）**：台面 1200×1000 mm，**1200 是长边、1000 是短边**。
 摆放时 **短边（1000）与机器人平行**，即**长边（1200）垂直于机器人正面**；
 `origin` 取台面的**左下角**（`e1` 沿长边、`e2` 沿短边，`e1 × e2 = normal` 指向相机）。
 
@@ -136,7 +137,7 @@ grep -n '"key"' board.json     # 看有哪些键
 
 ## 怎么跑
 
-**一条命令起停全栈**（三个检测器 + 行为树）：
+**一条命令起停全栈**（两个检测器 + 行为树）：
 
 ```bash
 cd <repo>/orchestration/scenarios/pallet_servo_real_v1
@@ -152,9 +153,35 @@ bash start_all.sh
 
 `start_all.sh` 做四件事：检查 `roscore` → **把上一轮残留的检测器杀掉重启**
 （它们的参数是上一版 `board.json` 的，沿用等于"改了板子却不生效"）→ 从 `board.json`
-读值、起三个检测器并等三路话题出数 → 前台跑行为树。**Ctrl+C 会连三个检测器一起收。**
+读值、起**两个检测器（待命）**并等它们注册到 master → 前台跑行为树。
+**Ctrl+C 会连检测器一起收。**
 
-⚠️ **线程数不用你 export。** 三个检测器由各自的 launch 用 `<env>` 设
+#### 启动**不等任何检测数据**（2026-10-18 重写）
+
+这条链路是在**码放之前**起的，那时不一定看得见托盘和纸箱。所以：
+
+- 启动脚本**只等"检测器节点注册到 master"**（最多 25s），**不等话题出数**。
+  旧版 `wait_topic` 会在托盘被挡死时必然超时，脚本在行为树起来之前就退出。
+- 两个检测器都带 `gated:=true`：启动时各跑**一帧预热**（托盘首帧 ~3.5s、
+  纸箱首帧实测 **27.8s**），然后**待命** —— 不算、不发布。
+- 只有 `rosservice call /pallet_servo/slot N` 激活档位之后才出数；`slot: 0`
+  之后回到待命。门控由伺服节点广播到 `/pallet_servo/detect_mode`
+  （`0`=全停 / `1`=只要纸箱 / `2`=托盘+纸箱）。
+
+现场流程：
+
+```
+1. 起链路（bash start_all.sh）
+2. 去抓箱子           —— 不用 call 服务
+3. 到放置位置         —— rosservice call /pallet_servo/slot "slot: N"
+4. 放完               —— rosservice call /pallet_servo/slot "slot: 0"
+5. 回到 2，直到全部放完
+```
+
+⚠️ **没有 `--slot` 了**：起链路时还不知道这一趟要不要托盘，档位是运行中切的。
+⚠️ 检测器空闲时日志心跳会写 `门控=关（已预热，待命）` —— 那是正常状态。
+
+⚠️ **线程数不用你 export。** 两个检测器由各自的 launch 用 `<env>` 设
 （`roslaunch` 的 `<env>` 是**覆盖**继承来的环境）；行为树进程是 `python3` 直接起的、
 前面没有 `roslaunch`，由 `start_behavior_tree.sh` 自己设 —— 这两处 2026-09-30 起
 都齐了。**你在终端里手敲的离线脚本 / `rosrun` 单跑还要自己 export**，
@@ -166,11 +193,11 @@ bash start_all.sh
 bash start_behavior_tree.sh
 ```
 
-三个检测器也可以单独起（`roslaunch` 用各自的默认值，**不读 `board.json`**）：
+两个检测器也可以单独起（`roslaunch` 用各自的默认值，**不读 `board.json`**）：
 
 ```bash
 roslaunch pallet_detection pallet_detection.launch
-roslaunch carton_box_yolo carton_box_yolo.launch
+roslaunch carton_obb carton_obb.launch
 roslaunch box_detection box_detection.launch
 ```
 
@@ -183,8 +210,40 @@ roslaunch box_detection box_detection.launch
 rosservice call /pallet_servo/slot "slot: 1"   # 第 1 个箱子（用 ref_edges 第 1 组）
 ```
 
-**`slot` 是箱位号，从 1 数**；`slot: 0` 表示本次伺服结束。板子里 `ref_edges`
-有几组，就能 call 到几。**越界调用返回 `ok=false` 且不改当前状态。**
+**`slot` 是箱位号，从 1 数**；`slot: 0` 表示本次伺服结束。⚠️ **能 call 到几档
+看 `servo_slots`**（`board.json`），不是看 `ref_edges` 有几组 —— 两者**取大的
+那个**才是档位总数（邻居档不读 `ref_edges`，所以 `servo_slots` 更长**是合法
+的**）。**越界调用返回 `ok=false` 且不改当前状态。**
+
+⚠️ **每次搬箱都要自己 call**：`slot: N` 开 → 放完 `slot: 0` 关。检测器跟着
+这个开关走（开档位才出数，`slot: 0` 回待命）。
+
+### 档位表 `servo_slots` 与输出偏置（现场值）
+
+`servo_slots` 决定**每一档走哪条路**：`pallet`（托盘参考边）还是 `neighbor`
+（邻居箱子的边）。当前现场（操作员实调）：
+
+| slot | mode | side | e_right_bias_px | e_bottom_bias_px |
+|---|---|---|---|---|
+| 1 | pallet | — | 0 | 0 |
+| 2 | neighbor | right | −15 | +5 |
+| 3 | pallet | — | 0 | 0 |
+| 4 | neighbor | none | 0 | +5 |
+| 5 | neighbor | left | +15 | +5 |
+
+⚠️ **服务档位 2/3 已按操作员要求对调**：`call 2` 走原第 3 个箱位的邻居档，
+`call 3` 走原第 2 个箱位的托盘档。改 `servo_slots` / `ref_edges` 时按**这张表
+的 slot** 改，不要按物理箱号。
+
+**输出偏置**：`e_right_bias_px` / `e_bottom_bias_px` 是加在**最终输出**上的固定
+偏移（默认 0），`输出 = 算法原始值 + bias`，在写黑板 / 发话题 / 出叠加图之前
+应用 —— 所以叠加图、`/pallet_servo/dis`、`latest_servo_error` 三者一致。它的
+含义是**目标位置偏置**：控制器把 `e_*` 驱到 0，`e_right_bias_px = -15` 就是让
+机械臂停在实际差 +15px 的位置。
+
+- 非法值（非数值 / NaN / inf）→ **启动时报配置错误**，不会静默按 0。
+- 启动日志会打印各档生效值：`档位输出偏置（new = old + bias）：…`。
+- 现场调参只改这里，**不要改算法里的常数**。
 
 ### ⚠️ 跑之前先把日志级别调成 DEBUG
 
@@ -250,5 +309,4 @@ grep '托盘伺服第' log/*.log | tail -30
    （死配置）与**tree 引用了但板上没有**（回退代码默认值）各有一条 WARNING，
    干跑时都会打出来。
 
-6. 本场景的 `start_behavior_tree.sh` 用**脚本位置**推仓库根，不写死部署路径；
-   仓库里另外几份里出现的 `/media/data/LeTools` 是那台机器上的约定，不影响这份。
+6. 本场景的 `start_behavior_tree.sh` 用**脚本位置**推仓库根，不写死部署路径。

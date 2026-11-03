@@ -19,7 +19,7 @@ base_link 系的托盘位姿换到相机系）。TF 那部分单独放在 `TfCam
 from __future__ import annotations
 
 import json
-import math          # HUD 里要把 theta_rad 转成度
+import math          # 参数校验里的 isfinite（角度**不在这里转换**，见 HUD 那段）
 import os
 import re
 import threading     # 底图回调线程与 tick 线程之间的锁
@@ -45,9 +45,15 @@ from skills.atomic.perception.pallet_frame import (
     PalletObservation,
     PairReject,
 )
+from skills.atomic.perception.pallet_servo import neighbor as neighbor_algo
 from skills.atomic.perception.pallet_servo.algorithm import (
     BoxObservation,
     Reject,
+    ServoError,
+    box_corners,
+    box_edges,
+    edge_offset,
+    inward_normal,
     parse_bool_param,
     parse_pair_param,
     parse_ref_edges,
@@ -127,8 +133,7 @@ _OVERLAY_REMIND_TICKS = 30
 def _make_tf_lookup(timeout_sec: float = TF_TIMEOUT_SEC):
     """起一个**非阻塞**的 TF 查询器：`lookup(target, source) -> 4x4 | None`。
 
-    形态照抄 `apps/test_camera_internal/pallet_calibration/pallet_calibrate.py`
-    的 `make_tf_lookup()`（`:95-115`），只把 `rospy.Duration(1.0)` 换成短超时
+    形态沿用标定工具中的 TF 查询实现，只把 `rospy.Duration(1.0)` 换成短超时
     —— 标定是离线的，等一秒无所谓；伺服是每帧的，等一秒就把环路卡死了。
 
     没有 ROS（或起了监听但连不上 master）时返回 None，调用方据此走参数/单位阵
@@ -530,13 +535,40 @@ class NodePalletServo(BaseAction):
                             * `[["y=0","x=1200"], ["y=800","x=1200"]]` —— N 组，
                               服务里第 N 个箱子用第 N 组
                           每组两条边，第 1 个是底边、第 2 个是右边。
+                          ⚠️ **档位总数 = `ref_edges` 组数与 `servo_slots` 长度
+                          的较大者**（2026-10-17）。比 `servo_slots` **短**是允许
+                          的（后面几档按 `pallet` 兜底，那些档照样有参考边）—— 但
+                          那时**档位数不受它限制**，多出来的邻居档照常能 call。
                           **启动时是"未激活"**（`_active_slot == 0`）：一帧有效数都不
                           出，话题上发 `valid=false` 的「伺服未启动」—— 要
                           `rosservice call /pallet_servo/slot "slot: N"` 才出数，
                           `slot: 0` 结束本次伺服。⚠️ **服务从 1 数、数组从 0 数**
                           选错边不会有任何报错（三个数照样算得出来，只是基准是
                           隔壁箱位的）
-        pallet_size_mm    台面尺寸 [W, H] 毫米；不给就从 config_path 读
+        servo_slots        **每个箱位走哪一套伺服**（2026-10-17 加），形状
+                          `[{"slot": 1, "mode": "pallet"},
+                            {"slot": 3, "mode": "neighbor", "side": "right"}, ...]`。
+                          `mode` 只认 `pallet` / `neighbor`，`side` 只认
+                          `left` / `right` / `none`（**画面口径**），写错**启动时**
+                          报配置错误（不会静默按 pallet 跑 —— 那会让本该走邻居的
+                          档拿"托盘看不见"的位姿去算，而照样算得出三个数）。
+                          **不配 / 配成空数组 = 全部按 `pallet`**，行为与加这个键
+                          之前完全一致。表比 `ref_edges` 短是合法的（后面几档都走
+                          老路线）。**比它长也是合法的 —— 只要多出来那几档是
+                          `neighbor`**（邻居档不读参考边；`ref_edges` 只是"档位
+                          总数"的定义源之一，见 `initialise()` 里逐档判那一段）。
+                          多出来那档若是 `pallet` 则**启动时报配置错误**。
+                          可选 `"e_right_bias_px"` / `"e_bottom_bias_px"`：该档
+                          最终的 `e_right` / `e_bottom` 加对应偏置
+                          （`输出 = 原始值 + bias`，服务/话题/叠加图用的都是
+                          加过的量）。默认都是 0。
+        candidates_key    邻居路线读的**候选列表**键，默认 latest_box_candidates
+                          （`NodeBoxObs` 写）。只有 `mode == "neighbor"` 的档用
+                          它；托盘路线一个字都不看
+        pallet_size_mm    台面尺寸 [W, H] 毫米。**运行时优先用上游检测器上报的
+                          `{pallet_key}_size_mm`**；这个参数只是上游还没出结果时
+                          的兜底（再退到 config_path）。主流程已不配它，pallet 档
+                          会等上游尺寸；neighbor 档不需要尺寸
         config_path       标定结果路径，默认 config/pallet_tag.yaml
         K                 相机内参 3x3（**必须是嵌套的 3 行 x 3 列**；平铺 9 个数
                           不算，形状不对在启动时就被拒）。
@@ -572,7 +604,7 @@ class NodePalletServo(BaseAction):
                           ≈ **500 ms**。**必须大于托盘检测器的端到端延迟**，否则
                           慢的那一路交出来的帧早被挤出去了，配对只会一直报
                           `pair_none` / `pair_dt`
-        window            成对序列上的窗长，默认 5（1 = 不平滑）
+        window            成对序列上的窗长，默认 3（1 = 不平滑）
         agg               多对的聚合方式，**只认 "mean" / "median"**，默认 "mean"；
                           拼错退回 "mean" 并记 WARNING（可见性归本层，A3）
         stale_s           配对成功后这一对有多旧算陈旧（0 = 不查），默认 0.0。
@@ -593,12 +625,26 @@ class NodePalletServo(BaseAction):
         dump_min_interval_sec  两份 dump 之间至少隔多久，默认 1.0 s（见
                           `DUMP_MIN_INTERVAL_SEC`）；要每帧一份就设 0
         overlay_out       叠加图发到哪个话题，默认 /pallet_servo/overlay；
-                          **给空串 = 完全不发图**（省 CPU、省带宽）
+                          **给空串 = 完全不发图**（省 CPU、省带宽）。
+                          ⚠️ **不是"算出三个数"才发**：托盘与纸箱**各画各的**，
+                          缺哪一路就不画哪一层（含未激活与被拒的帧）——
+                          只发全套的那种做法会让"只有一边有结果"的帧整张图消失，
+                          而现场分不出那是**这一路检测没出东西**还是
+                          **叠加图这条链坏了**。HUD 上写明缺在哪一步
         overlay_period_s  发图的降频周期，默认 0.2 s。伺服 10 Hz，图 5 Hz 就够看，
                           而画图 + 编码不便宜
         image_color       底图话题，默认 /camera/color/image_raw
-        box_uv_in         YOLO 框话题（**只为画图**），默认 /box/yolo_box；
-                          缺了不影响出数，只是图上少一层灰框
+        servo_error_out   伺服误差发到哪个话题，默认 /pallet_servo/dis；
+                          **给空串 = 完全不发**（连发布器都不建）。它是
+                          **功能性输出**（下游控制器要用），默认**开**
+        servo_error_heartbeat_s  无效帧的重发周期，默认 1.0 s。`0` = 只在内容
+                          改变时发 —— 但要接受"停摆了就彻底没消息"，那与
+                          "话题名写错了"分不开
+
+        ⚠️ 从前还有一个 `box_uv_in`（默认 `/box/yolo_box`）用来在叠加图上画灰框，
+        **2026-10-15 连同那条话题一起删了**：它发的是箱子四角的轴对齐包围盒，而
+        黑板上的 `BoxObservation.u1/v1/u2/v2` 本来就是同一个数（`node_box_obs` 用
+        `min/max(corners)` 填的）。现在灰框直接从手上那个 `box` 算，少一路订阅。
     """
 
     def __init__(self, name, label, namespace, params):
@@ -607,10 +653,37 @@ class NodePalletServo(BaseAction):
         self._box_key = str(self.params.get("box_key", "latest_box_obs"))
         self._key = str(self.params.get("key", "latest_servo_error"))
         # 参考边**槽位表**：第 N 组服务里第 N 个箱子用。形状归一在这里做，
-        # 合法性（`parse_ref_edges` + 绝对写法的范围）在 `initialise()` 里做
-        # —— 范围校验要尺寸，尺寸那时才定。
+        # 合法性（`parse_ref_edges`：写法 + 不平行）在 `initialise()` 里做。
         self._slots = _normalize_slots(self.params.get("ref_edges",
                                                        ["y=0", "x=W"]))
+        # ★ **每个箱位走哪一套伺服**（2026-10-17 加）：托盘路线还是邻居路线。
+        #   形状归一在这里做，合法性（`mode` / `side` 的白名单）**也在这里判** ——
+        #   它不依赖尺寸，没有"等 `initialise()` 才有参照物"这回事（与
+        #   `ref_edges` 的绝对写法不同），所以当场就能报。
+        #   ⚠️ **缺省 = 全部按 `pallet`**：行为与加这个键之前**逐字节一致** ——
+        #      没配这个键的板子（全仓除了本场景之外一个都没有）一行都不用动。
+        self._slot_modes, mode_err = _normalize_servo_slots(
+            self.params.get("servo_slots"))
+        # ⚠️ **不在这里写 `self._config_err`**：它要到下面（K/D/image_size 那一段）
+        #    才被置成 `None` 再逐项折进来，写在这里会被那一句擦掉。所以先存着，
+        #    由那一段一次性 `or` 进去。
+        self._servo_slots_err = mode_err
+        # ★ **档位总数 = 两者的较大者**（2026-10-17 加）。`ref_edges` 从前是
+        #   档位数量的**唯一**定义源（服务、叠加图、日志都按它数），于是
+        #   `servo_slots` 比它长时多出来的那几档**永远 call 不到** —— 真机实测
+        #   4 组 ref_edges + 5 档表 → 第 5 档被拒成"表里只有 4 组"。邻居档
+        #   根本不读 `ref_edges`，所以"表更长"本身完全合法。
+        #   ⚠️ `servo_slots` **短**时取 `len(self._slots)`：后面几档没写就按
+        #      `pallet` 兜底（`_slot_mode_of` 的既有行为，那个兜底要求有参考边
+        #       —— `initialise()` 里有逐档校验兜着）。
+        #   这里只算长度，**合法性的判定在 `initialise()`**（那里才报得出配置
+        #   错误）：`servo_slots` 比 `ref_edges` 长、且多出来那档是 `pallet`，
+        #   是真错（pallet 档必须有基准）。
+        self._total_slots = max(len(self._slots), len(self._slot_modes))
+        # 候选列表的键：邻居路线要用它（`node_box_obs` 写、本节点读）。
+        # 键名可配，与生产者那边的 `candidates_key` 是**同一串默认值**。
+        self._candidates_key = str(self.params.get(
+            "candidates_key", "latest_box_candidates")).strip()
         # **启动时未激活**（0）：没 call 过服务之前一帧有效数据都不出。
         # 隐式假设"默认第 1 组"会在板子加了箱位、或换场景从第 2 组开始时
         # **静默用错** —— 那是最难查的一类错。
@@ -691,7 +764,7 @@ class NodePalletServo(BaseAction):
             self.params.get("max_dt_s", 0.05), 0.05, "max_dt_s")
         self._pair_cache = _int_at_least(
             self.params.get("pair_cache", 5), 1, 5, "pair_cache")
-        self._window = _int_at_least(self.params.get("window", 5), 1, 5, "window")
+        self._window = _int_at_least(self.params.get("window", 3), 1, 3, "window")
         # `agg` 的**白名单规范化**（addendum A3）：`average_pairs` 对拼错的 `agg`
         # 静默退回 `mean`（那是有意的 —— 纯函数、零状态、不 log），所以**可见性
         # 归本层**：这里读的是 ROS rosparam / 场景 JSON，认不出来就在这里说。
@@ -736,6 +809,12 @@ class NodePalletServo(BaseAction):
         # 上一次推给窗的版本号 —— 判"有没有新的观测"
         self._last_pallet_version = -1
         self._last_box_version = -1
+        # ★ **邻居路线的输入去重键** `(箱子版本, 候选版本)`。行为树主循环固定
+        #   50Hz，邻居路线不走配对窗 —— 不去重就是每个 tick 重算同一个框
+        #   （实测话题上 50Hz，而相机只有 30Hz、检测器还更慢）。
+        #   `None` = 还没算过（换档位 / 复位时也要清回 None，否则新档位第一帧
+        #   会拿"上一档算过的那一对版本"当自己的、白等一拍）。
+        self._last_neighbor_key = None
         # 存活闸的两个时钟（`time.monotonic()`，与 stamp 的时钟无关）
         self._last_pallet_seen = 0.0
         self._last_box_seen = 0.0
@@ -767,12 +846,18 @@ class NodePalletServo(BaseAction):
         self._image_color_topic = str(self.params.get(
             "image_color", "/camera/color/image_raw"))
         # **只为画 YOLO 框**。缺了不影响出数 —— 只是图上少一层灰框。
-        self._box_uv_topic = str(self.params.get("box_uv_in", "/box/yolo_box"))
         self._overlay_pub = None
         self._color_sub = None
-        self._box_uv_sub = None
+        # ---- 检测门控（2026-10-18）------------------------------------------
+        # 见 `initialise()` 里建发布器那一段。`_last_detect_mode` 用来"变了立刻发、
+        # 没变每秒补一条"（补的那条防检测器重启后收不到状态）。
+        self._detect_mode_topic = str(self.params.get(
+            "detect_mode_topic", "/pallet_servo/detect_mode")).strip()
+        self._detect_mode_pub = None
+        self._detect_mode_msg = None
+        self._last_detect_mode = None
+        self._last_detect_mode_t = 0.0
         self._last_color = None            # 回调线程写、update() 读
-        self._last_box_uv = None
         self._overlay_lock = threading.Lock()
         self._last_T_cam_pallet = None      # render 要的相机系托盘位姿
         self._last_overlay_t = 0.0
@@ -812,15 +897,32 @@ class NodePalletServo(BaseAction):
         self._last_error_pub_key = None
         self._last_error_pub_t = 0.0
         self._last_pair_stamp = 0.0
+        # ⚠️ **"检测停了但还没到告警阈值"那段静默期**（2026-10-10 加）。
+        # 检测一停，`PalletFrameWindow.resolve()` 就返回 `None`，而**"正常去重"
+        # 与"某一侧停摆"共用这个返回值** —— 于是那一段我们**什么都不发**，下游
+        # 拿到的还是最后一条 `valid=true` 的消息，就照它一直走。操作员原话：
+        # "一旦托盘识别停止…就会出现一直以之前的误差值伺服的情况，导致机器人
+        # 一直朝一个方向移动。"
+        #
+        # `_check_liveness` 用的是 `live_timeout_s`（board 默认 **5.0s**），
+        # 那是**告警**阈值、也是发 invalid 的起点 —— 5 秒对控制器太长。
+        # 这里另加一条**只判"多久没出数"**的阈值：超过它就发 `valid=false`，
+        # 但**不**去动 `live_timeout_s`（那会让停摆告警变吵）。
+        # 取 0.5s = 5 个图像周期（10Hz），正常去重（相邻 tick 同一对）不会触发。
+        self._servo_error_stale_s = _float_or(
+            self.params.get("servo_error_stale_s"), 0.5,
+            "servo_error_stale_s")
+        # 上一次**成功出数**（`valid=True`）的 monotonic 时刻。`None` = 还没出过数
+        # （那种情况由配置错误/配对失败那几条路各自发，不归这条管）。
+        self._last_ok_mono = None
         # 本 tick 该发的无效帧文案（`_paired_inputs` 在内部设）。
         # ⚠️ **必须在 `update()` 每 tick 开头重置成 `None`** —— 否则上一 tick 的
         #    拒绝文案会粘住，这一 tick 明明没拒绝却照发一条无效帧。
         self._pending_reject = None
 
-        # `ref_edges` 的校验**挪到 `initialise()`**（那里才有尺寸）：绝对写法
-        # `y=<毫米>` 的范围要跟台面尺寸比，而 `self._size` 是 `initialise()` 里
-        # 经 `_resolve_size()` 拿到的。在这里查只能查到语法，查不到范围 ——
-        # 半查不如把整段挪到一起，让它一次报全。
+        # `ref_edges` 的**整表**校验放在 `initialise()`（那里能一次报全）：
+        # 只查写法与"两条不平行"；绝对写法**允许落在台面外**（参考边是操作员
+        # 想对齐的位置，2026-10-26 操作员裁定）。
         self._config_err = None
 
         # ---------------------------------------------------------------- 内参
@@ -850,7 +952,8 @@ class NodePalletServo(BaseAction):
         self._D_param, d_err = _matrix_or_none(self.params.get("D"), None, "D")
         self._image_size_param, s_err = parse_pair_param(
             self.params.get("image_size"), "image_size")
-        self._config_err = self._config_err or k_err or d_err or s_err
+        self._config_err = (self._config_err or k_err or d_err or s_err
+                            or self._servo_slots_err)
 
         self._K = None
         self._D = None
@@ -901,7 +1004,12 @@ class NodePalletServo(BaseAction):
                     # 上游报的尺寸（`NodePalletObs` 写）—— 每 tick 在
                     # `_resolve_size()` 里读；漏了注册就是 KeyError 掀翻整棵树
                     self._size_key,
-                    self._box_key, f"{self._box_key}_version"):
+                    self._box_key, f"{self._box_key}_version",
+                    # ★ 候选列表（`NodeBoxObs` 写）—— 邻居路线专用。与老键一样
+                    #   必须进 READ 注册：`read_blackboard()` 只接 `KeyError`，
+                    #   没注册就是 **AttributeError 一路抛穿 `update()`**，而
+                    #   py_trees 不接那个异常 → 整棵树连每帧日志一起没。
+                    self._candidates_key, f"{self._candidates_key}_version"):
             self.global_blackboard.register_key(
                 key=key, access=py_trees.common.Access.READ)
         for key in (self._key, f"{self._key}_version"):
@@ -1082,6 +1190,7 @@ class NodePalletServo(BaseAction):
         self._pairing.reset()
         self._last_pallet_version = -1
         self._last_box_version = -1
+        self._last_neighbor_key = None
         # 存活闸的两个时钟也按运行重整（否则重进之后立刻误报一次"停摆"）
         _mono = time.monotonic()
         self._last_pallet_seen = _mono
@@ -1122,27 +1231,22 @@ class NodePalletServo(BaseAction):
 
         self._size = self._resolve_size()
         if self._size is None:
-            # **参数那条排第一**（M5）：新链路走 `pallet_size_mm` rosparam，
-            # **不需要** apriltag 标定。原来的文案把"先跑 pallet_calibrate.py
-            # 生成 config/pallet_tag.yaml"放在第一位，而那是**旧链路**的产物、
-            # 仓库里根本没有这个文件 —— 照它去做的操作员会卡在一条死路上
-            # （而这正是新链路最常见的配置错误）。`config_path` 仍然保留为
-            # "参数没给时的兜底读法"，但不再作为推荐路径出现。
-            self.feedback_message = (
-                f"没有台面尺寸 —— 给 **pallet_size_mm** 参数（[W, H] 毫米，例如 "
-                f"[1200, 1000]）即可。**新链路不需要 apriltag 标定**："
-                f"`config/pallet_tag.yaml` 是旧产物、已废弃，仓库里没有它；"
-                f"`config_path`（当前 {self._config_path}）只是参数没给时的兜底读法")
-            self._log_config_error(self.feedback_message)
-            return
+            # 2026-10-26 操作员裁定：主流程的 `place_servo_pallet_size_mm` 已删，
+            # 尺寸只从**检测器上报**的 `latest_pallet_size_mm` 来。启动时还没有
+            # 检测结果，尺寸为 None 是**正常状态**，不能当配置错误把节点卡死：
+            #   * `pallet` 档：`update()` 里等上游尺寸，等到之后照常算；
+            #   * `neighbor` 档：本来就不用尺寸，照常出数。
+            logger.info("台面尺寸暂未取到（检测器尚未上报 %s）；"
+                        "pallet 档会等它，neighbor 档不受影响", self._size_key)
 
-        # ★ 参考边**整表**校验：每一组都要合法，且绝对写法在范围内。
+        # ★ 参考边**整表**校验：只查写法与"两条不平行"（绝对写法允许落在
+        #   台面外 —— 参考边是操作员想对齐的位置，不是物理托盘约束）。
         #   **不留到轮到它才发现** —— 那时箱子已经在托盘上了，前一个白搬。
         #   `_config_err` 按本文件既有口径**不带前缀**（`k_err` / `d_err` /
         #   `s_err` 都不带），前缀由下面那个唯一的报出点统一加。
-        if self._size is not None and self._config_err is None:
+        if self._config_err is None:
             for index, slot in enumerate(self._slots, start=1):
-                parsed_slot = parse_ref_edges(slot, self._size)
+                parsed_slot = parse_ref_edges(slot)
                 if isinstance(parsed_slot, Reject):
                     self._config_err = (f"ref_edges 第 {index} 组 {slot!r} "
                                         f"不合法：{parsed_slot}")
@@ -1158,6 +1262,60 @@ class NodePalletServo(BaseAction):
             self._log_config_error(self._config_err)
             self.feedback_message = f"配置错误 —— {self._config_err}"
             return
+
+        # ★ **档位总数 = `ref_edges` 与 `servo_slots` 的较大者**，而**每一档
+        #   都要说得清用什么基准**（2026-10-17 修，起因是真机实测）。
+        #
+        #   上一版这里是"`servo_slots` 更长就把多出来的**截掉** + 一条 WARNING"。
+        #   那是个**功能死角**：`_activate_slot` 与 `self._slots[...]` 两处都按
+        #   `len(ref_edges)` 算档位总数，于是 `ref_edges` 只有 4 组时
+        #   `rosservice call ... "slot: 5"` **永远切不过去**（真机报"表里只有 4
+        #   组"），而板子上第 5 档明明写着 `neighbor`。截断还让"本该走邻居的那几
+        #   档悄悄走了托盘路线"，托盘被挡死时**一声不响**。
+        #
+        #   正确的判据**不是"两边必须一样长"**，而是分开看每一档：
+        #     * **`pallet` 档必须有 `ref_edges`** —— 托盘路线的基准就是它，
+        #       缺了就只能报错（那种帧静默算得出三个数，最难查）；
+        #     * **`neighbor` 档不需要 `ref_edges`** —— 它的基准是别的箱子的边。
+        #       所以 `servo_slots` 比 `ref_edges` 长时，**只要多出来那几档都是
+        #       neighbor 就合法**（4 组 ref_edges + 5 档表正属此列）。
+        #     * `servo_slots` **短**是合法的（保持原设计）：后面几档没写就按
+        #       `pallet` 兜底，而那些档有 `ref_edges`（上面第一条保证）。
+        #
+        #   ⚠️ **`ref_edges` 不是"只有 1、2 箱才用"**：邻居档虽然不读它，但它是
+        #   **档位总数的定义源**（服务与叠加图都按它数）。这就是"为什么 5 箱也会
+        #   出问题"—— 档位数被它卡在 4。
+        total_slots = self._total_slots
+        for index in range(1, total_slots + 1):
+            mode, _side = _slot_mode_of(self._slot_modes, index - 1)
+            if mode == "pallet" and index > len(self._slots):
+                self._config_err = (
+                    f"servo_slots 第 {index} 档是 pallet，但 ref_edges 只有 "
+                    f"{len(self._slots)} 组 —— **pallet 档必须有参考边**。"
+                    f"补一组 ref_edges（可以照抄上一组占位），"
+                    f"或者把这一档改成 neighbor")
+                break
+        if self._config_err:
+            self._log_config_error(self._config_err)
+            self.feedback_message = f"配置错误 —— {self._config_err}"
+            return
+
+        # 档位偏置在启动时说清楚：它不改变三个数的算法，只改**输出**，现场
+        # "配了没生效"只能从机械臂停的位置倒推 —— 先让日志给出这个数。
+        bias_notes = []
+        for index in range(1, total_slots + 1):
+            right_bias = _slot_bias_of(self._slot_modes, index - 1, "right")
+            bottom_bias = _slot_bias_of(self._slot_modes, index - 1, "bottom")
+            parts = []
+            if right_bias:
+                parts.append(f"e_right {right_bias:+g}px")
+            if bottom_bias:
+                parts.append(f"e_bottom {bottom_bias:+g}px")
+            if parts:
+                bias_notes.append(f"第 {index} 档 " + "/".join(parts))
+        if bias_notes:
+            logger.info("档位输出偏置（new = old + bias）：%s",
+                        "，".join(bias_notes))
 
         # ⚠️ **TF 监听必须在尺寸检查之后才起。** py_trees 的 `Behaviour.tick()`
         # 对"状态不是 RUNNING"的行为**每 tick 重进 `initialise()`
@@ -1191,15 +1349,9 @@ class NodePalletServo(BaseAction):
                 self._color_sub = rospy.Subscriber(
                     self._image_color_topic, Image, self._on_color,
                     queue_size=1, buff_size=2 ** 24, tcp_nodelay=True)
-                if self._box_uv_topic:
-                    from geometry_msgs.msg import PolygonStamped
-                    self._box_uv_sub = rospy.Subscriber(
-                        self._box_uv_topic, PolygonStamped, self._on_box_uv,
-                        queue_size=1, tcp_nodelay=True)
-                logger.info("NodePalletServo 可视化 → %s（底图 %s，YOLO 框 %s，"
-                            "每 %.2fs 一帧）", self._overlay_out,
-                            self._image_color_topic,
-                            self._box_uv_topic or "不订", self._overlay_period_s)
+                logger.info("NodePalletServo 可视化 → %s（底图 %s，每 %.2fs 一帧）",
+                            self._overlay_out, self._image_color_topic,
+                            self._overlay_period_s)
             except Exception as exc:                     # noqa: BLE001
                 # **绝不抛**：可视化是诊断设施，不该有能力把节点弄死。
                 logger.warning("NodePalletServo 可视化起不来（%s）—— 不出图，"
@@ -1233,6 +1385,47 @@ class NodePalletServo(BaseAction):
                     exc)
                 self._servo_error_pub = None
 
+        # ---- 检测门控：告诉两个检测器"现在要不要出数" -----------------------
+        #
+        # 2026-10-18 加。现场流程是"先抓箱、到位后才 call slot"，而码放之前
+        # **不一定看得见托盘和纸箱** —— 检测器一直跑只会白烧 GPU、把日志灌满
+        # 拒绝帧，启动脚本也没法"等到有数据"。
+        #
+        # 语义（`std_msgs/Int32`，**latched**：后启动的检测器也能立刻拿到当前值）:
+        #   0 = 两个都停（未激活）
+        #   1 = 只要纸箱（neighbor 档）
+        #   2 = 托盘 + 纸箱（pallet 档）
+        # 检测器那边的门控与预热见各自的节点（`~gated`）。
+        if self._detect_mode_pub is None and not is_dry_run():
+            # ⚠️ "没有 rospy / 没有 init_node" 是**离线或单测**，不是故障 ——
+            #    按 DEBUG 处理，不占 WARNING（否则每次离线跑都多一条假告警，
+            #    把真正的"消息包没编译"淹掉：与 `live_timeout_s` 那条 F1 同一个病）。
+            try:
+                import rospy
+            except Exception:                            # noqa: BLE001
+                rospy = None
+            if rospy is None or not _ros_node_initialized(rospy):
+                logger.debug("NodePalletServo 检测门控：没有 rospy / 没 init_node，"
+                             "不建发布器（离线或单测）")
+            else:
+                try:
+                    from std_msgs.msg import Int32
+
+                    self._detect_mode_pub = rospy.Publisher(
+                        self._detect_mode_topic, Int32, queue_size=1,
+                        latch=True)
+                    self._detect_mode_msg = Int32
+                    logger.info("NodePalletServo 检测门控 → %s"
+                                "（0=全停 / 1=纸箱 / 2=托盘+纸箱）",
+                                self._detect_mode_topic)
+                except Exception as exc:                 # noqa: BLE001
+                    # 门控起不来 = 检测器按 `~gated=false` 的默认值一直算
+                    # （fail-open）。不影响伺服正确性，只是白烧 GPU。
+                    logger.warning(
+                        "NodePalletServo 检测门控话题起不来（%s）—— 检测器会一直跑"
+                        "（功能正常，只是白烧 GPU、日志更吵）", exc)
+                    self._detect_mode_pub = None
+
         # ---- 开关服务：切箱位 / 停止 ----------------------------------------
         # 三重纪律与发布器那段一致：`_ros_node_initialized` 守卫（没有
         # `init_node()` 就没有 ROS，离线跑 / 单测**不建、不吵**）+ 整段包 try
@@ -1258,9 +1451,16 @@ class NodePalletServo(BaseAction):
 
                     self._slot_srv = rospy.Service(
                         "/pallet_servo/slot", SetServoSlot, _handle_set_slot)
+                    # ⚠️ **档位数说 `_total_slots`，不说 `len(self._slots)`**
+                    #    （2026-10-17 改）。两个数不等时（`servo_slots` 比
+                    #    `ref_edges` 长、多出来的是 neighbor），这条 INFO 从前
+                    #    写的是参考边组数 —— 现场照着它判断"能 call 到几档"，
+                    #    于是以为第 5 档不存在。参考边组数单独写出来仍有用
+                    #    （它决定前几档的基准），所以两个数**都**报。
                     logger.info("NodePalletServo 箱位服务 → /pallet_servo/slot"
-                                "（%d 组参考边，启动时未激活 —— 要 call 一次）",
-                                len(self._slots))
+                                "（%d 档，其中 %d 档有参考边；"
+                                "启动时未激活 —— 要 call 一次）",
+                                self._total_slots, len(self._slots))
             except Exception as exc:                     # noqa: BLE001
                 logger.warning(
                     "NodePalletServo 箱位服务起不来（%s）—— **节点会一直停在"
@@ -1271,12 +1471,13 @@ class NodePalletServo(BaseAction):
         # §6.2「初始化 INFO」：把决定口径的东西全打出来。现场出问题时，
         # 第一件要核对的就是这里的 K/ref_edges 有没有和离线点点时用的一致。
         logger.info(
-            "NodePalletServo 初始化：keys=(%s, %s) -> %s 参考边=%d组 第1组=%s "
+            "NodePalletServo 初始化：keys=(%s, %s) -> %s 档位=%d档(参考边=%d组) "
+            "第1组=%s "
             "pallet_size_mm=%s use_distortion=%s K=%s D=%s image_size=%s "
             "内参来源=%s camera_frame=%s base_frames=%s dump=%s "
             "pallet_frame=%s 配对=%s 存活闸=%ss overlay=%s 伺服误差=%s(心跳 %ss)",
             self._pallet_key, self._box_key, self._key,
-            len(self._slots), self._slots[0],
+            self._total_slots, len(self._slots), self._slots[0],
             self._size, self._use_distortion, np.round(self._K, 3).tolist(),
             None if self._D is None else np.round(self._D, 6).tolist(),
             self._image_size, self._intrinsics_src,
@@ -1291,7 +1492,11 @@ class NodePalletServo(BaseAction):
             self._overlay_out or "不订",
             self._servo_error_out or "不发",
             f"{self._servo_error_heartbeat_s:g}")
-        self.feedback_message = f"就绪：{len(self._slots)} 组参考边 尺寸={self._size}"
+        # ★ 报的是**档位数**（不只参考边组数）：现场靠这句话判断"能 call 到几
+        #   档"，而两者不等时（5 档表 + 4 组参考边）从前那句话报的是 4。
+        self.feedback_message = (f"就绪：{self._total_slots} 档"
+                                 f"（参考边 {len(self._slots)} 组）"
+                                 f" 尺寸={self._size}")
 
     def _log_config_error(self, message: str) -> None:
         """配置错误的 ERROR **去重** —— 同一句在一次进程里只落一条。
@@ -1372,6 +1577,9 @@ class NodePalletServo(BaseAction):
             return Status.SUCCESS
         # 上一 tick 的无效帧文案不许粘到这一 tick（见 `__init__` 里那个槽位的注释）
         self._pending_reject = None
+        # 本 tick 的单调时钟。停发判定（`servo_error_stale_s`）要用它 ——
+        # 与 stamp 的时钟无关（stamp 可能是仿真/回放时间，拿它算"多久没出数"会胡说）。
+        self._mono = time.monotonic()
         # 本 tick 的槽位快照。服务回调跑在 ROS 线程、随时可能改 `_active_slot`，
         # 所以**只在函数开头读一次**；本函数里"这一帧用哪组参考边"的地方全用
         # 这个局部量。否则同一帧可能配对窗按旧基准复位、参考边按新基准算，出
@@ -1382,9 +1590,19 @@ class NodePalletServo(BaseAction):
         #   不会自己变好），而"未激活"是一种**正常的运行状态**（在等操作员 call
         #   服务）。顺序反了的话，配置错时现场只看得到"伺服未启动"，照做 call
         #   完服务才发现是配置错 —— 陷入"反复 call 却什么都没变"。
-        if self._config_err or self._size is None:
+        #
+        # ⚠️ **尺寸为 None 不再算配置错误**（2026-10-26）：主流程的
+        #    `place_servo_pallet_size_mm` 已删，尺寸只从检测器上报的
+        #    `latest_pallet_size_mm` 来。启动时/托盘未检出时它本来就是 None，
+        #    pallet 档在下面等它，neighbor 档根本不用它。
+        if self._config_err or self._intrinsics_err:
             # `initialise()` 已经把详细文案写进 `feedback_message` 了。
             # 发布器的**心跳承诺不能断**，所以这一支也要发无效帧。
+            # ⚠️ **这一支不出图**：配置错误是**静态的启动问题**，`initialise()`
+            #    里已经按 `_log_config_error` 报了（那条 ERROR 比图上多一行字
+            #    清楚得多）；而这条路的 `_ticks` 不增（它在 `update()` 靠后），
+            #    出图会把 `_log_overlay_counts` 的节流分母钉死在 0 上 → 每 tick
+            #    一条 INFO，反而把现场淹掉。
             self._publish_invalid(self.feedback_message or "配置错误")
             return Status.FAILURE
 
@@ -1395,6 +1613,14 @@ class NodePalletServo(BaseAction):
         # 上游是**逐帧**上报的，而黑板那个键在检测器还没出结果时是 `None`。
         # 在启动时取会把 `None` 固化下来 —— 那就等于"永远用配置"，白改。
         self._size = self._resolve_size()
+
+        # ★ **检测门控**（2026-10-18）：按当前档位告诉两个检测器要不要出数。
+        #   必须放在**未激活早退之前** —— 否则 `slot: 0` 之后"全停"那条永远
+        #   发不出去，检测器会一直跑（白烧 GPU、日志灌满拒绝帧）。
+        _slot_mode_now, _ = (
+            _slot_mode_of(self._slot_modes, slot - 1) if slot > 0
+            else ("pallet", "none"))
+        self._publish_detect_mode(slot, _slot_mode_now)
 
         # ★ 未激活：**什么都不算**（配对、投影全跳过），但**照发**一条无效帧。
         #   不发的话下游分不清「伺服结束了」与「行为树挂了」—— 而这两种的
@@ -1408,6 +1634,14 @@ class NodePalletServo(BaseAction):
             self.feedback_message = "伺服未启动（call /pallet_servo/slot N）"
             self._log_throttled("未激活：%s", self.feedback_message)
             self._publish_invalid(self.feedback_message)
+            # ★ 未激活也出图（诊断设施就该在"什么都没动"时也能看）：
+            #   `slot=0` 时 `ref_edges=None`，于是不画参考边，但托盘台面、
+            #   箱子四角该有还是有 —— 正是"到底哪一路没出东西"要看的。
+            self._maybe_publish_overlay(
+                None, slot,
+                pose=read_blackboard(self.global_blackboard, self._pallet_key),
+                box=read_blackboard(self.global_blackboard, self._box_key),
+                reason=self.feedback_message)
             return Status.RUNNING
 
         # ★ 槽位换了 → 把配对窗的水位线清掉重算。
@@ -1426,6 +1660,9 @@ class NodePalletServo(BaseAction):
             self._pairing.reset()
             self._last_pallet_version = -1
             self._last_box_version = -1
+            # ★ 档位换了：邻居路线的输入去重键也要清 —— 不清的话新档位的第一帧
+            #   会因为"版本号没变"被当成重复帧跳过（白等一拍）。
+            self._last_neighbor_key = None
             self._versions_seen = None
 
         self._ticks += 1
@@ -1435,16 +1672,80 @@ class NodePalletServo(BaseAction):
         pose_version = self._version_of(self._pallet_key, pose)
         box = read_blackboard(self.global_blackboard, self._box_key)
         box_version = self._version_of(self._box_key, box)
+        # 邻居路线还要看**候选列表**的版本：被选中的那个箱子可能没动，而邻居动了
+        # （`node_box_obs` 已经把它们一起放进自己的去重键里）。只在邻居档用得上，
+        # 每 tick 多读一个键，代价可以忽略。
+        # ⚠️ 把**值**一起传给 `_version_of`：生产者"写了候选却没写 _version"时
+        #    要靠它喊一声 —— 否则版本恒为 0，邻居路线第一次之后**永远不再重算**
+        #    （正是那个"静默过期"的老病）。
+        cands_bb = read_blackboard(self.global_blackboard, self._candidates_key,
+                                   None)
+        cand_version = self._version_of(self._candidates_key, cands_bb)
 
-        if pose is None or box is None:
-            # **这不是异常**，是正常状态：上游还没给出东西（设计文档 §6.2）
+        # ★ **这一帧走哪条路线**（2026-10-17 加）。按 `servo_slots` 查表，
+        #   `slot` 是函数开头拍下的快照（服务线程随时可能改 `_active_slot`）。
+        #   ⚠️ **`slot == 0`（未激活）时给 `("pallet", "none")`**：那一条出口在上面
+        #   已经返回了，这里给什么都不影响行为 —— 但**不能**让它越界（`_slot_mode_of`
+        #   本来就有兜底，这里显式写出来是为了读代码的人一眼看见"未激活与路线无关"）。
+        slot_mode, slot_side = (
+            _slot_mode_of(self._slot_modes, slot - 1) if slot > 0
+            else ("pallet", "none"))
+
+        if _servo_needs_inputs(slot_mode, pose, box):
+            # **这不是异常**，是正常状态：上游还没给出东西（设计文档 §6.2）。
+            # ⚠️ **这一道闸按路线区分**（见 `_servo_needs_inputs`）：
+            #     * `pallet` 档：托盘位姿与箱子观测**都**要有 —— 与改动前逐字一致；
+            #     * `neighbor` 档：**只要求箱子观测**。邻居路线本来就不用托盘 ——
+            #       它存在的理由恰恰是"托盘被手里这个箱子挡死、`latest_pallet`
+            #       是 `None`"。照老判据早退的话，邻居档会**永远**停在这句
+            #       "等输入"上，连一次 `neighbor_servo` 都走不到（现场表现是
+            #       "call 了服务、话题上一直是等输入"，而那看起来完全像个正常的
+            #       上游没出数）。
             self.feedback_message = (
-                f"等输入（托盘 {'有' if pose is not None else '缺'}，"
-                f"箱子 {'有' if box is not None else '缺'}）")
+                _servo_wait_message(slot_mode, pose, box))
             self._log_throttled("等输入：%s", self.feedback_message)
             # 也要发 —— "链路通了但还没数据"与"话题断了"必须在消息层面分得开
             self._publish_invalid(self.feedback_message)
+            # ★ 只有一路有结果时**照样出图**（这正是要看的帧）：四角/台面照画，
+            #   缺的那一路不画，HUD 写清缺的是哪个。从前这一支什么都不画，
+            #   现场于是分不出"纸箱检测没出东西"与"叠加图这条链坏了"。
+            self._maybe_publish_overlay(None, slot, pose=pose, box=box,
+                                        reason=self.feedback_message)
             return Status.RUNNING
+
+        # ★ pallet 档需要台面尺寸来投影参考边；尺寸现在只来自检测器上报的
+        #   `latest_pallet_size_mm`（主流程的配置键已删，2026-10-26）。
+        #   **neighbor 档不用尺寸**，不能因为它一直等下去。
+        if slot_mode != "neighbor" and self._size is None:
+            self.feedback_message = (
+                f"等上游托盘尺寸（{self._size_key} 还没有值；"
+                f"pallet 档需要它投影参考边）")
+            self._log_throttled("等尺寸：%s", self.feedback_message)
+            self._publish_invalid(self.feedback_message)
+            self._maybe_publish_overlay(None, slot, pose=pose, box=box,
+                                        reason=self.feedback_message)
+            return Status.RUNNING
+
+        # ===================================================================== #
+        # ★ 分流点：邻居档**不走** PalletServoSkill，也不走配对窗
+        #   （2026-10-17 加；`neighbor_merge_spec.md` §5 / §8.2(3)）。
+        #
+        # 为什么整段**排在配对之前**：分两个理由，缺哪一条都走不到邻居路线。
+        #
+        #   ① 配对窗的输入是**托盘位姿与箱子观测**，而它存在的理由是"**两个视觉
+        #      检测器**耗时差一个量级、必须按同一帧图像配起来"。邻居路线不用托盘
+        #      位姿（托盘被挡死正是它的场景），而托盘侧没有位姿时 `_paired_inputs`
+        #      会一路报 `pair_none` 并**每帧发一条无效帧** —— 邻居档一个数都出不来。
+        #   ② 配对还会**就地覆盖 `pose` / `box`**（换成窗平均的那一对）。邻居路线
+        #      要的是**这一帧原始**的候选与手里箱，被换掉之后算的就是另一帧的几何。
+        #
+        # ⚠️ **`pallet` 档一个字节都不许变**：下面那一整段（版本门禁 /
+        #    `_paired_inputs` / `PalletServoSkill`）与改动前逐字相同。
+        # ===================================================================== #
+        if slot_mode == "neighbor":
+            return self._run_neighbor_frame(slot, slot_side, pose, box,
+                                            box_version=box_version,
+                                            cand_version=cand_version)
 
         seen = None
         if self._pallet_frame == "base_link":
@@ -1469,6 +1770,14 @@ class NodePalletServo(BaseAction):
                 #   正常去重（同一对已报过）                      → None → **不发**
                 if self._pending_reject is not None:
                     self._publish_invalid(self._pending_reject)
+                    # ★ 配不成对时**照样出图**：用的是**窗里那一对**观测
+                    #   （`_paired_inputs` 就地覆盖过 `pose`/`box`），所以图上
+                    #   画的就是"伺服真正看到的那两帧" —— 比看黑板最新值更贴题
+                    #   （配不上多半正是因为两路各自的时刻对不上）。
+                    #   正常去重（返回 None）那支**不发图**：那一 tick 什么都没
+                    #   变，按 `overlay_period_s` 发的图与上一张逐像素一样。
+                    self._maybe_publish_overlay(None, slot, pose=pose, box=box,
+                                                reason=self._pending_reject)
                 return Status.RUNNING
             pose, box, seen = got
 
@@ -1518,6 +1827,16 @@ class NodePalletServo(BaseAction):
                              reason=result.message, slot=slot)
             self._versions_seen = seen      # 同一帧不重复刷屏
             self._publish_invalid(result.message)
+            # ★ 被拒的帧更要出图：几何退化（参考边投不出来、箱子四角自交…）
+            #   正是要靠图看的东西。这里用的 `pose` / `box` 是**窗平均那一对**
+            #   （`_paired_inputs` 返回的），所以图上画的就是"伺服真正看到的两帧"
+            #   —— 比看黑板最新值更贴题（这一帧正是它被拒的）。
+            #   ⚠️ **不自己乘 `T_cam_pallet`**：`pose` 被上游写成 list/dict 时
+            #   `pose6d_to_matrix()` 会直接抛（见
+            #   `test_node_survives_upstream_objects_of_the_wrong_type`），而这条路
+            #   正是坏输入常走的那条 —— 乘在 `_partial_T_cam_pallet()` 里做，它包了 try。
+            self._maybe_publish_overlay(None, slot, pose=pose, box=box,
+                                        reason=f"这一帧被拒 —— {result.message}")
             return Status.RUNNING
 
         error = result.data["error"]
@@ -1525,6 +1844,15 @@ class NodePalletServo(BaseAction):
         error.box_version = seen[1]
         error.t_cam_base_src = src
         error.stamp = time.time()
+        # 档位偏置（`servo_slots[*].e_right_bias_px` / `e_bottom_bias_px`，
+        # board.json 可配）。**必须在这里**：写黑板 / 发话题 / 出叠加图都在下面，
+        # 它们看到的要是同一个加过偏置的量（图上黄线也是按 `e_right_px` 画的）。
+        right_bias = _slot_bias_of(self._slot_modes, slot - 1, "right")
+        bottom_bias = _slot_bias_of(self._slot_modes, slot - 1, "bottom")
+        if right_bias:
+            error.e_right_px = float(error.e_right_px) + right_bias
+        if bottom_bias:
+            error.e_bottom_px = float(error.e_bottom_px) + bottom_bias
 
         self.global_blackboard.set(self._key, error)
         current = read_blackboard(self.global_blackboard,
@@ -1539,6 +1867,7 @@ class NodePalletServo(BaseAction):
         # 而技能层算好的那个在 `error` 里没有，这里自己乘一遍。
         self._last_T_cam_pallet = T_cam_base @ pose6d_to_matrix(pose)
         # 话题要在 dump 之前：dump 可能很慢（写盘），话题是实时的。
+        self._last_ok_mono = time.monotonic()
         self._publish_error(
             valid=True, reject="",
             e_bottom=error.e_bottom_px, e_right=error.e_right_px,
@@ -1546,6 +1875,155 @@ class NodePalletServo(BaseAction):
         self._maybe_publish_overlay(error, slot)
         self._maybe_dump(error, T_cam_base, src, pose, box, seen, slot=slot)
         return Status.RUNNING
+
+    # ------------------------------------------------------------ 邻居路线
+    def _run_neighbor_frame(self, slot, side, pose, box, *, box_version=0,
+                            cand_version=0):
+        """邻居档的一帧（`slot_mode == "neighbor"`）。**不走托盘路线那一整套。**
+
+        与上面托盘那一段的区别（**只保证三个被控量同名同单位**）：
+
+        * **不配对、不用托盘位姿。** 基准是别的箱子的边，输入是
+          `node_box_obs` 写的**候选列表**（`latest_box_candidates`）。
+        * **按输入版本去重**（2026-10-17 加）：行为树主循环固定 **50Hz**，而相机
+          30Hz、检测器还要再降频。托盘路线靠配对窗天然去重，邻居路线从前是
+          **每个 tick 都重算同一个框**（实测 50Hz 空转）。这里用 `(箱子版本,
+          候选版本)` 当门禁：没有新输入就**不算、不发布** —— 帧率自然降到
+          "检测器出多少算多少"，且不多于 30Hz。
+          ⚠️ 跳过时**仍要跑停摆闸**：输入停了以后最后一条 `valid=true` 会一直
+          留在话题上，下游会照着旧数继续走（`servo_error_stale_s` 那套的初衷）。
+          所以跳过那一支会检查 `_last_ok_mono`，超时照样发无效帧。
+        * 邻居路线失败 → 直接 `_publish_invalid`，**不降级**回托盘路线
+          （操作员 2026-10-17 裁定；见 `neighbor_merge_spec.md` §5）。
+        * 出的 `ServoError` 里，托盘专有的诊断量（`pallet_center_px` 等）
+          **留空数组**，`warn` 里带 `source=neighbor` —— 叠加图据此区分这一帧是
+          哪套算的（托盘被挡死的帧上那些量本来就没有意义）。
+        """
+        # ★ 输入没变 -> 这一 tick 不算。见 docstring 的"按输入版本去重"。
+        key = (int(box_version), int(cand_version))
+        if key == self._last_neighbor_key:
+            mono = time.monotonic()
+            if (self._servo_error_stale_s > 0.0
+                    and self._last_ok_mono is not None
+                    and mono - self._last_ok_mono >= self._servo_error_stale_s):
+                self._publish_invalid(
+                    f"邻居路线：{mono - self._last_ok_mono:.1f}s 没有新的箱子观测"
+                    f"（最后一条 valid=true 已过期，下游不要照它走）")
+            return Status.RUNNING
+        self._last_neighbor_key = key
+
+        # 候选列表：空 / 解析不出来都是空列表（生产者那边就是这么写的）。
+        cands = read_blackboard(self.global_blackboard, self._candidates_key, [])
+        if not isinstance(cands, (list, tuple)) or not cands:
+            # `neighbor_servo` 本来就拒（`neighbor_no_up`），这里提前拦一句是为了
+            # **把原因说成人话**：候选列表整条空着最常见的原因就是这一路检测
+            # 还没出东西（`node_box_obs` 还没写过这个键），而 `neighbor_no_up`
+            # 里那串"逐候选 []"读起来像是几何退化。
+            reject = Reject(
+                "neighbor_no_candidates",
+                f"黑板 {self._candidates_key} 是空的 —— 邻居路线要的是"
+                f"**全部候选**（NMS 之后、选箱之前），邻居就从里面挑。"
+                f"多半是这一路箱子检测还没出东西")
+            self.feedback_message = f"{reject}"
+            self._publish_invalid(str(reject))
+            self._maybe_publish_overlay(None, slot, pose=pose, box=box,
+                                        reason=str(reject))
+            return Status.RUNNING
+
+        # ★ `held` 必须是**候选里那个同一个对象**（`neighbor.py` 靠 `is` 跳过它）。
+        #   但黑板上 `latest_box_obs` 与候选列表里对应的那个是**两次独立构造的
+        #   两个对象**（`node_box_obs` 分别造的，见接入契约 §2/§5）——
+        #   `held is cands[i]` 恒为 False。所以按**四角**找：选箱结果本来就是候选
+        #   之一，四角最接近的那个就是它。找不到就退回用 `held` 本身：
+        #   `neighbor.py` 有 `dup_of_held` 兜底（中心重合的候选会被跳过）。
+        held = self._nearest_candidate(cands, box)
+        # 帧号由**节点**算（与托盘路线同一条纪律：技能的计数器每帧被清零，
+        # 节点这一份才是权威编号）。这一句放在"等输入/空候选"两道闸**之后** ——
+        # 与托盘路线里 `self._frames += 1` 在配对成功之后是同一个口径：
+        # 它数的是"真的算过的帧"。
+        self._frames += 1
+        slot_cfg = neighbor_algo.NeighborSlot(side=side)
+        # `image_size` 传进去是为了让算法能判"参照框是不是被画面边缘截断" ——
+        # 截断的框中心和边都偏，不告警的话现场会以为"算错了"（真机实测过）。
+        res = neighbor_algo.neighbor_servo(cands, held, slot_cfg,
+                                           image_size=self._image_size)
+
+        # ⚠️ **成功返回 `NeighborError` / 失败返回 `Reject`**（与托盘路线的
+        #    `servo_error` 同一套约定）—— 判据是它有没有 `e_bottom_px`。
+        if not hasattr(res, "e_bottom_px"):
+            # **不降级**（操作员裁定）：拒了就拒了，不拿托盘路线再试一次 ——
+            # 那会把"托盘被挡死"这个前提悄悄换成另一套基准，而三个数看着
+            # 一样像模像样。走现成的 `_publish_invalid`，reason 用 Reject 原文。
+            self.feedback_message = str(res)
+            logger.warning("邻居伺服第 %d 帧被拒：%s", self._frames, res)
+            self._publish_invalid(str(res))
+            self._maybe_publish_overlay(None, slot, pose=pose, box=box,
+                                        reason=f"这一帧被拒 —— {res}")
+            return Status.RUNNING
+
+        error = _neighbor_servo_error(res, held)
+        error.stamp = time.time()
+        # 与托盘路线同一句：偏置在写黑板 / 发话题 / 出图之前加（new = old + bias）。
+        right_bias = _slot_bias_of(self._slot_modes, slot - 1, "right")
+        bottom_bias = _slot_bias_of(self._slot_modes, slot - 1, "bottom")
+        if right_bias:
+            error.e_right_px = float(error.e_right_px) + right_bias
+        if bottom_bias:
+            error.e_bottom_px = float(error.e_bottom_px) + bottom_bias
+
+        self.global_blackboard.set(self._key, error)
+        current = read_blackboard(self.global_blackboard,
+                                  f"{self._key}_version", 0)
+        setattr(self.global_blackboard, f"{self._key}_version", current + 1)
+        self.feedback_message = error.to_log_line()
+        self._log_throttled("邻居伺服：%s", error.to_log_line())
+        # 邻居路线没有"配对的图像采集时刻"这回事（不走配对窗）：话题的 header
+        # 用出数时刻。⚠️ **不假装它是配对时刻** —— 那会让下游以为这条消息与
+        # 图像对齐，而它没有。
+        self._last_ok_mono = time.monotonic()
+        self._publish_error(
+            valid=True, reject="",
+            e_bottom=error.e_bottom_px, e_right=error.e_right_px,
+            theta=error.theta_rad, stamp=None)
+        self._maybe_publish_overlay(error, slot)
+        self._maybe_dump(error, np.eye(4), "邻居路线（无托盘位姿）", pose, box,
+                         (-1, -1), slot=slot,
+                         neighbor_diag=getattr(res, "diag", None))
+        return Status.RUNNING
+
+    def _nearest_candidate(self, cands, box):
+        """在 `cands` 里找**四角与 `box` 最接近**的那个（同一个物理箱子）。
+
+        `neighbor.py` 靠 `is` 认"手里箱"，而黑板上那两个键是**两个独立构造的
+        对象**（`node_box_obs` 分别写的）—— 拿 `is` 比对恒为假，手里的箱子于是
+        会被当成它自己的邻居。选箱结果本来就是候选之一，所以按四角找回来即可。
+
+        **四角取不出来 / 找不到接近的 → 原样返回 `box`**（`neighbor.py` 的
+        `dup_of_held` 兜底；它按"中心几乎重合"跳过副本，中心差得远就说明这不是
+        同一个箱子，那时把它当候选用反而是对的）。**绝不猜**：这里只做"最近"，
+        不设阈值 —— 阈值会把"选箱结果与候选差了几个像素"这种正常情形判成不匹配。
+        """
+        if box is None:
+            return box
+        try:
+            q = box_corners(box)
+        except Exception:                                    # noqa: BLE001
+            return box
+        if isinstance(q, Reject):
+            return box
+        best, best_d = box, None
+        for cand in cands:
+            try:
+                cq = box_corners(cand)
+            except Exception:                                # noqa: BLE001
+                continue
+            if isinstance(cq, Reject):
+                continue
+            d = float(np.abs(np.asarray(cq, np.float64)
+                             - np.asarray(q, np.float64)).max())
+            if best_d is None or d < best_d:
+                best, best_d = cand, d
+        return best
 
     # "这个键从未被写过"的哨兵。不能拿 `None` 或 0 代替：`None` 是"写过、值是
     # None"，0 是"写过、值是 0" —— 而这条判断要的正是"**从来没写过**"。
@@ -1607,6 +2085,25 @@ class NodePalletServo(BaseAction):
         except Exception:                            # noqa: BLE001
             return time.time()
 
+    def _partial_T_cam_pallet(self, pose):
+        """没有三个数时，自己把托盘位姿乘到相机系；`pose` 缺或乘不动返回 `None`。
+
+        与成功那一段的 `self._last_T_cam_pallet = T_cam_base @ pose6d_to_matrix(pose)`
+        **是同一个定义** —— 叠加图上的青框要跟 `/pallet/detection` 的位置对得上，
+        两处不能各算各的。
+
+        `base_link` 模式下 `T_cam_base` 要查 TF，而这条路可能正是"没配对成功"，
+        查不到就返回 `None`：**宁可不画台面那一层，也不拿单位阵顶替** ——
+        单位阵拼出来的框会画在**别的地方**，而图上看着是个规规矩矩的矩形。
+        """
+        if pose is None:
+            return None
+        try:
+            T_cam_base, _src = self._resolve_t_cam_base()
+            return T_cam_base @ pose6d_to_matrix(pose)
+        except Exception:                                    # noqa: BLE001
+            return None
+
     def _resolve_t_cam_base(self):
         """返回 `(T_cam_base, src)`。**`pallet_frame == "camera"` 时是声明过的单位阵。**
 
@@ -1642,6 +2139,7 @@ class NodePalletServo(BaseAction):
             self._last_box_version = int(box_version)
             self._push_box(box, mono)
 
+        self._mono = mono
         try:
             paired = self._pairing.resolve(now=now)
         except Exception as exc:                     # noqa: BLE001
@@ -1786,13 +2284,20 @@ class NodePalletServo(BaseAction):
         出来，只是基准是隔壁箱位的），所以 srv 注释、板子 remark、这条消息
         里都要把它说清楚。
         """
-        total = len(self._slots)
+        # ⚠️ **总数用 `self._total_slots`**（2026-10-17 修）。从前这里按
+        #    `len(self._slots)` 算，`ref_edges` 比 `servo_slots` 短时**邻居档
+        #    永远切不过去**（真机实测：5 档的表只能 call 到 2，第 5 档被拒成
+        #    "表里只有 4 组"）。那个数是 `__init__` 里算好的（两者取大）。
+        total = self._total_slots
         try:
             slot = int(slot)
         except (TypeError, ValueError):
             return False, f"slot 不是整数：{slot!r}"
         if slot < 0 or slot > total:
-            return False, (f"第 {slot} 组不存在 —— 表里只有 {total} 组"
+            # ⚠️ **文案说"档"不说"组"**（2026-10-17）：档位数与 `ref_edges` 组数
+            #    不再相等（邻居档不读参考边），说"组"会把人引去数错那张表 ——
+            #    真机那次误判的起因正是这句话里的两个数被当成了同一个。
+            return False, (f"第 {slot} 档不存在 —— 表里只有 {total} 档"
                            f"（1..{total}，0 = 停止）。当前仍是 "
                            f"{self._active_slot}（越界调用不改状态）")
         was, self._active_slot = self._active_slot, slot
@@ -1802,8 +2307,21 @@ class NodePalletServo(BaseAction):
         # 算得出来，只是基准是上一个箱位的）。
         self._slot_version += 1
         if slot == 0:
-            return True, f"本箱位伺服已结束（之前是第 {was} 组）"
-        return True, (f"切到第 {slot}/{total} 组，参考边 {self._slots[slot - 1]}")
+            return True, f"本箱位伺服已结束（之前是第 {was} 档）"
+        mode, side = _slot_mode_of(self._slot_modes, slot - 1)
+        if slot - 1 < len(self._slots):
+            # ⚠️ `self._slots` **从 0 数**、服务**从 1 数** —— 这个差一位选错了
+            #    不会有任何报错（三个数照样算得出来，只是基准是隔壁箱位的）。
+            detail = f"参考边 {self._slots[slot - 1]}"
+        else:
+            # 邻居档不读参考边，所以"这一档没有 ref_edges"是**正常**的，不是错
+            # （pallet 档缺参考边在启动时就报配置错误了）。**如实说**，不要
+            # `IndexError`、也不要编一个"参考边"出来。
+            detail = (f"这一档走邻居路线，不用参考边"
+                      f"（ref_edges 只有 {len(self._slots)} 组）")
+        return True, (f"切到第 {slot}/{total} 档（{mode}"
+                      + (f"/{side}" if mode == "neighbor" else "")
+                      + f"），{detail}")
 
     def _check_liveness(self, mono) -> Optional[str]:
         """存活闸（addendum A4）：某一侧多久没有**新的观测** → 记一次 WARNING。
@@ -1897,34 +2415,42 @@ class NodePalletServo(BaseAction):
 
     # ------------------------------------------------------------------ 可视化
     def _on_color(self, msg) -> None:
-        """存最新彩色帧。**只存，不画。**"""
+        """存最新彩色帧（**统一转成 BGR**）。**只存，不画。**
+
+        ⚠️ **必须看 `msg.encoding`**（2026-10-26 现场）：相机发的是 **`rgb8`**，
+        而这里原来把裸缓冲直接当 BGR 存，叠加图就红蓝对调 —— 与相机原图颜色
+        不一致。这里手工解包（不用 `cv_bridge`，避免 boost_python），口径与
+        `carton_obb_detect._arr_to_bgr` / `pallet_detection_node._arr_to_bgr` 一致。
+        """
         try:
             import numpy as np
             row = msg.step // np.dtype(np.uint8).itemsize
             a = np.frombuffer(msg.data, np.uint8).reshape(msg.height, row)
-            n = msg.width * 3
+            encoding = str(getattr(msg, "encoding", "") or "bgr8").strip().lower()
+            if encoding in ("bgr8", "8uc3", "rgb8"):
+                channels = 3
+            elif encoding in ("mono8", "8uc1"):
+                channels = 1
+            else:
+                raise ValueError(
+                    f"不支持的彩色编码 {encoding!r}（要 bgr8 / rgb8 / mono8）")
+            n = msg.width * channels
             if n > row:
-                raise ValueError(f"一行只有 {row} 个元素，装不下 {msg.width}×3")
-            bgr = a[:, :n].reshape(msg.height, msg.width, 3).copy()
+                raise ValueError(f"一行只有 {row} 个元素，装不下 "
+                                 f"{msg.width}×{channels}")
+            arr = a[:, :n].reshape(msg.height, msg.width, channels)
+            if encoding == "rgb8":
+                bgr = arr[:, :, ::-1]                    # RGB -> BGR
+            elif channels == 1:
+                bgr = np.repeat(arr, 3, axis=2)          # mono -> BGR
+            else:
+                bgr = arr
+            bgr = np.ascontiguousarray(bgr).copy()
         except Exception as exc:                         # noqa: BLE001
             self._warn_overlay(f"彩色帧解不开：{exc}")
             return
         with self._overlay_lock:
             self._last_color = bgr
-
-    def _on_box_uv(self, msg) -> None:
-        """存最新的 YOLO 框（左上 + 右下）。**只为画图。**"""
-        try:
-            pts = msg.polygon.points
-            if len(pts) < 2:
-                return
-            us = [float(p.x) for p in pts[:2]]
-            vs = [float(p.y) for p in pts[:2]]
-            uv = (min(us), min(vs), max(us), max(vs))
-        except Exception:                                # noqa: BLE001
-            return
-        with self._overlay_lock:
-            self._last_box_uv = uv
 
     def _publish_error(self, *, valid, reject, e_bottom=float("nan"),
                        e_right=float("nan"), theta=float("nan"),
@@ -1960,6 +2486,24 @@ class NodePalletServo(BaseAction):
         if self._servo_error_pub is None:
             return
         now = time.time()
+        # ★ **"检测停了"必须在 `live_timeout_s`（5s 告警阈值）之前就说出去**
+        # （2026-10-10）。检测一停，`resolve()` 就返回 `None`，而"正常去重"与
+        # "某侧停摆"共用那个返回值 —— 那一段我们什么都不发，下游拿的还是最后
+        # 一条 `valid=true`，就照它一直走。这里补的正是那一格：**只要距上次
+        # 成功出数超过 `servo_error_stale_s`，就把当前这条（无效）原样当
+        # 停发帧发出去**，绕开下面那套去重/心跳。
+        #
+        # ⚠️ **不改 `live_timeout_s`**：那是**告警**阈值，调小会让停摆告警变吵；
+        #    两者判的东西不同（一个管"下游怎么走"，一个管"日志怎么喊"）。
+        if ((not valid) and self._servo_error_stale_s > 0.0
+                and self._last_ok_mono is not None):
+            mono = getattr(self, "_mono", None)
+            if mono is not None and (mono - self._last_ok_mono
+                                     >= self._servo_error_stale_s):
+                self._last_error_pub_key = None      # 不污染下一帧的去重
+                self._last_error_pub_t = now
+                self._publish_error_now(valid=False, reject=reject)
+                return
         key = (bool(valid), _reject_dedup_key(str(reject)))
         if valid:
             self._last_error_pub_key = key
@@ -1974,6 +2518,19 @@ class NodePalletServo(BaseAction):
                     return
             self._last_error_pub_key = key
             self._last_error_pub_t = now
+        self._publish_error_now(valid=valid, reject=reject, e_bottom=e_bottom,
+                                e_right=e_right, theta=theta, stamp=stamp)
+
+    def _publish_error_now(self, *, valid, reject, e_bottom=float("nan"),
+                           e_right=float("nan"), theta=float("nan"),
+                           stamp=None) -> None:
+        """立刻发一帧（**不走节流**）。**整段包 try/except，绝不抛。**
+
+        两条路共用：① 停发帧（`servo_error_stale_s` 那条，见 `_publish_error`）；
+        ② `_publish_error` 自己节流通过之后的实际发送。
+        """
+        if self._servo_error_pub is None:
+            return
         try:
             import rospy
             from pallet_servo_msgs.msg import PalletServoError
@@ -2000,8 +2557,50 @@ class NodePalletServo(BaseAction):
         """无效帧的便捷入口：三个量填 NaN、`stamp` 用当前时刻。"""
         self._publish_error(valid=False, reject=reject)
 
-    def _maybe_publish_overlay(self, error, slot) -> None:
+    def _publish_detect_mode(self, slot, slot_mode) -> None:
+        """告诉两个检测器这一档要不要出数。**纯输出设施，绝不抛。**
+
+        取值与理由见 `initialise()` 里建发布器那一段。发送口径：
+          * **变了立刻发**（call 服务之后要马上生效）；
+          * 没变每 1s 补一条（检测器后启动 / 重启时能拿到当前状态；发布器
+            本身是 latched 的，这一条是第二道保险）。
+        """
+        if self._detect_mode_pub is None or self._detect_mode_msg is None:
+            return
+        want = 0 if slot <= 0 else (2 if slot_mode == "pallet" else 1)
+        now = time.monotonic()
+        if want == self._last_detect_mode and now - self._last_detect_mode_t < 1.0:
+            return
+        changed = (want != self._last_detect_mode)
+        self._last_detect_mode = want
+        self._last_detect_mode_t = now
+        try:
+            self._detect_mode_pub.publish(self._detect_mode_msg(data=int(want)))
+        except Exception as exc:                         # noqa: BLE001
+            self._log_throttled("检测门控发布失败：%s", exc)
+            return
+        if changed:
+            logger.info("检测门控 → %d（%s）", want,
+                        {0: "全停", 1: "只要纸箱", 2: "托盘+纸箱"}.get(want, "?"))
+
+    def _maybe_publish_overlay(self, error, slot, *, pose=None, box=None,
+                               reason="") -> None:
         """按 `overlay_period_s` 降频发一张叠加图。
+
+        ★ **不是"三个数算出来了"才画。** 三个数要托盘与纸箱**两路检测都出了
+        结果、而且配得上对**才算得出来，而排查时最需要的恰恰是"只有一边有
+        结果"的那些帧 —— 那时整张图都没有的话，操作员分不出是**这一路检测
+        没出东西**还是**叠加图这条链坏了**。所以：
+
+          * `error` 在（这一 tick 真算出了三个数）→ 画全套，与从前一样；
+          * `error` 不在 → 用黑板上的**原始观测**画：有托盘位姿就画台面矩形 +
+            参考边，有箱子四角就画箱子四条边，有外接框就画灰框。
+            **哪一样没有就不画哪一样**（`render_servo_overlay` 里每一层都是
+            可选的），HUD 上写清**为什么没有三个数**（`reason`）。
+
+        调用方传给它的 `pose` / `box` 就是**它手上那两帧观测** —— 没配成对/被拒
+        那几支传的是黑板原始值（配不上对时那两个局部量还没被覆盖），被拒那一支
+        传的则是窗平均后的那一对。两条都是"伺服真正在看的输入"，正是排查要看的东西。
 
         **整段包在 try 里：可视化是诊断设施，它不该有能力把节点弄死。**
         出图前先跑 `numeric_self_check`；不过就**不发图**并记一次 WARNING ——
@@ -2010,6 +2609,8 @@ class NodePalletServo(BaseAction):
         `slot` 是调用方在 `update()` 开头拍下的槽位快照：参考边的标签要用
         **这一帧**那一组（`self._slots[slot - 1]`）的原文，而 `self._active_slot`
         可能已经被服务回调改掉了 —— 标签指向的边与实际算出来的数就分家了。
+        `slot <= 0`（未激活）时**不画参考边**（没有"这一帧用哪一组"可言），
+        台面矩形照画。
 
         ⚠️ **这条链路必须自己可观察**：它对操作员来说是**唯一**的人工判读手段，
         而"一条消息都没有"与"rqt 里话题名写错了"长得一模一样。所以：
@@ -2025,7 +2626,15 @@ class NodePalletServo(BaseAction):
             return
         with self._overlay_lock:
             color = self._last_color
-            yolo_uv = self._last_box_uv
+        # ⚠️ **灰框不再来自 `/box/yolo_box`**（那条话题 2026-10-15 删了）：它发的就是
+        # 箱子四角的**轴对齐包围盒**，而这里手上这个 `box`（黑板上的 `BoxObservation`）
+        # 的 `u1/v1/u2/v2` **本来就是同一个数** —— `node_box_obs` 是用
+        # `min/max(corners)` 填的。所以删掉那条话题零信息损失，也**不用加订阅**。
+        box_uv = None
+        if box is not None and getattr(box, "u2", None) is not None:
+            u1, v1 = float(getattr(box, "u1", 0.0)), float(getattr(box, "v1", 0.0))
+            u2, v2 = float(box.u2), float(box.v2)
+            box_uv = (min(u1, u2), min(v1, v2), max(u1, u2), max(v1, v2))
         if color is None:
             self._n_overlay_skip += 1
             self._log_overlay_counts("底图还没来")
@@ -2033,30 +2642,123 @@ class NodePalletServo(BaseAction):
         self._last_overlay_t = now
         try:
             from skills.atomic.perception.pallet_servo.render import (
-                numeric_self_check, render_servo_overlay)
+                numeric_self_check, render_neighbor_overlay,
+                render_servo_overlay)
 
-            hud = [f"e_bottom={error.e_bottom_px:+.1f}px  "
-                   f"e_right={error.e_right_px:+.1f}px  "
-                   f"theta={math.degrees(error.theta_rad):+.2f}deg",
-                   f"pallet_v={error.pallet_version} box_v={error.box_version} "
-                   f"t_cam_base={error.t_cam_base_src} "
-                   f"box={error.box_source}"]
-            if error.warn:
-                hud.append("warn: " + "; ".join(error.warn))
+            # 槽位那一组参考边：`slot` 从 1 数，`self._slots` 从 0 数。
+            # 未激活（`slot <= 0`）时给 `None` —— 不画参考边，也不写它的标签。
+            # ★ **超过 `ref_edges` 组数的档位同样给 `None`**（2026-10-17）：那些
+            #   档是 `neighbor`（比 `ref_edges` 长且是 pallet 的话启动就报配置
+            #   错误了），本来就没有参考边。给 `None` 正是不画这一层 —— 不许
+            #   `IndexError`，也不许拿别的档那一组顶着画（那会画出一个与这一帧
+            #   毫无关系的基准，而它看着规规矩矩）。
+            ref_edges = (self._slots[slot - 1]
+                         if 1 <= slot <= len(self._slots) else None)
+
+            # ★ **这一帧走的是不是邻居路线**（2026-10-17 操作员裁定：邻居档的
+            #   HUD 只留三个数，不写托盘尺寸 / 上游尺寸 / 配对版本号）。
+            #   判据取**档位表**而不是 `error.box_source`：被拒的帧 `error is None`，
+            #   那样判不出来 —— 而被拒的邻居帧同样不该出现托盘尺寸那一行。
+            slot_mode, _slot_side = (
+                _slot_mode_of(self._slot_modes, slot - 1) if slot > 0
+                else ("pallet", "none"))
+            is_neighbor = (slot_mode == "neighbor")
+
+            if error is not None:
+                # 相机系的托盘位姿在成功那一段里算好了（`error` 里没有它）。
+                # ★ **邻居路线的帧不走这一格**（2026-10-17）：那条路线根本没看见
+                #   托盘，`self._last_T_cam_pallet` 会停在**上一帧托盘路线**留下的
+                #   值上 —— 拿它画青框的画，图上会出现一个与这一帧毫无关系的台面
+                #   矩形，而它看着规规矩矩（正是本项目最忌的那类静默错）。所以
+                #   按这一帧黑板上的位姿现算：有位姿就画（说明托盘其实还看得见，
+                #   那是现场信息），没有就不画这一层。
+                if getattr(error, "box_source", "") == "neighbor":
+                    T_cam_pallet = self._partial_T_cam_pallet(pose)
+                else:
+                    T_cam_pallet = self._last_T_cam_pallet
+                # ⚠️ **这一支不传 `box_quad_uv`**：绿线画的是 `error` 里那两条
+                # **伺服真的用了的**边（底/右），再叠一整圈四角会多出两条会与
+                # 别的图层撞的线，而"整圈框歪不歪"在没有三个数的那一支已经画了
+                # —— `render` 那边本来也只在没有 `error` 时才看这个参数。
+                box_quad = None
+                # ⚠️ **角度用弧度**（2026-10-08 操作员裁定）：与 `/pallet_servo/dis`
+                # 的 `theta_rad` **同单位**。从前这里显示度（`math.degrees(...)`），
+                # 于是拿 `rostopic echo /pallet_servo/dis` 的读数去核图上那行字，
+                # 两个数对不上（差 57.3 倍）。叠加图是**唯一**的人工判读手段，
+                # 它的读数必须与对外话题同源同单位。
+                hud = [f"e_bottom={error.e_bottom_px:+.1f}px  "
+                       f"e_right={error.e_right_px:+.1f}px  "
+                       f"theta={error.theta_rad:+.6f}rad"]
+                if is_neighbor:
+                    # ⚠️ **邻居档不写托盘专有的那行**（2026-10-17 操作员裁定）。
+                    #    `pallet_v` / `box_v` 恒为 -1（邻居路线不配对）、
+                    #    `t_cam_base` 是"邻居路线（无托盘位姿）"这种占位说明 ——
+                    #    它们对判读这一帧**没有任何作用**，只会把有用的三行挤下去。
+                    pass
+                else:
+                    hud.append(
+                        # ★ `pallet_v` / `box_v` 是**配对那一套**的版本号；
+                        #   邻居路线不配对，那两个字段恒是 `-1`。
+                        f"pallet_v={error.pallet_version} "
+                        f"box_v={error.box_version} "
+                        f"t_cam_base={error.t_cam_base_src} "
+                        f"box={error.box_source}")
+                if error.warn:
+                    hud.append("warn: " + "; ".join(error.warn))
+            else:
+                # ★ 没有三个数：把**手里有什么**画出来，HUD 写清缺在哪一步。
+                # 托盘位姿自己乘一遍（与成功那一段同一套定义），三样不齐就
+                # 不画托盘那两层 —— `render` 那边会各自判。
+                T_cam_pallet = self._partial_T_cam_pallet(pose)
+                box_quad = _box_quad_of(box)
+                # ⚠️ **`ref_edges is None` 有两种来路**，HUD 上要分得开
+                #    （2026-10-17）：`slot <= 0` 是**未激活**，而 `slot` 在
+                #    `ref_edges` 组数之外是**那一档本来就没有参考边**（邻居档）
+                #    —— 写成同一个"（未激活）"会让现场以为服务没 call 上。
+                if slot <= 0:
+                    slot_ref = "（未激活）"
+                elif ref_edges is None:
+                    slot_ref = (f"（这一档没有参考边，只有 {len(self._slots)} 组）")
+                else:
+                    slot_ref = ref_edges
+                hud = [f"⚠ 没有伺服差：{reason or '（未说明）'}",
+                       f"托盘 {'有' if pose is not None else '缺'} / "
+                       f"纸箱 {'有' if box is not None else '缺'}"
+                       + ("" if box_quad is None
+                          else f"（四角 {len(box_quad)} 点）"),
+                       f"slot={slot}/{self._total_slots} 参考边={slot_ref}"]
+
             # ★ **尺寸从哪来**（2026-09-30 加）：上游报的 vs 配置兜底的。
             # 现场那个"青框比托盘大一圈"就是两者不同源造成的，而图上**看不出来**
             # 用的是哪一份 —— 只能靠这行字。`from_upstream=0` 时去看
             # `latest_pallet_size_mm` 有没有值（检测器没出结果时它就是 None）。
-            hud.append(f"size={self._size[0]:.0f}x{self._size[1]:.0f} "
-                       f"from_upstream={int(self._size_from_upstream)}")
+            # ⚠️ `self._size` 可能是 `None`（配置错误那条路就是"尺寸没定下来"），
+            #    **照实写出来**，不要拿 0 顶替 —— 0 看着像个正常读数。
+            # ⚠️ **邻居档不写这一行**（2026-10-17 操作员裁定）：那条路线根本不看
+            #    台面尺寸、也没有"上游报的尺寸"这回事（托盘没被检测到）。留着它
+            #    只会让人以为这个数是这一帧的判据之一。
+            if not is_neighbor:
+                hud.append(_size_hud_line(self._size, self._size_from_upstream))
 
-            canvas, probes = render_servo_overlay(
-                color, error=error, T_cam_pallet=self._last_T_cam_pallet,
-                size_mm=self._size, K=self._K,
-                D=self._D if self._use_distortion else None,
-                yolo_uv=yolo_uv, hud_lines=hud,
-                ref_edge_labels=self._slots[slot - 1])
-            problems = numeric_self_check(canvas, probes)
+            if error is not None and getattr(error, "neighbor_quads", None):
+                # ---- 邻居路线：**另一套画法**（2026-10-17）----
+                # 与托盘路线分家的理由见 `render_neighbor_overlay` 的 docstring：
+                # 那张图要回答的是"我到位了没有、邻居认对了没有"，几何形状也不同
+                # （无参考边、横向的目标是个点）。**不设探针、不做自检** ——
+                # 可视化是给人看的（操作员裁定），不许因为自检拦图或耗时。
+                canvas = render_neighbor_overlay(
+                    color, error=error, neighbors=error.neighbor_quads,
+                    hud_lines=hud)
+                probes = []
+                problems = []
+            else:
+                canvas, probes = render_servo_overlay(
+                    color, error=error, T_cam_pallet=T_cam_pallet,
+                    size_mm=self._size, K=self._K,
+                    D=self._D if self._use_distortion else None,
+                    ref_edges=ref_edges, box_aabb_uv=box_uv, box_quad_uv=box_quad,
+                    hud_lines=hud, ref_edge_labels=ref_edges)
+                problems = numeric_self_check(canvas, probes)
             if problems:
                 self._n_overlay_selfcheck_fail += 1
                 shown = problems[:3]
@@ -2150,7 +2852,7 @@ class NodePalletServo(BaseAction):
                 "免得长期不过时彻底安静）：%s", _OVERLAY_REMIND_TICKS, message)
 
     def _maybe_dump(self, error, T_cam_base, src, pose, box, seen, reason=None,
-                    *, slot):
+                    *, slot, neighbor_diag=None):
         """按 `dump_on` 决定要不要把这一帧的**完整原始输入**落盘。
 
         **整段包在 try 里：dump 是诊断设施，它不该有能力把节点弄死。**
@@ -2174,17 +2876,28 @@ class NodePalletServo(BaseAction):
         **keyword-only 必填**：默认 `None` 会让新加的调用点静默写出
         `"active_slot": null`，而 dump 的契约是"可重跑"（`replay_dump` 会对它
         `int()` 直接崩）—— 漏传就该在调用点当场 `TypeError`。
+
+        `pose` **可以是 `None`**（邻居档就是"没有托盘位姿"那一档）：那时
+        `T_cam_pallet` 与 `pallet_pose` 都写 `null`，其余字段照写 ——
+        **不猜一个位姿出来**（单位阵拼出来的 `T_cam_pallet` 在 dump 里看着
+        像个正常读数，而它会把离线重跑引到另一组数上去）。
+
+        `neighbor_diag` 是**邻居路线**独有的那一块（`NeighborError.diag`）：
+        它认了谁当上/侧邻居、`t1`/`t2` 各是多少、用的是哪两条边。托盘路线传
+        `None`（它的 `ref_edges` + `pallet_pose` 已经够重跑了）。
         """
         try:
             warn = [] if error is None else error.warn
             if not self._dump.should_write(rejected=error is None, warn=warn):
                 return
+            T_cam_pallet = (None if pose is None
+                            else T_cam_base @ pose6d_to_matrix(pose))
             payload = {
                 "reason": reason or ("warn: " + "; ".join(warn)),
-                "T_cam_pallet": T_cam_base @ pose6d_to_matrix(pose),
+                "T_cam_pallet": T_cam_pallet,
                 "T_cam_base": T_cam_base,
                 "t_cam_base_src": src,
-                "pallet_pose": pose.to_list(),
+                "pallet_pose": None if pose is None else pose.to_list(),
                 "box": {f: getattr(box, f) for f in
                         ("u1", "v1", "u2", "v2", "quad", "label", "confidence",
                          "stamp")},
@@ -2199,6 +2912,14 @@ class NodePalletServo(BaseAction):
                 "box_version": seen[1],
                 "stamp": time.time(),
             }
+            # ★ **邻居路线的诊断量单独一块**（2026-10-17 加）。托盘路线的 dump 里
+            #   有 `ref_edges` / `pallet_pose` 可以重跑，邻居路线要重跑还得知道
+            #   **它认了谁当邻居、用的是哪条边** —— 不落盘的话，"e_bottom 看着
+            #   不对"就只能在现场盯着图猜（真机第一轮就只能猜）。
+            #   `diag` 里已经有 `t1_bottom` / `t2_bottom` / `bottom_px` / `top_px` /
+            #   `u_far` 与逐候选的几何，够把这一帧完整复现。
+            if neighbor_diag is not None:
+                payload["neighbor_diag"] = neighbor_diag
         except Exception as exc:                 # noqa: BLE001
             self._dump_payload_fails += 1
             if (self._dump_payload_fails == 1
@@ -2224,14 +2945,14 @@ class NodePalletServo(BaseAction):
                            "伺服结果不受影响", type(exc).__name__, exc)
 
     def terminate(self, new_status):
-        """收订阅。**可视化那两路也要收** —— 不收就是换树之后还在占着图像话题。"""
-        for sub in (self._color_sub, self._box_uv_sub):
+        """收订阅。**可视化那一路也要收** —— 不收就是换树之后还在占着图像话题。"""
+        for sub in (self._color_sub,):
             if sub is not None:
                 try:
                     sub.unregister()
                 except Exception:                        # noqa: BLE001
                     pass
-        self._color_sub = self._box_uv_sub = None
+        self._color_sub = None
         self._overlay_pub = None
 
 
@@ -2244,7 +2965,7 @@ def _int_at_least(value, minimum, default, name):
     可见性归节点层负责，同一条纪律）。
 
     钳位而不是退默认值：`PalletFrameWindow` 自己也是 `max(1, int(window))`，
-    `window: 0` 的意图显然是"不平滑"（=1），退成默认 5 会让**语义反向**。
+    `window: 0` 的意图显然是"不平滑"（=1），退成默认值会让**语义反向**。
     """
     try:
         n = int(value)
@@ -2341,8 +3062,8 @@ def _normalize_slots(raw) -> List[List[str]]:
       ["y=0", "x=W"]                   → 一组（单箱位，等价于老写法）
       [["y=0","x=W"], ["y=H","x=W"]]   → N 组，服务里第 N 个箱子用第 N 组
 
-    ⚠️ **不在这里校验合法性** —— 那要尺寸（绝对写法的范围），而尺寸在
-    `initialise()` 里才定。这里只做形状归一，认不出来的原样塞进去，
+    ⚠️ **不在这里校验合法性** —— 校验（写法 + 不平行）统一在 `initialise()` 里
+    用 `parse_ref_edges` 做。这里只做形状归一，认不出来的原样塞进去，
     让校验去报（它报得出来，因为 `parse_edge_spec` 对任何输入都给得出答案）。
     """
     if not isinstance(raw, (list, tuple)) or not raw:
@@ -2350,6 +3071,270 @@ def _normalize_slots(raw) -> List[List[str]]:
     first = raw[0]
     if isinstance(first, (list, tuple)):
         return [list(slot) for slot in raw]
+    return [list(raw)]
+
+
+# 邻居路线只认这两侧（画面口径），与 `neighbor.NeighborSlot` 的白名单一致。
+# ⚠️ **在这里再写一份而不是从 `neighbor` 里 import**：这一份要在**启动时**把
+#    配置错误说清楚（"第 N 档的 side 是 xxx，只认 left/right/none"），而
+#    `NeighborSlot` 那边抛的 `ValueError` 里没有"第几档"。两处的**取值集合**
+#    必须一致 —— 有单测同时钉住两边（`test_servo_slots_side_whitelist_matches`）。
+_NEIGHBOR_SIDES = ("left", "right", "none")
+_SERVO_MODES = ("pallet", "neighbor")
+#: `servo_slots` 每项可选的输出偏置，**按下标顺序**进归一化后的元组。
+_BIAS_KEYS = ("e_right_bias_px", "e_bottom_bias_px")
+
+
+def _parse_slot_bias(item, key: str, index: int):
+    """`servo_slots` 第 `index` 项的数值偏置 → `(值, 错误说明)`。缺省 0。"""
+    raw = item.get(key, 0.0)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None, f"servo_slots 第 {index} 项的 {key}={raw!r} 不是数值"
+    if not math.isfinite(value):
+        return None, f"servo_slots 第 {index} 项的 {key}={raw!r} 不是有限数"
+    return value, None
+
+
+def _normalize_servo_slots(raw):
+    """`servo_slots` → `([(mode, side, e_right_bias_px), ...], 错误说明)`。
+
+    形状（见 `board.json` 的 `servo_slots`）：:
+
+        [{"slot": 1, "mode": "pallet"},
+         {"slot": 3, "mode": "neighbor", "side": "right",
+          "e_right_bias_px": -8.0}, ...]
+
+    * 返回的列表**按下标 0 数**，与 `self._slots`（`ref_edges`）**同一个下标**
+      —— 服务里 call 第 N 个箱子用的是两者的第 N-1 项。这一条与 `ref_edges`
+      的"服务从 1 数、数组从 0 数"是同一句纪律，**别改**。
+    * **缺省 / 空数组 → 全部 `("pallet", "none")`**（行为与加这个键之前一致）。
+      长度按 `ref_edges` 对齐由调用方做 —— 这里不知道那边有几组。
+    * `mode` 只认 `pallet` / `neighbor`，`side` 只认 `left` / `right` / `none`，
+      **别的值一律返回错误说明**（第二项非 None）：这属于**启动时的配置错误** ——
+      静默按 pallet 跑的话，本该走邻居的那几档会拿"托盘看不见"的位姿去算，
+      而且它**照样算得出三个数**（没有任何报错），是最难查的那一类。
+    * `side` 只有 `mode == "neighbor"` 时才有意义，但**每个表项都照样校验它**
+      （含 `pallet` 档）：板子上把两套的字段填全是一种常见写法，而"这一项
+      拼错了"与"这一项用不上"是两件事 —— 只校验用得上的那几项，会让一个拼错的
+      `side` 静静躺在那儿，等谁把那一档改成 `neighbor` 时才发作。
+    * `e_right_bias_px` / `e_bottom_bias_px`（可选，默认 0）是这个档位对**最终
+      `e_right` / `e_bottom`** 的固定偏置：`输出 = 原始值 + bias`。服务与话题
+      拿到的就是这个加过偏置的量（控制器会把它驱到 0，所以 `e_right_bias_px =
+      -8` 的含义是"停在实际差 +8px 的位置"）。
+      非法值（非数值 / NaN / inf）返回错误说明 —— 静默按 0 跑会让偏置"配了没
+      生效"，而现场只能从机械臂停的位置倒推。
+
+    **`slot` 号本身不在这里校验**：表项的顺序就是档位，像 `ref_edges` 那样按
+    出现顺序取。写了 `slot` 但不按顺序排的话，两边会错位 —— 所以这里**按
+    `slot` 排序**（都写了就按它排；一个没写才按原顺序），错位这件事不许靠运气。
+    """
+    if not isinstance(raw, (list, tuple)) or not raw:
+        return [("pallet", "none", 0.0, 0.0)], None
+    rows = []
+    for index, item in enumerate(raw, start=1):
+        if not isinstance(item, dict):
+            return [], (f"servo_slots 第 {index} 项不是对象（{item!r}）—— "
+                        f"每项形如 "
+                        f'{{"slot": 1, "mode": "pallet"}}')
+        mode = str(item.get("mode", "pallet")).strip()
+        if mode not in _SERVO_MODES:
+            return [], (f"servo_slots 第 {index} 项的 mode={item.get('mode')!r} "
+                        f"不认识 —— 只认 {'/'.join(_SERVO_MODES)}")
+        side = item.get("side", "none")
+        # ⚠️ **大小写不宽容**（与 `NeighborSlot.__post_init__` 的白名单同一口径）：
+        #    那边 `'Right'` 是构造即抛的，这边放宽的话两处判据就分叉了 ——
+        #    板子上写 `"Right"` 会在这里静默变成 `right`，而所有人都会以为
+        #    两个校验器说的是同一件事。**更多一层宽容 = 少一层保护。**
+        side = "none" if side is None else str(side).strip()
+        if side not in _NEIGHBOR_SIDES:
+            return [], (f"servo_slots 第 {index} 项的 side={item.get('side')!r} "
+                        f"不认识 —— 只认 {'/'.join(_NEIGHBOR_SIDES)}"
+                        f"（画面口径）")
+        slot = item.get("slot", index)
+        try:
+            slot = int(slot)
+        except (TypeError, ValueError):
+            return [], f"servo_slots 第 {index} 项的 slot={slot!r} 不是整数"
+        bias_values = []
+        for key in _BIAS_KEYS:
+            value, bias_err = _parse_slot_bias(item, key, index)
+            if bias_err:
+                return [], bias_err
+            bias_values.append(value)
+        rows.append((slot, mode, side, *bias_values))
+    # 有 `slot` 就按它排（重复的排完还是相邻，长度对得上就行）；没有就按原顺序。
+    rows.sort(key=lambda r: r[0])
+    return [(mode, side, bias_r, bias_b) for _slot, mode, side, bias_r, bias_b
+            in rows], None
+
+
+def _slot_mode_of(slot_modes, index: int) -> Tuple[str, str]:
+    """第 `index` 档（**0 数**）的 `(mode, side)`；表不够长时按 `pallet` 兜底。
+
+    兜底而不是报错：`servo_slots` 比 `ref_edges` 短是**合法**配置（"后面几档
+    都是老路线"），报文里那句"全部按 pallet"正是这个意思。
+
+    ⚠️ **多出来的项不再被截掉**（2026-10-17 改）：`servo_slots` 比 `ref_edges`
+    长、且多出来那几档都是 `neighbor` —— 那是**合法**的（邻居档不读参考边）。
+    只有"多出来那档是 `pallet`"才是配置错误，由 `initialise()` 逐档判并报出来。
+    从前的"截掉 + WARNING"会让末档**永远切不过去**（真机实测）。
+
+    表项是 `_normalize_servo_slots` 给的三元组 `(mode, side, bias)`；这里只取
+    前两项（偏置由 `_slot_bias_of` 读）。手工传二元组也兼容。
+    """
+    if 0 <= index < len(slot_modes):
+        return slot_modes[index][0], slot_modes[index][1]
+    return "pallet", "none"
+
+
+def _slot_bias_of(slot_modes, index: int, axis: str = "right") -> float:
+    """第 `index` 档（**0 数**）的偏置；未配置 / 越界 = 0。
+
+    `axis` ∈ `{"right", "bottom"}`，对应 `e_right_bias_px` / `e_bottom_bias_px`
+    （归一化元组的下标 2 / 3）。
+
+    越界也返回 0（与 `_slot_mode_of` 的兜底同一口径）：`servo_slots` 短是
+    合法配置，缺省档位不该凭空多出一个偏置。
+    """
+    if axis not in ("right", "bottom"):
+        raise ValueError(f"axis={axis!r} 只认 right/bottom")
+    offset = 2 if axis == "right" else 3
+    if 0 <= index < len(slot_modes) and len(slot_modes[index]) > offset:
+        return float(slot_modes[index][offset])
+    return 0.0
+
+
+def _servo_needs_inputs(mode: str, pose, box) -> bool:
+    """这一帧是不是"还在等输入"（应按 `RUNNING` 早退）。
+
+    ★ **按路线区分，这是邻居接入的那个卡点**（`neighbor_merge_spec.md` §8.1）：
+
+    * `pallet` —— 托盘位姿与箱子观测**都**要有：托盘路线的三个数全部由"托盘台面
+      参考边的投影"给出，缺位姿连参考边都投不出来。与改动前**逐字一致**。
+    * `neighbor` —— **只要求箱子观测**。邻居路线的基准是**别的箱子的边**，
+      根本不用托盘位姿；而"托盘被手里这个箱子挡死 → `latest_pallet` 是 `None`"
+      正是它被做出来的**那个场景**。照老判据早退的话，邻居档永远走不到分流。
+    """
+    if box is None:
+        return True
+    return pose is None if mode == "pallet" else False
+
+
+def _servo_wait_message(mode: str, pose, box) -> str:
+    """「等输入」那句人话。`pallet` 档的文案与改动前**逐字相同**。
+
+    ⚠️ 邻居档**不能**照抄那句 —— 它会写"托盘 缺"，而邻居路线**不需要**托盘，
+    这句话落到 `feedback_message` / 话题 / 叠加图 HUD 上会让人去查托盘检测器
+    （那条路本来就没坏）。邻居档把"缺的是候选列表"写清楚。
+    """
+    if mode == "pallet":
+        return (f"等输入（托盘 {'有' if pose is not None else '缺'}，"
+                f"箱子 {'有' if box is not None else '缺'}）")
+    if box is None:
+        return "等输入（邻居路线：箱子 缺）"
+    return "等输入（邻居路线：候选 缺，箱子 有）"
+
+
+def _neighbor_servo_error(res, held):
+    """邻居路线的 `NeighborError` → 托盘路线那套 `ServoError`（**同名同单位**）。
+
+    托盘路线与邻居路线是两套算法（`servo_error` / `neighbor_servo`），但**对外
+    只有一种输出结构**：同一个 `ServoError`、同一个 `_publish_error`、同一条
+    叠加图链路。这个函数就是那道转换 —— 三个被控量直接搬，诊断量按下面的口径
+    补，缺的一律**留空数组**而不是编一个数出来。
+
+    诊断量怎么填（`neighbor_merge_spec.md` §8.2(4)）：
+
+    * `box_bottom_px` / `box_right_px` —— **手里箱自己的**底边与右边（`box_edges`
+      的同一套定义，叠加图上的绿线）。
+    * `ref_bottom_px` —— **上邻居的底边**（它朝手里箱的那条）。
+    * `ref_right_px` —— **侧邻居的近边**（它朝手里箱的那条）；这一档没有侧邻居
+      （`side="none"` 或那一侧没检出）时是**空数组 `np.zeros((0, 2))`** ——
+      `render` 跳过空数组（见那里的 `_is_blank`），图上的黄线因此只有一条。
+    * `pallet_center_px` —— **上邻居的中心**。`render` 拿它判参考边的内法向
+      （哪个方向是"内部"）；邻居路线上"内部"就是手里箱那一侧。
+      ⚠️ `render` 现在并不读这个字段（它只在 `error` 缺席时自己投影），填它是
+      为了结构完整与离线工具好用。
+    * `bottom_inward_px` / `right_inward_px` —— **从参考边指向手里箱**的单位
+      向量（`inward_normal` 的同一套：拿手里箱中心去点乘，`ref_right` 空时给空）。
+    * `*_foot_px` —— 手里箱那条边中点在参考边所在直线上的垂足（`edge_offset`
+      的同一套算法），叠加图的红色垂距线要用。参考边不存在时给空。
+
+    ⚠️ **三个被控量是这套结构里唯一承诺"与托盘路线同口径"的东西**，其余都是
+    诊断量。所以 `warn` 里必须带 `source=neighbor`：图上那两个数与托盘路线算出来
+    的不是一回事，现场判读时要能一眼分出来。
+    """
+    corners = box_corners(held)
+    if isinstance(corners, Reject):
+        # 走到这里说明 `neighbor_servo` 已经拿同一个 `held` 取过四角且成功了
+        # （它先判 `neighbor_no_held`），所以这一支实际到不了 —— 留着只是让
+        # "取不出四角"这件事有个不抛的出口，**不猜一个框出来**。
+        edges = {"bottom": np.zeros((0, 2)), "right": np.zeros((0, 2))}
+    else:
+        edges = box_edges(corners)
+
+    held_center = np.asarray(res.held_quad, np.float64).reshape(4, 2).mean(axis=0)
+    # 上邻居一定在（成功路径上 `up` 非空）；它的"底边" = 朝手里箱的那条边。
+    # ⚠️ 直接用 `neighbor.py` 里那个函数而不是再写一份：**同一条边必须只有一个
+    #    定义**（两份实现一旦分叉，图上的黄线与算法用的参照边就不是同一条了）。
+    up_bottom = neighbor_algo._edge_facing(res.up_quad, res.held_quad)
+    up_center = np.asarray(res.up_quad, np.float64).reshape(4, 2).mean(axis=0)
+    bottom_inward = inward_normal(up_bottom, held_center)
+    bottom_foot = edge_offset(up_bottom, edges["bottom"], bottom_inward).foot_px
+
+    empty2 = np.zeros((0, 2))
+    if res.side_quad is not None:
+        side_near = neighbor_algo._edge_facing(res.side_quad, res.held_quad)
+        right_inward = inward_normal(side_near, held_center)
+        right_foot = edge_offset(side_near, edges["right"],
+                                 right_inward).foot_px
+    else:
+        side_near, right_inward, right_foot = empty2, empty2, np.zeros((0,))
+    return ServoError(
+        e_bottom_px=res.e_bottom_px,
+        e_right_px=res.e_right_px,
+        theta_rad=res.theta_rad,
+        ref_bottom_px=up_bottom,
+        ref_right_px=side_near,
+        box_bottom_px=edges["bottom"],
+        box_right_px=edges["right"],
+        pallet_center_px=up_center,
+        bottom_foot_px=bottom_foot,
+        right_foot_px=right_foot,
+        bottom_inward_px=bottom_inward,
+        right_inward_px=right_inward,
+        box_source="neighbor",
+        # ★ **邻居的两个框整圈** —— 只给叠加图用（`render_servo_overlay` 的
+        #   `neighbor_quads`）。没有它，图上只有"参与伺服的那两条边"，
+        #   **判不出认的是哪两个箱子**（上邻居认成侧邻居、或者压根认到别的箱子
+        #   上，黄线照样在那里）。挂在这个对象上而不是另开一条传递路径：它随
+        #   `error` 一起流到出图那一段，零新接口。
+        #   ⚠️ 托盘路线的 `ServoError` **没有**这两个字段 → 出图那边用
+        #   `getattr(error, "neighbor_quads", None)` 取，取不到就是 `None`。
+        neighbor_quads=(np.asarray(res.up_quad, np.float64).reshape(4, 2),
+                        None if res.side_quad is None
+                        else np.asarray(res.side_quad, np.float64).reshape(4, 2)),
+        # 出图三件套（见 `render_neighbor_overlay` 的 docstring）：
+        #   held_quad_px   手里箱四角（灰框）——「现在在哪」
+        #   target_bottom  上邻居朝手里箱的那条边（黄线）——「底边该压到哪」
+        #   target_center  上邻居中心（黄十字）——「中心该对齐到哪」
+        # ⚠️ **一律由 `neighbor.py` 交出来，节点不自己推**：曾经在这里用
+        #    `box_edges()` 画"手里箱底边"，而算法用的是 `_frame_of()` 推出来的
+        #    那条 —— 相机翻 180° 时两者不是同一条，图上出现"一个选上一个选下"。
+        held_quad_px=np.asarray(res.held_quad, np.float64).reshape(4, 2),
+        held_bottom_px=np.asarray(res.held_bottom_px, np.float64).reshape(2, 2),
+        held_side_px=(None if res.held_side_px is None
+                      else np.asarray(res.held_side_px, np.float64).reshape(2, 2)),
+        # 底边黄线的平移方向用 `u_bottom`（参考边法向的加权平均）—— **不是
+        # `u_far`**：`u_far` 带横向/透视偏移（实测与竖直差 27.5°），沿它平移会
+        # 把黄线斜着推出去、且垂距归不了零（2026-10-17 真机踩）。
+        u_bottom=np.asarray(res.u_bottom, np.float64).reshape(2),
+        u_side_shift=np.asarray(res.u_side_shift, np.float64).reshape(2),
+        u_far=np.asarray(res.diag['u_far'], np.float64).reshape(2),
+        u_side=np.asarray(res.diag['u_side'], np.float64).reshape(2),
+        warn=["source=neighbor"] + list(res.warn))
     return [list(raw)]
 
 
@@ -2367,6 +3352,44 @@ def _float_or(value, default, name):
     except (TypeError, ValueError):
         logger.warning("%s 不是数字（%r），按默认值 %s 处理", name, value, default)
         return float(default)
+
+
+def _size_hud_line(size, from_upstream) -> str:
+    """叠加图 HUD 上那行台面尺寸。**尺寸没定下来时照实写 `（未定）`**。
+
+    拿 0 顶替会让图上那行字看着像个正常读数（`size=0x0`），而现场要判断的
+    恰恰是"这一帧到底用哪一份尺寸" —— 配置错误那条路本来就走不到算出三个数，
+    但叠加图现在也画那种帧，HUD 得说得清。
+    """
+    if size is None:
+        return "size=（未定）"
+    return (f"size={float(size[0]):.0f}x{float(size[1]):.0f} "
+            f"from_upstream={int(bool(from_upstream))}")
+
+
+def _box_quad_of(box):
+    """黑板上的箱子观测 → 契约序四角 `[[u, v], ...]`；拿不到返回 `None`。
+
+    **不抛**：黑板上那个键可能是普通 dict / list（离线工具写的就是这个形状），
+    而本函数跑在**出图**这条诊断路上 —— 解析不了就不画那一层，绝不能因为
+    可视化把节点弄死。
+
+    ⚠️ **不重排、不排序**：`quad` 的契约序就是"右下 → 左下 → 左上 → 右上"，
+    与 `render_servo_overlay` 要的一致。顺序错了边就取错了，而图上看着仍是个
+    四边形 —— 那正是要避免的静默错。
+    """
+    if box is None:
+        return None
+    try:
+        quad = getattr(box, "quad", None)
+        if quad is None and isinstance(box, dict):
+            quad = box.get("quad")
+        if quad is None:
+            return None
+        q = [[float(p[0]), float(p[1])] for p in quad]
+    except Exception:                                     # noqa: BLE001
+        return None
+    return q if len(q) == 4 else None
 
 
 def _overlay_dedup_key(message: str) -> str:

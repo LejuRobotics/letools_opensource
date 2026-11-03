@@ -516,15 +516,8 @@ def test_node_startup_rejections_are_failures(tmp_path):
     node = make_node(tmp_path, ref_edges=["y=0", "y=H"])
     assert "ref_edges" in node.feedback_message, node.feedback_message
 
-    node = make_node(tmp_path, pallet_size_mm=None,
-                     config_path=str(tmp_path / "nope.yaml"))
-    assert node.update() == Status.FAILURE
-    # M5：文案里**参数那条排第一**（新链路走 `pallet_size_mm` rosparam）。
-    # 从前第一位是"先跑 pallet_calibrate.py 生成 config/pallet_tag.yaml"，
-    # 而那个产物在新链路里已废弃、仓库里根本没有它 —— 照它做会卡在死路上。
-    assert "pallet_size_mm" in node.feedback_message, node.feedback_message
-    assert "apriltag" in node.feedback_message, node.feedback_message
-    assert "pallet_calibrate" not in node.feedback_message, node.feedback_message
+    # ⚠️ 缺 `pallet_size_mm` **不再是启动错误**（2026-10-26）：尺寸等检测器上报，
+    #    见 `test_node_starts_without_configured_pallet_size`。
 
     node = make_node(tmp_path, K=[[1.0, 0.0], [0.0, 1.0]])
     assert node.update() == Status.FAILURE
@@ -652,22 +645,24 @@ def test_node_cx_cy_zero_is_still_accepted(tmp_path):
     assert "退化" not in node.feedback_message
 
 
-def test_node_missing_size_does_not_build_a_tf_listener(tmp_path, monkeypatch):
-    """**没有台面尺寸时不许起 TF 监听**，配置对了也只起一次。
+def test_config_error_does_not_build_a_tf_listener(tmp_path, monkeypatch):
+    """**配置错误时不许起 TF 监听**，配置对了也只起一次。
 
     py_trees 的 `Behaviour.tick()` 对"状态不是 RUNNING"的行为**每 tick 重进
     `initialise()`**（`test_inject_plays_the_list_of_boxes_across_ticks` 那条
-    用例证明了这条机制是真的），而本节点在"没有台面尺寸"这条路上返回 FAILURE。
-    监听器要是构造在尺寸检查**之前**：装了 ROS 的机器上就是每秒 50 次
-    构造/析构 `/tf` + `/tf_static` 的订阅（没装 ROS 时是 100 行/秒 WARNING），
-    每帧还重读一遍 YAML。这条路的现实性在于 `pallet_size_mm` 是新增的键，
-    **现存的 `config/pallet_tag.yaml` 一份都没有它** → 第一次接真机走的就是它。
+    用例证明了这条机制是真的），而配置错误这条路返回 FAILURE。监听器要是构造
+    在整表校验**之前**：装了 ROS 的机器上就是每秒 50 次构造/析构 `/tf` +
+    `/tf_static` 的订阅（没装 ROS 时是 100 行/秒 WARNING），每帧还重读一遍 YAML。
+
+    ⚠️ 2026-10-26 后**缺 `pallet_size_mm` 不再算配置错误**（尺寸等检测器上报），
+    所以这里用一个真正的配置错误（平行参考边）来走 FAILURE 那条路。
     """
     calls = []
     monkeypatch.setattr("orchestration.nodes.node_pallet_servo._make_tf_lookup",
                         lambda *a, **k: calls.append(1))
 
-    broken = make_node(tmp_path / "a", pallet_size_mm=None,
+    broken = make_node(tmp_path / "a",
+                       ref_edges=[["y=0", "y=800"]],
                        config_path=str(tmp_path / "nope.yaml"))
     assert broken.update() == Status.FAILURE
     for _ in range(5):                     # 模拟 py_trees 每 tick 重进 initialise()
@@ -2344,7 +2339,7 @@ def test_bad_pairing_numbers_fall_back_to_meaningful_defaults(tmp_path, caplog):
         node = make_node(tmp_path, max_dt_s=float("nan"), window="abc",
                          pair_cache=0)
     assert node._max_dt_s == 0.05, node._max_dt_s
-    assert node._pairing._window == 5, node._pairing._window
+    assert node._pairing._window == 3, node._pairing._window
     assert node._pairing._cache == 1, node._pairing._cache
     assert "max_dt_s" in caplog.text, caplog.text
     assert "window" in caplog.text, caplog.text
@@ -2526,11 +2521,12 @@ def test_a_stalled_detector_is_shouted_about(tmp_path, caplog):
 # --------------------------------------------------------------------------- #
 # 可视化：回调只存帧、update() 里画、发图前先自检
 # --------------------------------------------------------------------------- #
-def _fake_color_msg(width, height, step=None, fill=7):
+def _fake_color_msg(width, height, step=None, fill=7, encoding='bgr8'):
     """一份 `sensor_msgs/Image` 的样子（`step` 给大就能造出行末填充）。"""
     step = width * 3 if step is None else step
     data = np.full((height, step), fill, np.uint8).tobytes()
-    return SimpleNamespace(height=height, width=width, step=step, data=data)
+    return SimpleNamespace(height=height, width=width, step=step, data=data,
+                           encoding=encoding)
 
 
 class _FakePublisher:
@@ -2607,6 +2603,45 @@ def test_the_color_callback_only_stores_the_frame(tmp_path, caplog):
     assert node._n_overlay_skip == 1, node._n_overlay_skip
 
 
+def test_color_callback_normalizes_encoding_to_bgr(tmp_path, caplog):
+    """★ 现场相机发 `rgb8`：底图必须转成 BGR，否则叠加图红蓝对调。
+
+    2026-10-26 现场：叠加图颜色与相机原图不一致，根因就是 `_on_color` 不管
+    `encoding`、把 rgb8 的裸缓冲直接当 BGR 存。
+    """
+    node = make_node(tmp_path, overlay_out="")
+
+    rgb = np.array([[10, 20, 30], [40, 50, 60]], np.uint8)
+    node._on_color(SimpleNamespace(height=2, width=1, step=3,
+                                   encoding='rgb8', data=rgb.tobytes()))
+    with node._overlay_lock:
+        got = node._last_color
+    assert got.shape == (2, 1, 3), got.shape
+    assert got[0, 0].tolist() == [30, 20, 10], got[0, 0].tolist()
+    assert got[1, 0].tolist() == [60, 50, 40], got[1, 0].tolist()
+
+    # bgr8 原样保留
+    node._on_color(_fake_color_msg(1, 1, fill=7, encoding='bgr8'))
+    with node._overlay_lock:
+        assert node._last_color[0, 0].tolist() == [7, 7, 7]
+
+    # mono8 -> 三通道
+    node._on_color(SimpleNamespace(height=1, width=1, step=1, encoding='mono8',
+                                   data=bytes([9])))
+    with node._overlay_lock:
+        assert node._last_color[0, 0].tolist() == [9, 9, 9]
+
+    # 不认识的编码：不抛，保留上一帧，警告里点名
+    with node._overlay_lock:
+        prev = node._last_color
+    with caplog.at_level(logging.WARNING):
+        node._on_color(SimpleNamespace(height=1, width=1, step=3,
+                                       encoding='yuv422', data=bytes(3)))
+    with node._overlay_lock:
+        assert node._last_color is prev
+    assert '不支持的彩色编码' in caplog.text, caplog.text
+
+
 def test_the_overlay_publishes_a_well_formed_image(tmp_path, monkeypatch, caplog):
     """★ 叠加图那条路走得通：**真 render + 真数值自检 + 消息包装**（Step 11-14）。
 
@@ -2668,9 +2703,109 @@ def test_the_overlay_can_be_turned_off_entirely(tmp_path):
     """`overlay_out` 给空串 = **完全不发图**（省 CPU、省带宽）。"""
     node = make_node(tmp_path, overlay_out="")
     assert node._overlay_pub is None
-    assert node._color_sub is None and node._box_uv_sub is None
+    assert node._color_sub is None
     node._maybe_publish_overlay(SimpleNamespace(), 1)      # 空转，不抛
     assert node._n_overlay == 0
+
+
+def test_the_overlay_draws_when_only_one_detector_has_a_result(
+        tmp_path, monkeypatch, caplog):
+    """★★ **只有一路检测出结果时也要出图** —— 这正是排查时最需要看的帧。
+
+    三个数要托盘与纸箱**两路都出了结果、而且配得上对**才算得出来。从前叠加图
+    只在"算出三个数"那一支发：一路没有、或配不上对时**整张图都没有**，于是
+    操作员分不出是**这一路检测没出东西**、还是**叠加图这条链坏了** ——
+    而叠加图是这条链路**唯一**的人工判读手段。
+
+    判据是**行为**，不是"画得好看"：
+      * 只有托盘位姿 → 图发得出去，探针里有台面矩形/参考边、没有箱子；
+      * 只有箱子四角 → 图发得出去，探针里有箱子四条边、没有台面；
+      * 两路都没有   → 也照样发（只剩 HUD + 灰框），而不是静默。
+
+    ⚠️ 走**真 `render_servo_overlay`**（不 monkeypatch 它）：这条用例的全部意义
+    就是"这条链在缺一半输入时真的能出图"，桩掉渲染等于把被测对象换成了桩。
+    只把底图喂进去（`_on_color`），观测直接写黑板。
+    """
+    import skills.atomic.perception.pallet_servo.render as render
+    _fake_ros_modules(monkeypatch)
+    from skills.atomic.perception.pallet_servo.algorithm import (
+        BoxObservation, project_pallet_points)
+
+    K = np.array([[1000.0, 0.0, 640.0], [0.0, 1000.0, 400.0], [0.0, 0.0, 1.0]])
+    size = (1200.0, 800.0)
+    canvas_w, canvas_h = 1280, 1200
+    T = np.eye(4)
+    T[:3, 3] = (-0.6, -0.35, 1.0)
+    quad = np.asarray(project_pallet_points(
+        T, [(0.0, 0.0, 0.0), (size[0], 0.0, 0.0),
+            (size[0], size[1], 0.0), (0.0, size[1], 0.0)], K), np.float64)
+    box_quad = [quad[1], quad[0], quad[3], quad[2]]      # 契约序
+
+    writer = make_writer("latest_pallet", "latest_pallet_version",
+                         "latest_pallet_stamp", "latest_box_obs",
+                         "latest_box_obs_version")
+    node = make_node(tmp_path, pallet_frame="camera", overlay_period_s=0.0,
+                     image_size=[canvas_w, canvas_h], K=K.tolist(),
+                     pallet_size_mm=list(size))
+    pub = _FakePublisher()
+    node._overlay_pub = pub
+    node._on_color(_fake_color_msg(canvas_w, canvas_h))
+
+    seen = {}
+    real = render.render_servo_overlay
+
+    def _capture(color, **kw):
+        seen["probes"] = [p[0] for p in real(color, **kw)[1]]
+        seen["hud"] = list(kw.get("hud_lines") or ())
+        return real(color, **kw)
+
+    monkeypatch.setattr(render, "render_servo_overlay", _capture)
+
+    # ---- ① 只有托盘：位姿有、箱子没有 ----
+    setattr(writer, "latest_pallet", matrix_to_pose6d(T))
+    setattr(writer, "latest_pallet_version", 1)
+    setattr(writer, "latest_pallet_stamp", 1.0)
+    setattr(writer, "latest_box_obs", None)
+    setattr(writer, "latest_box_obs_version", 0)
+    assert node.update() == Status.RUNNING
+    assert pub.n == 1, f"只有托盘时没出图：{node._last_overlay_warn}"
+    assert any("托盘台面" in n for n in seen["probes"]), seen["probes"]
+    assert not any(n.startswith("箱子") for n in seen["probes"]), seen["probes"]
+    assert any("没有伺服差" in ln for ln in seen["hud"]), seen["hud"]
+    assert any("纸箱 缺" in ln for ln in seen["hud"]), seen["hud"]
+
+    # ---- ② 只有纸箱：箱子有、托盘没有 ----
+    setattr(writer, "latest_pallet", None)
+    setattr(writer, "latest_pallet_version", 2)
+    setattr(writer, "latest_box_obs",
+            BoxObservation(quad=[list(p) for p in box_quad], stamp=2.0))
+    setattr(writer, "latest_box_obs_version", 2)
+    assert node.update() == Status.RUNNING
+    assert pub.n == 2, f"只有纸箱时没出图：{node._last_overlay_warn}"
+    # ⚠️ **灰框（外接框）的线现在也在这里**（2026-10-15 起；2026-10-16 起它
+    # **不再设探针**）。两条历史：
+    #   * 之前灰框来自另一条话题 `/box/yolo_box`，而这条用例只往黑板写观测、
+    #     不喂那条话题，所以画不出来；现在它从手上这个 `box` 直接算
+    #     （`BoxObservation.u1/v1/u2/v2` 本来就是四角的 AABB）。
+    #   * 但它与四角框**几乎共线**（就是它的包围盒），画序上又被绿色的四角框
+    #     整条盖住 —— 探针恒红，曾让叠加图**一帧都发不出去**。所以现在"画了
+    #     四角框就不给外接框设探针"。**线照画**。
+    # 断言按**意图**写：有箱子四条边、**没有托盘的任何东西**；灰框那一层改用
+    # "画布上有灰像素"来判（见 render 侧的 `test_aabb_probes_are_dropped_...`）。
+    assert [n for n in seen["probes"] if n.startswith("箱子")] == \
+        ["箱子 边0", "箱子 边1", "箱子 边2", "箱子 边3"], seen["probes"]
+    assert not any(n.startswith("外接框") for n in seen["probes"]), (
+        "四角框也在时，外接框不该设探针（它的边被盖住，探针恒红）")
+    assert not any("托盘" in n for n in seen["probes"]), seen["probes"]
+    assert any("托盘 缺" in ln for ln in seen["hud"]), seen["hud"]
+
+    # ---- ③ 两路都没有：**照样发**（HUD 说清两边都缺），不是静默 ----
+    setattr(writer, "latest_box_obs", None)
+    setattr(writer, "latest_box_obs_version", 3)
+    assert node.update() == Status.RUNNING
+    assert pub.n == 3, f"两路都缺时没出图（这一帧正是要看的）：{node._last_overlay_warn}"
+    assert any("托盘 缺" in ln and "纸箱 缺" in ln for ln in seen["hud"]), seen["hud"]
+    assert "没通过数值自检" not in caplog.text, caplog.text
 
 
 def test_the_overlay_self_check_warning_is_deduped_by_probe_not_by_pixels(
@@ -3242,7 +3377,8 @@ def test_the_overlay_labels_the_ref_edges_of_the_slot_in_this_frame(
     seen = {}
 
     def _capture(color, *, error, T_cam_pallet, size_mm, K, D=None,
-                 yolo_uv=None, hud_lines=(), ref_edge_labels=None):
+                 ref_edges=None, box_aabb_uv=None, box_quad_uv=None,
+                 hud_lines=(), ref_edge_labels=None, neighbor_quads=None):
         seen["labels"] = ref_edge_labels
         return np.zeros((40, 40, 3), np.uint8), []
 
@@ -3285,6 +3421,72 @@ def test_the_overlay_labels_the_ref_edges_of_the_slot_in_this_frame(
     assert node.update() == Status.RUNNING, node.feedback_message
     assert seen.get("labels") == ["y=0", "x=W"], (
         f"图上参考边的标签用的不是这一帧那一组：{seen} —— 指错边比不标更糟")
+
+
+def test_the_overlay_hud_theta_is_in_radians(tmp_path, monkeypatch, caplog):
+    """★ 叠加图 HUD 上的角度是**弧度**，与 `/pallet_servo/dis` 的 `theta_rad` 同单位。
+
+    **为什么必须有这一条**：图上那行字是操作员核对读数时唯一会去看的地方，
+    而对外话题发的是弧度。从前 HUD 印 `math.degrees(...)`+`deg`，于是拿
+    `rostopic echo /pallet_servo/dis` 的 `theta_rad` 去对图上那个数，**差 57.3
+    倍** —— 两个都"看着像模像样"，谁也不会当场发现（本项目最忌的那类静默错）。
+
+    ⚠️ **把 `error.theta_rad` 传成 `math.degrees(...)` 之外还要防"标对单位、
+    算错倍数"**：所以断言取一个**既不是 0 也不是 1** 的角度（0.3 rad = 17.19°），
+    再去掉格式里的 `theta=` / `rad` 反解成数、与 `err.theta_rad` 比。只断言
+    "串里有 'rad'" 会漏掉"印的还是度"。
+
+    ⚠️ 与 `skills/.../test_render_servo_overlay.py` 里那两条 HUD 夹具的关系：
+    那两条传的是**手写的** `hud_lines`，钉的是**画得出来**；这一条走 `update()`，
+    钉的是**节点这一侧拼出来的串**。夹具里那句现在也是 `rad` —— 两处都改才是
+    "人看得到的与话题一致"。
+    """
+    _fake_ros_modules(monkeypatch)
+    _fake_servo_msgs(monkeypatch)
+    writer = make_writer("latest_pallet", "latest_pallet_version",
+                         "latest_pallet_stamp", "latest_box_obs",
+                         "latest_box_obs_version")
+    # 0.3 rad：既不是 0（"0 乘任何数都是 0"，印错单位也看不出来）也不是 ±1
+    TARGET = 0.3
+    write_inputs(writer, matrix_to_pose6d(straight_down_camera()),
+                 a_box(theta=TARGET, stamp=1.0),
+                 pallet_version=1, box_version=1)
+    setattr(writer, "latest_pallet_stamp", 1.0)
+
+    canvas_w, canvas_h = 1280, 1200
+    node = make_node(tmp_path, pallet_frame="camera", overlay_period_s=0.0,
+                     image_size=[canvas_w, canvas_h])
+    seen = {}
+
+    def _capture(color, *, error, T_cam_pallet, size_mm, K, D=None,
+                 ref_edges=None, box_aabb_uv=None, box_quad_uv=None,
+                 hud_lines=(), ref_edge_labels=None, neighbor_quads=None):
+        seen["hud"] = list(hud_lines)
+        seen["theta_rad"] = error.theta_rad
+        return np.zeros((40, 40, 3), np.uint8), []
+
+    import skills.atomic.perception.pallet_servo.render as render
+    monkeypatch.setattr(render, "render_servo_overlay", _capture)
+    monkeypatch.setattr(render, "numeric_self_check",
+                        lambda canvas, probes, tolerance=8: [])
+
+    node._overlay_pub = _FakePublisher()
+    node._on_color(_fake_color_msg(canvas_w, canvas_h))
+    assert node.update() == Status.RUNNING, node.feedback_message
+    assert seen, "HUD 没传到 render —— 这条用例的前提不成立"
+
+    line = next((ln for ln in seen["hud"] if "theta=" in ln), None)
+    assert line is not None, seen["hud"]
+    assert "deg" not in line, (
+        f"HUD 上的角度还在用度：{line!r} —— 图上与 /pallet_servo/dis 的 "
+        f"theta_rad 差 57.3 倍，对读时两个数对不上")
+    head = line.split("theta=", 1)[1].split("rad", 1)
+    assert len(head) == 2 and head[1].strip() == "", (
+        f"HUD 的角度不是 `<数>rad` 的形状：{line!r}")
+    printed = float(head[0])
+    assert abs(printed - seen["theta_rad"]) < 5e-6, (
+        f"HUD 印的 {printed} 与这一帧算出来的 theta_rad={seen['theta_rad']} 不一致"
+        f"（差 {abs(printed - seen['theta_rad'])}）—— 同单位不等于同一个数")
 
 
 def test_reentering_initialise_does_not_respam_the_topic(tmp_path, monkeypatch):
@@ -3417,8 +3619,8 @@ def test_the_invalid_frame_stamp_is_the_publish_time(tmp_path, monkeypatch):
 # 参考边槽位 + 开关服务
 # --------------------------------------------------------------------------- #
 # ★ **必须用 f-string 引常量**，不能把 1200 / 1000 写死：本文件的
-#   `PALLET_W_MM, PALLET_H_MM = 1200.0, 800.0` —— 若把 `y=1000` 写死，第 2 组的
-#   底边就**超出台面 H=800**，两条用例会挂在 `ref_edge_out_of_range` 上。
+#   `PALLET_W_MM, PALLET_H_MM = 1200.0, 800.0`。绝对写法现在允许落在台面外，
+#   但引用常量能让用例的意图（"贴边"）保持清楚。
 SLOTS = [["y=0", f"x={PALLET_W_MM}"], [f"y={PALLET_H_MM}", f"x={PALLET_W_MM}"]]
 
 
@@ -3563,20 +3765,48 @@ def test_the_whole_slot_table_is_checked_at_startup(tmp_path, monkeypatch):
     assert "parallel" in node._config_err, node._config_err
 
 
-def test_the_out_of_range_slot_is_caught_at_startup(tmp_path, monkeypatch):
-    """绝对写法越界也是启动时的配置错误（尺寸在 `initialise()` 里才定）。"""
+def test_node_starts_without_configured_pallet_size(tmp_path, monkeypatch):
+    """★ 主流程删掉尺寸配置后，节点启动**不能失败**。
+
+    尺寸只从检测器上报的 `latest_pallet_size_mm` 来；启动时它还是 None 是
+    正常状态。pallet 档会在 `update()` 里等它，neighbor 档不受影响。
+    """
+    _fake_ros_modules(monkeypatch)
+    _fake_servo_msgs(monkeypatch)
+    py_trees.blackboard.Blackboard.clear()
+    node = NodePalletServo("servo", "servo", "ns", {
+        "ref_edges": SLOTS,
+        # 故意不给 pallet_size_mm
+        "config_path": str(tmp_path / "no_such_pallet_tag.yaml"),
+        "K": K_PARAM, "image_size": IMAGE_SIZE,
+        "dump_dir": str(tmp_path / "dump"), "pallet_frame": "base_link",
+    })
+    node.initialise()
+
+    assert node._config_err is None, node._config_err
+    assert node._size is None
+    # 未激活路径照常返回 RUNNING（不是 FAILURE）
+    assert node.update() == Status.RUNNING
+
+
+def test_absolute_edge_outside_the_pallet_is_allowed(tmp_path, monkeypatch):
+    """★ 绝对写法可以落在台面外（2026-10-26 操作员裁定）。
+
+    参考边是**"想对齐的位置"**，不是物理托盘的约束：允许对托盘外某一处。
+    `initialise()` 仍查写法与平行，但**不再**按 `pallet_size_mm` 判范围。
+    """
     _fake_ros_modules(monkeypatch)
     _fake_servo_msgs(monkeypatch)
     node = NodePalletServo("servo", "servo", "ns", {
-        "ref_edges": [["y=0", f"x={PALLET_W_MM}"], ["y=0", f"x={PALLET_W_MM + 50}"]],
+        "ref_edges": [["y=0", f"x={PALLET_W_MM}"],
+                      ["y=0", f"x={PALLET_W_MM + 50}"]],
         "pallet_size_mm": [PALLET_W_MM, PALLET_H_MM],
         "K": K_PARAM, "image_size": IMAGE_SIZE,
         "dump_dir": str(tmp_path / "dump"), "pallet_frame": "base_link",
     })
     node.initialise()
 
-    assert node._config_err is not None
-    assert "out_of_range" in node._config_err, node._config_err
+    assert node._config_err is None, node._config_err
 
 
 def test_no_slot_service_means_stuck_inactive_not_a_crash(tmp_path, monkeypatch):
@@ -3662,8 +3892,9 @@ def test_config_error_beats_inactive(tmp_path, monkeypatch):
     破坏掉（见它的注释）。这里照 `test_inactive_publishes_an_invalid_frame` 的
     样子直接构造。
 
-    ⚠️ 参考边用常量写（`PALLET_H_MM = 800.0`）：写死一个超出台面的数会让
-    `ref_edge_out_of_range` 抢了话头，而这条用例要的是**平行**那个拒绝码。
+    ⚠️ 参考边用常量写（`PALLET_H_MM = 800.0`）：绝对写法现在允许落在台面外，
+    但引用常量能让用例的意图（"贴边"）保持清楚；这条用例要的是**平行**那个
+    拒绝码。
     """
     _fake_ros_modules(monkeypatch)
     _fake_servo_msgs(monkeypatch)

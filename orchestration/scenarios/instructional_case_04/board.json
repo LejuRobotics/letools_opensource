@@ -1,0 +1,56 @@
+{
+  "home_commands": [
+    {
+      "planner_index": 3,
+      "cmd_vec": [0.0, 0.0, 0.0, 0.0]
+    },
+    {
+      "planner_index": 8,
+      "cmd_vec": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    },
+    {
+      "planner_index": 9,
+      "cmd_vec": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    }
+  ],
+  "forward_and_left_commands": [
+    {
+      "planner_index": 3,
+      "cmd_vec": [29.0, -41.11, 32.21, 20.0]
+    },
+    {
+      "planner_index": 8,
+      "cmd_vec": [0.0, 0.0, 0.0, -90.0, 0.0, 30.0, 0.0]
+    },
+    {
+      "planner_index": 9,
+      "cmd_vec": [0.0, 0.0, 0.0, -90.0, 0.0, 30.0, 0.0]
+    }
+  ],
+  "forward_and_right_commands": [
+    {
+      "planner_index": 3,
+      "cmd_vec": [29.0, -41.11, 32.21, -20.0]
+    },
+    {
+      "planner_index": 8,
+      "cmd_vec": [0.0, 0.0, 0.0, -90.0, 0.0, -30.0, 0.0]
+    },
+    {
+      "planner_index": 9,
+      "cmd_vec": [0.0, 0.0, 0.0, -90.0, 0.0, -30.0, 0.0]
+    }
+  ],
+  "motion_duration_sec": 3.0,
+  "head_left_yaw_deg": 20.0,
+  "head_right_yaw_deg": -20.0,
+  "head_center_yaw_deg": 0.0,
+  "head_center_pitch_deg": 0.0,
+  "base_relative_x_m": 0.0,
+  "base_relative_y_m": 0.0,
+  "base_turn_left_rad": 0.349066,
+  "base_turn_right_rad": -0.698132,
+  "base_return_center_rad": 0.349066,
+  "base_angular_velocity_rad_s": 0.35,
+  "base_angle_threshold_rad": 0.05
+}

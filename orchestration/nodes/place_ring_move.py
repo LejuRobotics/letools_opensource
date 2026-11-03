@@ -30,16 +30,34 @@ class PlaceRingMove(BaseAction):
         self._init_result = None
 
     def initialise(self):
+        if _DRY_RUN:
+            self.feedback_message = "dry-run place_ring_move"
+            self._skill = None
+            self._init_result = None
+            return
+
         try:
             hw = get_shared_hardware()
         except Exception:
             hw = None
 
+        pitch_offset = self.params.get("retreat_pitch_offset_deg")
         skill_params = PlaceRingParams(
             place_target_x=float(self.params.get("place_target_x", 0.7)),
             place_target_y=float(self.params.get("place_target_y", -0.3)),
             place_target_z=float(self.params.get("place_target_z", 1.05)),
             gripper_pre_position=float(self.params.get("gripper_pre_position", 50)),
+            retreat_distance=float(self.params.get("retreat_distance", 0.30)),
+            retreat_time=float(self.params.get("retreat_time", 9.5)),
+            retreat_pitch_offset_deg=float(pitch_offset) if pitch_offset is not None else None,
+            retreat_orientation_tolerance_deg=float(self.params.get("retreat_orientation_tolerance_deg", 5.0)),
+            return_joint_stages=self.params.get("return_joint_stages"),
+            return_left_joint_degrees=self.params.get("return_left_joint_degrees"),
+            return_match_left=self.params.get("return_match_left", False),
+            return_sync=self.params.get("return_sync", False),
+            return_time=float(self.params.get("return_time", 4.0)),
+            return_max_forward=float(self.params.get("return_max_forward", 0.45)),
+            timeout=float(self.params.get("timeout", 60.0)),
         )
         self._skill = PlaceRingSkill(hardware=hw)
         self._init_result = self._skill.initialize(skill_params)

@@ -1,0 +1,189 @@
+{
+  "tree": {
+    "name": "RepeatUntil",
+    "label": "mtbf",
+    "params": {
+      "condition_key": {"source": "CUSTOM", "data_type": "string", "value": "mtbf_stop_requested"},
+      "expected_value": {"source": "CUSTOM", "data_type": "bool", "value": true},
+      "wait_for_child_completion": {"source": "CUSTOM", "data_type": "bool", "value": true},
+      "check_before_iteration": {"source": "CUSTOM", "data_type": "bool", "value": true},
+      "max_iterations": {"source": "READ_BOARD", "data_type": "int", "board_key": "repeat_count"}
+    },
+    "childs": [
+      {
+        "name": "Sequence",
+        "label": "mtbf_round",
+        "params": {"memory": {"source": "CUSTOM", "data_type": "bool", "value": true}},
+        "childs": [
+          {
+            "name": "MultiTimedCommandMove",
+            "label": "move_to_initial",
+            "params": {
+              "commands": {"source": "READ_BOARD", "data_type": "json", "board_key": "initial"},
+              "desire_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "initial_duration"},
+              "focus_ee": {"source": "READ_BOARD", "data_type": "bool", "board_key": "focus_ee"},
+              "is_sync": {"source": "READ_BOARD", "data_type": "bool", "board_key": "is_sync"},
+              "settle_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "motion_settle_time"}
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "ChassisNavigationMove",
+            "label": "nav_to_pick",
+            "params": {
+              "navigation_config": {"source": "READ_BOARD", "board_key": "navigation_config", "data_type": "json"},
+              "target_key": {"source": "CUSTOM", "data_type": "string", "value": "pick_point"},
+              "mode": {"source": "CUSTOM", "data_type": "string", "value": "map"}
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "MultiTimedCommandMove",
+            "label": "move_to_pick_observe",
+            "params": {
+              "commands": {"source": "READ_BOARD", "data_type": "json", "board_key": "pick_observe"},
+              "desire_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "pick_observe_duration"},
+              "focus_ee": {"source": "READ_BOARD", "data_type": "bool", "board_key": "focus_ee"},
+              "is_sync": {"source": "READ_BOARD", "data_type": "bool", "board_key": "is_sync"},
+              "settle_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "motion_settle_time"}
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "Parallel",
+            "label": "pick_tag_detection",
+            "params": {"policy": {"source": "CUSTOM", "data_type": "string", "value": "success_on_one"}},
+            "childs": [
+              {
+                "name": "NodeWaitForBlackboard",
+                "label": "wait_for_pick_tag",
+                "params": {
+                  "tag_id": {"source": "READ_BOARD", "data_type": "int", "board_key": "pick_tag_id"},
+                  "use_virtual_tag": {"source": "READ_BOARD", "data_type": "bool", "board_key": "use_virtual_tag"},
+                  "fallback_to_virtual": {"source": "READ_BOARD", "data_type": "bool", "board_key": "fallback_to_virtual"},
+                  "require_fresh_tag": {"source": "READ_BOARD", "data_type": "bool", "board_key": "require_fresh_tag"},
+                  "real_tag_timeout_sec": {"source": "READ_BOARD", "data_type": "float", "board_key": "real_tag_timeout_sec"},
+                  "virtual_tag_pose_in_odom": {"source": "READ_BOARD", "data_type": "json", "board_key": "virtual_tag_pick"},
+                  "stand_in_tag_pos": {"source": "CUSTOM", "data_type": "json", "value": [0.0, 0.0, 0.0]},
+                  "stand_in_tag_euler": {"source": "CUSTOM", "data_type": "json", "value": [0.0, 0.0, 0.0]}
+                },
+                "childs": [],
+                "childBoard": []
+              },
+              {
+                "name": "NodePercep",
+                "label": "detect_pick_tag",
+                "params": {
+                  "tag_ids": {"source": "READ_BOARD", "data_type": "json", "board_key": "tag_ids"},
+                  "use_virtual_tag": {"source": "READ_BOARD", "data_type": "bool", "board_key": "use_virtual_tag"}
+                },
+                "childs": [],
+                "childBoard": []
+              }
+            ],
+            "childBoard": []
+          },
+          {
+            "name": "ComputeKeyPoints",
+            "label": "compute_pick_key_points",
+            "params": {
+              "phase": {"source": "CUSTOM", "data_type": "string", "value": "pick"},
+              "tag_xyz": {"source": "READ_BOARD", "data_type": "json", "board_key": "latest_tag_1_xyz"},
+              "position_offset": {"source": "READ_BOARD", "data_type": "json", "board_key": "pick_position_offset"},
+              "box_size": {"source": "READ_BOARD", "data_type": "json", "board_key": "box_size"}
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "pick_one.json",
+            "label": "pick_one",
+            "params": {},
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "ChassisNavigationMove",
+            "label": "nav_to_place",
+            "params": {
+              "navigation_config": {"source": "READ_BOARD", "board_key": "navigation_config", "data_type": "json"},
+              "target_key": {"source": "CUSTOM", "data_type": "string", "value": "place_point"},
+              "mode": {"source": "CUSTOM", "data_type": "string", "value": "map"}
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "Parallel",
+            "label": "place_tag_detection",
+            "params": {"policy": {"source": "CUSTOM", "data_type": "string", "value": "success_on_one"}},
+            "childs": [
+              {
+                "name": "NodeWaitForBlackboard",
+                "label": "wait_for_place_tag",
+                "params": {
+                  "tag_id": {"source": "READ_BOARD", "data_type": "int", "board_key": "place_tag_id"},
+                  "use_virtual_tag": {"source": "READ_BOARD", "data_type": "bool", "board_key": "use_virtual_tag"},
+                  "fallback_to_virtual": {"source": "READ_BOARD", "data_type": "bool", "board_key": "fallback_to_virtual"},
+                  "require_fresh_tag": {"source": "READ_BOARD", "data_type": "bool", "board_key": "require_fresh_tag"},
+                  "real_tag_timeout_sec": {"source": "READ_BOARD", "data_type": "float", "board_key": "real_tag_timeout_sec"},
+                  "virtual_tag_pose_in_odom": {"source": "READ_BOARD", "data_type": "json", "board_key": "virtual_tag_place"},
+                  "stand_in_tag_pos": {"source": "CUSTOM", "data_type": "json", "value": [0.0, 0.0, 0.0]},
+                  "stand_in_tag_euler": {"source": "CUSTOM", "data_type": "json", "value": [0.0, 0.0, 0.0]}
+                },
+                "childs": [],
+                "childBoard": []
+              },
+              {
+                "name": "NodePercep",
+                "label": "detect_place_tag",
+                "params": {
+                  "tag_ids": {"source": "READ_BOARD", "data_type": "json", "board_key": "tag_ids"},
+                  "use_virtual_tag": {"source": "READ_BOARD", "data_type": "bool", "board_key": "use_virtual_tag"}
+                },
+                "childs": [],
+                "childBoard": []
+              }
+            ],
+            "childBoard": []
+          },
+          {
+            "name": "ComputeKeyPoints",
+            "label": "compute_place_key_points",
+            "params": {
+              "phase": {"source": "CUSTOM", "data_type": "string", "value": "place"},
+              "tag_xyz": {"source": "READ_BOARD", "data_type": "json", "board_key": "latest_tag_2_xyz"},
+              "position_offset": {"source": "READ_BOARD", "data_type": "json", "board_key": "place_position_offset"},
+              "box_size": {"source": "READ_BOARD", "data_type": "json", "board_key": "box_size"}
+            },
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "place_one.json",
+            "label": "place_one",
+            "params": {},
+            "childs": [],
+            "childBoard": []
+          },
+          {
+            "name": "MultiTimedCommandMove",
+            "label": "move_to_initial",
+            "params": {
+              "commands": {"source": "READ_BOARD", "data_type": "json", "board_key": "initial"},
+              "desire_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "initial_duration"},
+              "focus_ee": {"source": "READ_BOARD", "data_type": "bool", "board_key": "focus_ee"},
+              "is_sync": {"source": "READ_BOARD", "data_type": "bool", "board_key": "is_sync"},
+              "settle_time": {"source": "READ_BOARD", "data_type": "float", "board_key": "motion_settle_time"}
+            },
+            "childs": [],
+            "childBoard": []
+          }
+        ]
+      }
+    ]
+  }
+}

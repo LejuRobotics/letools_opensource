@@ -116,7 +116,7 @@ class PalletFrameWindow:
     """
 
     def __init__(self, *, max_dt_s: float = 0.05, pair_cache: int = 5,
-                 window: int = 5, agg: str = "mean",
+                 window: int = 3, agg: str = "mean",
                  stale_s: float = 0.0) -> None:
         self._max_dt_s = float(max_dt_s)
         self._cache = max(1, int(pair_cache))

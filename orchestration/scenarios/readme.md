@@ -170,7 +170,7 @@ your_scenario/
 
 ### 第 1 层：原子技能 HeadControlSdkSkill
 
-**文件**：[skills/atomic/refactored_sdk/head_control_sdk.py](skills/atomic/refactored_sdk/head_control_sdk.py)
+**文件**：[skills/atomic/refactored_sdk/head_control_sdk.py](../../skills/atomic/refactored_sdk/head_control_sdk.py)
 
 ```python
 from skills.base.skill_base import SkillBase
@@ -210,7 +210,7 @@ class HeadControlSdkSkill(SkillBase):
 
 ### 第 2 层：原子节点 HeadControlSdkMove
 
-**文件**：[orchestration/nodes/head_control_sdk_move.py](orchestration/nodes/head_control_sdk_move.py)
+**文件**：[orchestration/nodes/head_control_sdk_move.py](../../orchestration/nodes/head_control_sdk_move.py)
 
 ```python
 from orchestration.nodes.base_node import BaseAction  # 继承 py_trees.Behaviour

@@ -1,0 +1,5 @@
+# 纸箱检测权重不进 git。
+# `carton_box_yolo` 已从仓库删除（2026-10 换 OBB 路线），但机器人/旧部署上
+# 可能仍留着这个包与 `models/best_cartonbb.onnx` —— 忽略它，别让权重进版本库。
+carton_box_yolo/models/*.onnx
+carton_box_yolo/models/*.pt

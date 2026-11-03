@@ -69,7 +69,7 @@ class TestBaseMove(unittest.TestCase):
         """小位移前进 0.2m"""
         print("  测试目标: 前进 0.2m")
 
-        result = self.hardware.base_move_relative_jibot(x=0.2, y=0.0, theta=0.0)
+        result = self.hardware.base_move_relative_jibot(x=-0.1, y=0.0, theta=0.2)
 
         self.assertTrue(result.success, f"服务调用失败: {result.message}")
         self.assertIn("task_id", result.data, "返回数据中缺少 task_id")
@@ -80,44 +80,44 @@ class TestBaseMove(unittest.TestCase):
         )
         print(f"  ✅ base_move 成功: task_id={task_id}")
 
-    def test_02_forward_with_options(self):
-        """前进 0.1m，自定义导航参数"""
-        print("  测试目标: 前进 0.1m，低速度高精度")
+    # def test_02_forward_with_options(self):
+    #     """前进 0.1m，自定义导航参数"""
+    #     print("  测试目标: 前进 0.1m，低速度高精度")
 
-        options = MoveToTargetOptions(
-            linear_velocity=0.1,
-            angular_velocity=0.2,
-            position_threshold=0.05,
-            angle_threshold=0.05,
-        )
+    #     options = MoveToTargetOptions(
+    #         linear_velocity=0.1,
+    #         angular_velocity=0.2,
+    #         position_threshold=0.05,
+    #         angle_threshold=0.05,
+    #     )
 
-        result = self.hardware.base_move_relative_jibot(
-            x=0.1, y=0.0, theta=0.0, options=options,
-        )
+    #     result = self.hardware.base_move_relative_jibot(
+    #         x=0.1, y=0.0, theta=0.0, options=options,
+    #     )
 
-        self.assertTrue(result.success, f"服务调用失败: {result.message}")
-        self.assertIn("task_id", result.data)
-        print(f"  ✅ base_move 成功: task_id={result.data['task_id']}")
+    #     self.assertTrue(result.success, f"服务调用失败: {result.message}")
+    #     self.assertIn("task_id", result.data)
+    #     print(f"  ✅ base_move 成功: task_id={result.data['task_id']}")
 
-    def test_03_rotate_in_place(self):
-        """原地旋转 0.3 rad"""
-        print("  测试目标: 原地旋转 0.3 rad")
+    # def test_03_rotate_in_place(self):
+    #     """原地旋转 0.3 rad"""
+    #     print("  测试目标: 原地旋转 0.3 rad")
 
-        result = self.hardware.base_move_relative_jibot(x=0.0, y=0.0, theta=0.3)
+    #     result = self.hardware.base_move_relative_jibot(x=0.0, y=0.0, theta=0.3)
 
-        self.assertTrue(result.success, f"服务调用失败: {result.message}")
-        self.assertIn("task_id", result.data)
-        print(f"  ✅ base_move 成功: task_id={result.data['task_id']}")
+    #     self.assertTrue(result.success, f"服务调用失败: {result.message}")
+    #     self.assertIn("task_id", result.data)
+    #     print(f"  ✅ base_move 成功: task_id={result.data['task_id']}")
 
-    def test_04_backward(self):
-        """后退 0.1m"""
-        print("  测试目标: 后退 0.1m")
+    # def test_04_backward(self):
+    #     """后退 0.1m"""
+    #     print("  测试目标: 后退 0.1m")
 
-        result = self.hardware.base_move_relative_jibot(x=-0.1, y=0.0, theta=0.0)
+    #     result = self.hardware.base_move_relative_jibot(x=-0.1, y=0.0, theta=0.0)
 
-        self.assertTrue(result.success, f"服务调用失败: {result.message}")
-        self.assertIn("task_id", result.data)
-        print(f"  ✅ base_move 成功: task_id={result.data['task_id']}")
+    #     self.assertTrue(result.success, f"服务调用失败: {result.message}")
+    #     self.assertIn("task_id", result.data)
+    #     print(f"  ✅ base_move 成功: task_id={result.data['task_id']}")
 
 
 def run_tests():

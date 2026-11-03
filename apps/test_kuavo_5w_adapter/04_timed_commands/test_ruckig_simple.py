@@ -74,12 +74,12 @@ time.sleep(5)
 
 # 测试2: 尝试左臂（如果节点还活着）
 print("\n" + "=" * 80)
-print("  测试2: 左臂关节规划器 (planner_index=8)")
+print("  测试2: 左臂关节规划器 (planner_index=6)")
 print("=" * 80)
 
 try:
     result = hardware.set_ruckig_planner_params(
-        planner_index=8,
+        planner_index=6,
         is_sync=True,
         velocity_max=[1.0] * 7,
         acceleration_max=[5.0] * 7,

@@ -1,0 +1,23 @@
+# 服务端始终对头部相机缓存的最新彩色帧推理。
+# 每个调用方只需独立指定过滤和旋转 NMS 阈值。
+float32 confidence
+float32 nms_iou
+---
+bool success
+string message
+
+# 实际参与推理的相机帧信息，供调用方匹配彩色图和深度图。
+std_msgs/Header source_header
+uint32 image_width
+uint32 image_height
+
+# N 个原图像素坐标系下的 cv2 RotatedRect，六个数组长度必须一致。
+float32[] center_x
+float32[] center_y
+float32[] width
+float32[] height
+float32[] angle_deg
+float32[] scores
+
+# 只统计 TensorRT execute，不包含 ROS 序列化、预处理和 NMS。
+float32 inference_ms

@@ -1,0 +1,243 @@
+{
+  "inputs": [],
+  "custom": [],
+  "process": [
+    {
+      "key": "repeat_count",
+      "remark": "完整抓放轮数，1为单轮，0为无限循环；修改后重新加载树",
+      "type": "int",
+      "value": 2
+    },
+    {
+      "key": "mtbf_stop_requested",
+      "remark": "true请求在当前完整抓放轮结束后停止；首轮前为true则不执行动作",
+      "type": "bool",
+      "value": false
+    },
+    {
+      "key": "navigation_config",
+      "remark": "导航统一配置",
+      "type": "json",
+      "value": {
+        "enable": true,
+        "pick_point": [2.240, 1.377, 1.588250],
+        "place_point": [3.272, 1.386, 1.588250],
+        "avoid_enabled": false,
+        "allow_rotation": true,
+        "linear_velocity": 1.00,
+        "angular_velocity": 1.00,
+        "arrived_position_threshold": 0.03,
+        "arrived_angular_threshold": 0.08
+      }
+    },
+    {
+      "key": "pick_tag_id",
+      "remark": "抓取目标 Tag ID",
+      "type": "int",
+      "value": 1
+    },
+    {
+      "key": "place_tag_id",
+      "remark": "放置目标 Tag ID",
+      "type": "int",
+      "value": 2
+    },
+    {
+      "key": "tag_ids",
+      "remark": "Tag 检测节点监听的 ID 列表",
+      "type": "json",
+      "value": [1,2]
+    },
+    {
+      "key": "use_virtual_tag",
+      "remark": "true时主动使用虚拟Tag；false时等待真实Tag，超时策略由fallback_to_virtual控制",
+      "type": "bool",
+      "value": false
+    },
+    {
+      "key": "fallback_to_virtual",
+      "remark": "真实Tag超时后是否注入虚拟目标；实机默认false，超时失败停止后续动作",
+      "type": "bool",
+      "value": false
+    },
+    {
+      "key": "require_fresh_tag",
+      "remark": "仅接受本次检测阶段开始后的新采集Tag，拒绝旧黑板或感知缓存",
+      "type": "bool",
+      "value": true
+    },
+    {
+      "key": "real_tag_timeout_sec",
+      "remark": "真实Tag等待超时时间，秒",
+      "type": "float",
+      "value": 5.0
+    },
+    {
+      "key": "virtual_tag_pick",
+      "remark": "抓取的虚拟Tag在odom系中的位姿[x,y,z,roll,pitch,yaw]",
+      "type": "json",
+      "value": [0.70, 0.0, 1.10, 0.0, 0.0, 0.0]
+    },
+    {
+      "key": "virtual_tag_place",
+      "remark": "放置的虚拟Tag在odom系中的位姿[x,y,z,roll,pitch,yaw]",
+      "type": "json",
+      "value": [1.05, 0.0, 1.50, 0.0, 0.0, 0.0]
+    },
+    {
+      "key": "box_size",
+      "remark": "箱子在BASE系下的尺寸[x,y,z]，单位米",
+      "type": "json",
+      "value": [0.34, 0.58, 0.26]
+    },
+    {
+      "key": "pick_position_offset",
+      "remark": "抓取目标相对抓取Tag的位置偏置[x,y,z]，单位米",
+      "type": "json",
+      "value": [0.05, 0.0, 0.0]
+    },
+    {
+      "key": "place_position_offset",
+      "remark": "放置目标相对放置Tag的位置偏置[x,y,z]，单位米",
+      "type": "json",
+      "value": [-0.40, 0.0, -0.40]
+    },
+    {
+      "key": "focus_ee",
+      "remark": "true专注末端解算且躯干可能随动；false尽可能不动躯干，focus_z与该值一致",
+      "type": "bool",
+      "value": false
+    },
+    {
+      "key": "is_sync",
+      "remark": "同一组规划器是否同步完成",
+      "type": "bool",
+      "value": true
+    },
+    {
+      "key": "motion_settle_time",
+      "remark": "运动结束后的额外稳定等待时间，秒",
+      "type": "float",
+      "value": 0.5
+    },
+    {
+      "key": "initial",
+      "remark": "initial动作",
+      "type": "json",
+      "value": [
+        {"planner_index": 2, "cmd_vec": [0.12, 1.00, 0.0, 0.0]},
+        {"planner_index": 8, "cmd_vec": [57.0, 41.5, -11.3, -143.5, 21.3, 38.3, 2.3]},
+        {"planner_index": 9, "cmd_vec": [57.0, -41.5, 11.3, -143.5, -21.3, -38.3, 2.3]}
+      ]
+    },
+    {"key": "initial_duration", "remark": "initial动作执行时间，秒", "type": "float", "value": 3.0},
+    {
+      "key": "pick_observe",
+      "remark": "pick_observe动作",
+      "type": "json",
+      "value": [
+        {"planner_index": 2, "cmd_vec": [0.12, 1.00, 0.0, 0.0]},
+        {"planner_index": 8, "cmd_vec": [57.0, 41.5, -11.3, -143.5, 21.3, 38.3, 2.3]},
+        {"planner_index": 9, "cmd_vec": [57.0, -41.5, 11.3, -143.5, -21.3, -38.3, 2.3]}
+      ]
+    },
+    {"key": "pick_observe_duration", "remark": "pick_observe动作执行时间，秒", "type": "float", "value": 3.0},
+    {
+      "key": "pick_align",
+      "remark": "pick_align对齐动作，末端角度单位为度",
+      "type": "json",
+      "value": [
+        {"planner_index": 2, "cmd_vec": [0.12, 1.00, 0.0, 0.0]},
+        {"planner_index": 6, "cmd_vec": [0.50, 0.40, 1.00, 0.0, -90.0, -12.0]},
+        {"planner_index": 7, "cmd_vec": [0.50, -0.40, 1.00, 0.0, -90.0, 12.0]}
+      ]
+    },
+    {"key": "pick_align_duration", "remark": "pick_align动作执行时间，秒", "type": "float", "value": 3.0},
+    {
+      "key": "pick_approach",
+      "remark": "pick_approach接近动作，末端角度单位为度",
+      "type": "json",
+      "value": [
+        {"planner_index": 2, "cmd_vec": [0.12, 1.00, 0.0, 0.0]},
+        {"planner_index": 6, "cmd_vec": [0.50, 0.40, 1.00, 0.0, -90.0, -12.0]},
+        {"planner_index": 7, "cmd_vec": [0.50, -0.40, 1.00, 0.0, -90.0, 12.0]}
+      ]
+    },
+    {"key": "pick_approach_duration", "remark": "pick_approach动作执行时间，秒", "type": "float", "value": 3.0},
+    {
+      "key": "pick",
+      "remark": "pick动作",
+      "type": "json",
+      "value": [
+        {"planner_index": 2, "cmd_vec": [0.12, 1.00, 0.0, 0.0]},
+        {"planner_index": 6, "cmd_vec": [0.50, 0.35, 1.00, 0.0, -90.0, -12.0]},
+        {"planner_index": 7, "cmd_vec": [0.50, -0.35, 1.00, 0.0, -90.0, 12.0]}
+      ]
+    },
+    {"key": "pick_duration", "remark": "pick动作执行时间，秒", "type": "float", "value": 3.0},
+    {
+      "key": "pick_lift",
+      "remark": "pick_lift动作",
+      "type": "json",
+      "value": [
+        {"planner_index": 2, "cmd_vec": [0.12, 1.00, 0.0, 0.0]},
+        {"planner_index": 6, "cmd_vec": [0.50, 0.35, 1.10, 0.0, -90.0, -12.0]},
+        {"planner_index": 7, "cmd_vec": [0.50, -0.35, 1.10, 0.0, -90.0, 12.0]}
+      ]
+    },
+    {"key": "pick_lift_duration", "remark": "pick_lift动作执行时间，秒", "type": "float", "value": 3.0},
+    {
+      "key": "place_observe",
+      "remark": "place_observe动作",
+      "type": "json",
+      "value": [
+        {"planner_index": 2, "cmd_vec": [0.12, 1.20, 0.0, 0.0]}
+      ]
+    },
+    {"key": "place_observe_duration", "remark": "place_observe动作执行时间，秒", "type": "float", "value": 3.0},
+    {
+      "key": "place_above",
+      "remark": "place_above动作",
+      "type": "json",
+      "value": [
+        {"planner_index": 2, "cmd_vec": [0.12, 1.00, 0.0, 0.0]},
+        {"planner_index": 6, "cmd_vec": [0.50, 0.35, 1.10, 0.0, -90.0, -12.0]},
+        {"planner_index": 7, "cmd_vec": [0.50, -0.35, 1.10, 0.0, -90.0, 12.0]}
+      ]
+    },
+    {"key": "place_above_duration", "remark": "place_above动作执行时间，秒", "type": "float", "value": 3.0},
+    {
+      "key": "place",
+      "remark": "place动作",
+      "type": "json",
+      "value": [
+        {"planner_index": 2, "cmd_vec": [0.12, 1.00, 0.0, 0.0]},
+        {"planner_index": 6, "cmd_vec": [0.50, 0.35, 1.00, 0.0, -90.0, -12.0]},
+        {"planner_index": 7, "cmd_vec": [0.50, -0.35, 1.00, 0.0, -90.0, 12.0]}
+      ]
+    },
+    {"key": "place_duration", "remark": "place动作执行时间，秒", "type": "float", "value": 3.0},
+    {
+      "key": "place_release",
+      "remark": "place_release动作",
+      "type": "json",
+      "value": [
+        {"planner_index": 2, "cmd_vec": [0.12, 1.00, 0.0, 0.0]},
+        {"planner_index": 6, "cmd_vec": [0.50, 0.40, 1.00, 0.0, -90.0, -12.0]},
+        {"planner_index": 7, "cmd_vec": [0.50, -0.40, 1.00, 0.0, -90.0, 12.0]}
+      ]
+    },
+    {"key": "place_release_duration", "remark": "place_release动作执行时间，秒", "type": "float", "value": 3.0},
+    {
+      "key": "place_retreat",
+      "remark": "place_retreat后撤动作，末端角度单位为度",
+      "type": "json",
+      "value": [
+        {"planner_index": 2, "cmd_vec": [0.12, 1.00, 0.0, 0.0]},
+        {"planner_index": 6, "cmd_vec": [0.50, 0.40, 1.00, 0.0, -90.0, -12.0]},
+        {"planner_index": 7, "cmd_vec": [0.50, -0.40, 1.00, 0.0, -90.0, 12.0]}
+      ]
+    },
+    {"key": "place_retreat_duration", "remark": "place_retreat动作执行时间，秒", "type": "float", "value": 3.0}
+  ]
+}

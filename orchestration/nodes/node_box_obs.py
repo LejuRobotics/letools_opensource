@@ -7,25 +7,33 @@
 
 黑板契约（照抄 NodePercep / NodePalletPose / NodeInjectServoInput 的写法）
     写  latest_box_obs / latest_box_obs_version      BoxObservation
+    写  latest_box_candidates / latest_box_candidates_version
+                                                     list[BoxObservation]
+        —— **NMS 后、选箱前的全部候选**（含选中的那个）。每个候选一个
+        `BoxObservation`（`quad`/AABB/`confidence` 都是它自己的，`stamp` 用同一条
+        消息的）。**没有候选就写空列表**（不是 `None`，下游用 `len()` 判）。
+        键名可用 `candidates_key` 参数改；老键那两个的写法一个字没动。
 
 ## 上游话题：`box_detection_msgs/BoxDetection`
 
-默认话题 `/box/detection`，发布者是本仓库的 `box_detection` 包
-（算法在 `skills/atomic/perception/box_frame/`；交接文档
-`WORKLOG_box_frame_fit.md` §17）。它有**四角**，正好是伺服要的东西：
+默认话题 `/box/detection`，发布者是本仓库的 `carton_obb` 包
+（算法 2026-10-15 起在 `skills/atomic/perception/carton_detect/`，与托盘那条链同构：
+**算法进 `skills/`、ROS 壳进 `infrastructure/`**）。
+它有**四角**，正好是伺服要的东西：
 
     corners_uv   geometry_msgs/Point32[4]  顺序 **右下 → 左下 → 左上 → 右上**
                                            —— 与 `BoxObservation.quad` 的契约顺序**一致**，直接填
     valid        bool                      **消费端只需看这一个**
-    source       string                    window / single / yolo_fallback
+    source       string                    window / single（生产者是 carton_obb）
     spread_px    float32                   窗内各帧四角到平均值的最远距离
     rejects      string                    失败槽的原因，便于排查
 
-⚠️ **`valid == false` 的帧绝对不能用**：那时四角就是**原始 YOLO 轴对齐框**，
-箱子旋转没恢复（msg 注释原话：「`false` = 四角就是原始 YOLO 框，别拿去做伺服」）。
-拿它去算伺服，`theta` 是错的，而**四角看着规规矩矩是个矩形**、`e_bottom_px`
-也像模像样 —— 又是一条静默错。所以这种帧**一个字都不写黑板**（默认
-`require_valid: true`），下游因此继续用上一帧的好值。
+⚠️ **`valid == false` 的帧绝对不能用。** 那种帧的四角是「**外接框**」而不是
+恢复出来的旋转四边形 —— `theta` 是错的，而**四角看着规规矩矩是个矩形**、
+`e_bottom_px` 也像模像样，是一条静默错。上游 `carton_obb` 现在不发这种帧
+（没结果就不发），但 `valid` 这道门禁**保留**：消息契约没变、别的生产者也可能
+置 false。这种帧**一个字都不写黑板**（默认 `require_valid: true`），
+下游因此继续用上一帧的好值。
 
 ## `stamp` 写哨兵，不编造（**与 `NodePalletObs` 同一口径**）
 
@@ -33,7 +41,7 @@
 （取不到就 `0.0`），**绝不退回本节点的处理时刻**，并在 `update()` 里告警一次。
 
 这里从前写的是 `stamp or time.time()`，理由是箱子的 stamp 来自**本仓库自己的**
-`box_detection`（`box_detection_node.py:327` 逐字转发图像 header），"有总比没有强"。
+`carton_obb`（`carton_obb_detect.py` 逐字转发图像 header），"有总比没有强"。
 **那个前提一破**（相机驱动发 `stamp=0`，或检测器自报 `rospy.Time.now()` ——
 设计点名的典型错误），编出来的数会**落在 `max_dt_s` 内**静默配上一对不同帧的
 图像，误差里混着相机运动，而三个数照样算得出来。写 `0.0` 则配对侧**显式 reject**
@@ -171,8 +179,62 @@ def _sane(corners: Sequence[Sequence[float]]) -> bool:
     return True
 
 
+def _float_list(seq) -> Optional[List[float]]:
+    """一串数 → `[float, ...]`；取不出来 / 有 NaN 就整体 `None`。
+
+    `candidates_conf` 是 `float32[]`，ROS 那边是 `numpy` 数组或 list，两种都要认。
+    NaN 走 `num_or_none` 返回 `None`（见那里），于是"置信度是 NaN"被当成
+    "这份候选列表不可信"，而不是静默当 0 放行。
+    """
+    if seq is None:
+        return None
+    try:
+        values = [num_or_none(x) for x in seq]
+    except TypeError:
+        return None
+    if not values or any(v is None for v in values):
+        return None
+    return values                      # type: ignore[return-value]
+
+
+def _candidates(msg) -> List[dict]:
+    """`candidates_uv` / `candidates_conf` → `[{"corners": [...], "confidence": f}, ...]`。
+
+    **解析不出来一律给空列表**（不是 `None`，也不报错）：老版本生产者根本不发这
+    两个字段，那与"这一帧没有候选"在下游是同一件事 —— 下游用 `len()` 判，不判
+    类型（见 spec §2）。
+
+    两道形状闸（照 `.msg` 的注释）：
+      * `candidates_uv` 的长度**必须是 4 的倍数**（每 4 个点一组）；
+      * `candidates_conf` 的组数必须**与之一一对应**。
+    任一不满足 → 整份候选**全部丢弃**（"两者不等时消费方按没有候选处理"）——
+    宁可没有候选，也不要让错位的置信度配上别的框。
+
+    四角本身还要**像像素**（`_sane`：有限、`|值| <= 2e4`）。这一条**整份丢弃**，
+    与 `_points_uv` 的"任何一个取不出来就整体 None"**同一口径** —— 别搞成
+    "NaN 丢整份、越界只丢一组"，同一个错误两种处理方式，读代码的人只会猜错。
+    （`1e9` 这类错值是**整条消息**发错了，不是某一个框坏了，留下同帧另外几个框
+    去当邻居参照就是拿坏数据凑数。）**"没有候选"与"候选不可信"在这里都表达成
+    空列表**，下游的 `len()` 判据正好一视同仁。
+
+    组内顺序与 `corners_uv` 相同（右下 → 左下 → 左上 → 右上），这里是**直通**，
+    与 `_corner_quad` 同一口径：不重排。
+    """
+    pts = _points_uv(getattr(msg, "candidates_uv", None))
+    if pts is None or len(pts) % 4 != 0:
+        return []
+    confs = _float_list(getattr(msg, "candidates_conf", None))
+    if confs is None or len(confs) != len(pts) // 4:
+        return []
+    if not _sane(pts):
+        return []
+    return [{"corners": pts[i * 4:(i + 1) * 4], "confidence": c}
+            for i, c in enumerate(confs)]
+
+
 def parse_box_message(msg) -> Optional[dict]:
-    """ROS 消息 → `{"corners", "valid", "source", "spread_px", "rejects", "stamp"}`。
+    """ROS 消息 → `{"corners", "valid", "source", "spread_px", "rejects", "stamp",
+    "candidates", ...}`。
 
     认不出来返回 `None`（调用方只记 WARNING，不抛、不 FAILURE）。**纯函数**：
     只按字段名取，不 import 任何消息类型，所以测试里喂假对象就能跑。
@@ -184,6 +246,9 @@ def parse_box_message(msg) -> Optional[dict]:
     3. `bbox`（**中心 + 尺寸**，`vision_msgs` 的写法）—— 合成轴对齐四角
     4. `u1/v1/u2/v2` 或 `x1/y1/x2/y2` —— 直接的角点字段
     5. `detections[0]`（`Detection2DArray`）—— 递归一层
+
+    `candidates` 与上面这套无关：它是 `BoxDetection` 追加的候选列表，别的布局
+    没有这个说法 → **空列表**（老生产者不发这两个字段也是这条）。
     """
     if msg is None:
         return None
@@ -201,6 +266,9 @@ def parse_box_message(msg) -> Optional[dict]:
         inner = parse_box_message(detections[0])
         if inner is not None:
             inner["n_detections"] = n
+            # 内层（`Detection2DArray`）没有候选这个概念 —— 显式给空列表，
+            # 别让"取第一条"顺手把外层可能有的 `candidates_*` 挂上来。
+            inner["candidates"] = []
         return inner
 
     valid = getattr(msg, "valid", None)
@@ -270,10 +338,13 @@ def parse_box_message(msg) -> Optional[dict]:
         "spread_px": spread,
         "rejects": rejects,
         "mode": mode,
+        # **候选**：NMS 之后、选箱之前的全部框（含选中的那个）。老生产者不发
+        # 这两个字段 → 空列表（**不是 `None`**，见 `_candidates`）。
+        "candidates": _candidates(msg),
         # ⚠️ **缺 `header.stamp` 时写哨兵 `0.0`，绝不退 `time.time()`**（与
         #    `NodePalletObs` 同一口径）。这里从前写的是 `stamp or time.time()`，
         #    理由是"箱子的 stamp 来自**本仓库自己的** `box_detection`，那个生产者
-        #    可靠"；`box_detection_node.py:327` 确实是 `Header(stamp=
+        #    可靠"；`carton_obb_detect.py` 确实是 `Header(stamp=
         #    color_msg.header.stamp)` 逐字转发。**但那个前提一破**（相机驱动发
         #    `stamp=0`，或检测器自报 `rospy.Time.now()` —— 后者正是设计点名的
         #    典型错误），编出来的那个数会**落在 `max_dt_s` 内**，配对侧照单全收：
@@ -299,11 +370,38 @@ def to_box_observation(parsed: dict) -> BoxObservation:
     )
 
 
+def to_candidate_observations(parsed: dict) -> List[BoxObservation]:
+    """解析结果里的**候选** → `list[BoxObservation]`（**没有候选就是空列表**）。
+
+    每个候选与 `to_box_observation()` 同构：`quad` 填该候选的四角（契约顺序，
+    直通不重排）、`u1/v1/u2/v2` 填它的 AABB、`confidence` 填**该候选自己的**
+    conf（老键那个恒为 1.0 是因为 `BoxDetection` 原本没有置信度 —— 候选有）。
+
+    `stamp` **一律用同一条消息的 stamp**：候选与选中框来自**同一帧**，各填各的
+    会让下游的配对/新鲜度判据把它们当成不同时刻的东西。
+    """
+    stamp = float(parsed.get("stamp", 0.0))
+    out: List[BoxObservation] = []
+    for cand in parsed.get("candidates") or ():
+        corners = cand["corners"]
+        us = [p[0] for p in corners]
+        vs = [p[1] for p in corners]
+        out.append(BoxObservation(
+            u1=min(us), v1=min(vs), u2=max(us), v2=max(vs),
+            quad=[[float(p[0]), float(p[1])] for p in corners],
+            label=parsed.get("source", ""),
+            confidence=float(cand.get("confidence", 1.0)),
+            stamp=stamp,
+        ))
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # 节点
 # --------------------------------------------------------------------------- #
 class NodeBoxObs(BaseAction):
-    """订阅箱子检测话题 → 写黑板 `latest_box_obs` + `_version`。
+    """订阅箱子检测话题 → 写黑板 `latest_box_obs` + `_version`
+    （以及 `latest_box_candidates` + `_version`）。
 
     params:
         topic           订阅的话题，默认 ``/box/detection``。**换话题只改这一个**
@@ -311,6 +409,8 @@ class NodeBoxObs(BaseAction):
                         运行期用 ``roslib.message.get_message_class()`` 解析
         box_key         写黑板的键，默认 ``latest_box_obs``（要与伺服节点的
                         ``box_key`` 对得上）
+        candidates_key  候选列表的键，默认 ``latest_box_candidates``；
+                        **不填就是空列表**，类型是 ``list[BoxObservation]``
         require_valid   默认 true：``valid == false`` 的帧**一个字都不写**
         max_spread_px   默认 0（不查）。>0 时窗内四角散布超过它就跳过这一帧
         stale_after_sec 默认 0（不查）。>0 时超时报"陈旧"，**仍然 RUNNING**
@@ -323,6 +423,9 @@ class NodeBoxObs(BaseAction):
         self._topic = str(self.params.get("topic", TOPIC_DEFAULT)).strip()
         self._msg_type = str(self.params.get("msg_type", MSG_TYPE_DEFAULT)).strip()
         self._box_key = str(self.params.get("box_key", "latest_box_obs")).strip()
+        # 候选列表的键（新，2026-10-17）。**默认值写在这里**，与 spec §2 一致。
+        self._candidates_key = str(
+            self.params.get("candidates_key", "latest_box_candidates")).strip()
         # 布尔参数**不许用 `bool()` 顶替**：`bool("false") is True`，而场景 JSON 的
         # READ_BOARD 分支真会传字符串。同 `node_pallet_servo.py` 的 `use_distortion`。
         self._require_valid = parse_bool_param(
@@ -369,6 +472,16 @@ class NodeBoxObs(BaseAction):
                 key=key, access=py_trees.common.Access.WRITE)
         self.global_blackboard.set(self._box_key, None)
         setattr(self.global_blackboard, f"{self._box_key}_version", 0)
+
+        # ★ 候选列表**单独一对键**（`latest_box_candidates` + `_version`）。
+        #   初值是**空列表**（不是 `None`）：下游按 `len()` 判有没有候选，
+        #   写成 `None` 就是让他们在能收到消息之前先炸一次（spec §2）。
+        #   与老键**各写各的**，老键那两行的写法一个字没动。
+        for key in (self._candidates_key, f"{self._candidates_key}_version"):
+            self.global_blackboard.register_key(
+                key=key, access=py_trees.common.Access.WRITE)
+        self.global_blackboard.set(self._candidates_key, [])
+        setattr(self.global_blackboard, f"{self._candidates_key}_version", 0)
 
     # ------------------------------------------------------------------ 生命周期
     def initialise(self):
@@ -454,10 +567,10 @@ class NodeBoxObs(BaseAction):
         if parsed["has_valid_field"] and self._require_valid and not parsed["valid"]:
             self.feedback_message = (
                 f"跳过：这一帧 valid=false（source={parsed['source'] or '?'}），"
-                f"四角就是原始 YOLO 框，拿去做伺服会算错 theta")
+                f"四角是外接框、不是恢复出来的旋转四边形，拿去做伺服会算错 theta")
             self._warn_once(
                 f"{self._topic} 这一帧 valid=false（source={parsed['source'] or '?'}，"
-                f"rejects={parsed['rejects'] or '无'}）—— 四角是**原始 YOLO 框**"
+                f"rejects={parsed['rejects'] or '无'}）—— 四角是**外接框**"
                 f"（旋转没恢复），**不写黑板**，下游继续用上一帧")
             return Status.RUNNING
         if (self._max_spread > 0.0 and parsed["spread_px"] is not None
@@ -474,8 +587,14 @@ class NodeBoxObs(BaseAction):
         # 版本号一直涨，下游的版本门禁每次都放行，伺服于是拿同一个框 10 Hz 白算。
         # `NodeInjectServoInput` 的注释把这条写死了（「播完就停手，不要拿最后一条
         # 反复写……10 Hz 白算」），这里是同一个道理。
+        #
+        # ⚠️ **候选也要进比较键**（2026-10-17 加）：候选列表可能**变而四角不变**
+        #    —— 上邻居/侧邻居的框挪了、而被选中的那个一点没动，正是邻居伺服要看
+        #    的那一帧。不把它算进来，这块变化会被当成"没变"整帧丢掉。
         key = (parsed["stamp"], parsed["source"],
-               tuple(tuple(p) for p in parsed["corners"]))
+               tuple(tuple(p) for p in parsed["corners"]),
+               tuple((tuple(tuple(p) for p in c["corners"]), c["confidence"])
+                     for c in parsed.get("candidates") or ()))
         if key == self._last_written_key:
             self.feedback_message = (f"箱子观测没变（{parsed['mode']}，"
                                      f"source={parsed['source'] or '-'}），不重写")
@@ -485,10 +604,16 @@ class NodeBoxObs(BaseAction):
         obs = to_box_observation(parsed)
         setattr(self.global_blackboard, self._box_key, obs)
         bump_version(self.global_blackboard, self._box_key)
+
+        # 候选列表：**与老键各写各的**。没有候选就是空列表（不是 `None`）。
+        cands = to_candidate_observations(parsed)
+        setattr(self.global_blackboard, self._candidates_key, cands)
+        bump_version(self.global_blackboard, self._candidates_key)
         self._written += 1
         self.feedback_message = (
             f"箱子四角 {[(round(p[0]), round(p[1])) for p in parsed['corners']]}"
-            f"（{parsed['mode']}，source={parsed['source'] or '-'}）")
+            f"（{parsed['mode']}，source={parsed['source'] or '-'}，"
+            f"{len(cands)} 个候选）")
         if self._ticks % 30 == 1:
             logger.debug("NodeBoxObs 第 %d 次写入 %s v%d：%s", self._written,
                          self._box_key,

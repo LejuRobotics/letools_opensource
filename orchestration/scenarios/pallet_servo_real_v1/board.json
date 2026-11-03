@@ -2,29 +2,30 @@
   "pallet": [
     {
       "key": "pallet_size_mm",
-      "remark": "木托盘台面 [长, 短]，毫米。换托盘改这一条 —— 检测器和 node 共读它",
+      "remark": "木托盘台面 [短, 长]，毫米（**顺序是 [短, 长]，与直觉相反**）。检测器与 node 共读它，两边都取 min/max，所以顺序本身不影响解算 —— 但**报出来的 W/H 恒是 [短, 长]**（W=min 沿 E1、H=max 沿 E2），而伺服按 (W,0)/(W,H) 投影参考边。⚠️ **`ref_edges` 的 `x=` 对应 W 那条边**：`x=` 是沿 E1 的绝对位置（参考边允许落在台面外，不再按尺寸做范围检查）。⚠️ **别靠调换这两个数的顺序来改朝向** —— 见 `long_side_parallel`",
       "type": "json",
       "value": [
-        1200.0,
-        1000.0
+        960.0,
+        1150.0
+
       ]
     },
     {
       "key": "ref_edges",
-      "remark": "各箱位的参考边。服务里写第 N 个箱子 → 用第 N 组（服务从 1 数）。每组 [底边, 右边]，必须一横一竖。加箱位就往后追加一组。**一律写绝对毫米**：y=<毫米> 是离 y=0 那条边多远，x=<毫米> 是离 x=0 那条边多远，范围 0~对应边长（见 README 的台面坐标系图）。⚠️ 这里的 1200 / 1000 与 pallet_size_mm 是**一对**：台面 [1200, 1000]，所以四条边恰好落在这些数上（同一个尺寸的两种写法，换托盘时两条一起改）",
+      "remark": "各箱位的参考边。服务里写第 N 个箱子 → 用第 N 组（服务从 1 数）。**只对 `pallet` 档有用** —— 邻居档（`servo_slots` 里 `mode: neighbor`）不读它，基准是别的箱子的边。⚠️ **档位总数 = 本表组数与 `servo_slots` 长度的较大者**，所以邻居档比本表长是**合法**的（4 组参考边 + 5 档表全都能 call）；反过来本表更长也合法（多出来的档按 `pallet` 兜底）。**但 `pallet` 档必须有本表的对应组** —— `servo_slots` 比本表长、多出来那档又写着 `pallet` 时**启动时报配置错误**。每组 [底边, 右边]，必须一横一竖。加箱位就往后追加一组。**一律写绝对毫米**：y=<毫米> 是离 y=0 那条边多远，x=<毫米> 是离 x=0 那条边多远，范围 0~对应边长（见 README 的台面坐标系图）。⚠️ 这里的 1200 / 1000 与 pallet_size_mm 是**一对**：台面 1200×1000（`pallet_size_mm` 按 [短, 长] 写成 `[1000, 1200]`），所以四条边恰好落在这些数上（同一个尺寸的两种写法，换托盘时两条一起改）",
       "type": "json",
       "value": [
         [
           "y=0",
-          "x=1200"
+          "x=900"
         ],
         [
-          "y=1000",
-          "x=1200"
-        ],
-        [
-          "y=1000",
+          "y=900",
           "x=0"
+        ],
+        [
+          "y=350",
+          "x=650"
         ],
         [
           "y=0",
@@ -39,8 +40,44 @@
       "value": "camera"
     },
     {
+      "key": "servo_slots",
+      "remark": "**每个箱位走哪一套伺服**（2026-10-17 加）。服务里 call 第 N 个箱子 → 用 `slot == N` 那一项（服务从 1 数）。\n\n两种模式：\n  `pallet`   —— 老路线：拿**托盘台面的参考边**当基准，靠 `ref_edges` 与托盘位姿。托盘看得见时用它。\n  `neighbor` —— 新路线：托盘被箱子挡死时，拿**邻居箱子的边**当基准（`skills/.../pallet_servo/neighbor.py`）。`side` 指定侧邻居在**画面**的哪一侧：`left` / `right` / `none`（`none` = 这一位没有侧邻居，只用上邻居）。\n\n⚠️ **`side` 是画面口径**：机器人在托盘另一侧时画面翻转 180°，左右要按**那一帧的画面**填。\n⚠️ **不配 `servo_slots`（或配成空数组）= 全部按 `pallet`**，行为与加这个键之前完全一致。\n⚠️ **换垛型只改这里**：比如有的垛体是「左边两竖放、右边三横放」，改每一项的 `mode` / `side` 即可，**代码里没有任何地方写死垛型**。\n⚠️ `mode` 只认 `pallet` / `neighbor`，`side` 只认 `left` / `right` / `none`；写错**启动时**就报配置错误（不会静默按 pallet 跑）。\n\n⚠️ **这个键由行为树节点读**（`NodePalletServo` 的 READ_BOARD），不走 start_all.sh 的命令行 —— 所以它**必须**在行为树里注册，否则会被 `check_dead_keys` 当成死配置告警。\n\n⚠️ **可选 `e_right_bias_px` / `e_bottom_bias_px`**：第 N 档最终 `e_right` / `e_bottom` 加对应偏置（`输出 = 原始值 + bias`；服务、话题、叠加图都是加过的值），**默认都是 0**。`e_right_bias_px: -8` 的含义：控制器把 `e_right` 驱到 0，所以实际差停在 `+8px` —— 原来差 0 的摆放会报 `-8`，原来差 8 的会报 0。\n\n⚠️ **服务档位 2/3 已按操作员要求对调**：`call 2` → 邻居 `right`，`call 3` → `pallet`。改本表时按 **`slot`** 改，不要按物理箱号。",
+      "type": "json",
+      "value": [
+        {
+          "slot": 1,
+          "mode": "pallet"
+        },
+        {
+          "slot": 2,
+          "mode": "neighbor",
+          "side": "right",
+          "e_right_bias_px": -15.0,
+          "e_bottom_bias_px": 5.0
+        },
+        {
+          "slot": 3,
+          "mode": "pallet"
+        },
+        {
+          "slot": 4,
+          "mode": "neighbor",
+          "side": "none",
+          "e_right_bias_px": 0.0,
+          "e_bottom_bias_px": 5.0
+        },
+        {
+          "slot": 5,
+          "mode": "neighbor",
+          "side": "left",
+          "e_right_bias_px": 15.0,
+          "e_bottom_bias_px": 5.0
+        }
+      ]
+    },
+    {
       "key": "long_side_parallel",
-      "remark": "与画面近平行的托盘边是不是长边。**这是唯一的朝向开关**：true = 长边横向、false = 短边横向。⚠️ **它只翻转 `size_mm` 的 W/H 两个数**（= 拟合出来的尺寸方向），**E1/E2 的方向不受它影响** —— E1 恒指画面右、E2 恒指向上，所以换这个键**不用再去重新找 x 轴**。⚠️ 它同时决定 `ref_edges` 里 `x=<毫米>` 的上限：`x` 沿 E1、最大 = W，给错会被启动时整表校验判 `ref_edge_out_of_range`（那正是它的用处）。⚠️ **别用改 pallet_size_mm 的顺序达到这个目的** —— 内部取 max/min，改了没用",
+      "remark": "**与画面近平行的那条托盘边是不是长边**（键名的字面含义）。现场事实（已确认）：**短边近平行、长边近垂直画面** —— 所以部署值 = `false`（长边**不**平行）。true = 反过来（长边平行画面）。它只决定 θ_ref 落在哪个象限，**不改 W/H 的含义**（E1 恒是长边、E2 恒是短边，见 pallet_detect 的 _corners_mm）。⚠️ **给错 θ_ref 偏 90° 且不报错**，换场景必须确认。⚠️ **别用改 pallet_size_mm 的顺序来达到这个目的** —— `[1000,1200]` 与 `[1200,1000]` 完全等价（内部取 max/min），改了没用，反而会和 ref_edges 对不上",
       "type": "bool",
       "value": false
     },
@@ -51,34 +88,133 @@
       "value": ""
     },
     {
-      "key": "deck_z_mm",
-      "remark": "台面高度的**绝对** z 带 \"lo,hi\"，毫米，基准是 base_link。空串 = 不约束。现场实测（相机在 base 高 ~1.2m）：托盘 z≈+43、地面 z≈−107、**手里抱着的纸箱 z≈+600** —— 填 \"-40,130\" 就能把纸箱整个排除（实测四角误差 28px→15px）。⚠️ 它是**绝对**高度、依赖 TF 的平移，换工位/换托盘/相机装高变了都要重标；带错了不崩，只是拒帧（日志里 deck_h_rel_mm=None）",
+      "key": "pallet_model_path",
+      "remark": "托盘 OBB 的 .onnx 权重路径。**留空 = 用包内默认** `skills/atomic/perception/pallet_detect/models/pallet_obb.onnx`（权重不进 git）。⚠️ 托盘检测**必须有模型** —— 路径给错 / 文件不在，节点**起不来**（启动时 SystemExit，不静默降级；静默会变成「一直检不到」，与「现场真没有托盘」分不开）。导出见 `pallet_detect/scripts/export_onnx.py`。⚠️ 本键与纸箱那组的 `model_path` 是**两个不同的键**：板子按键名取值、且**第一个匹配的组优先**（`pallet` 组在前），两组重名会让托盘和纸箱共用一个值 —— 所以托盘这几个 OBB 键一律带 `pallet_` 前缀。",
       "type": "string",
       "value": ""
     },
     {
-      "key": "fit_normal",
-      "remark": "**TF 只当搜索初值，法向从当前帧深度拟合**（默认 true = 开）。为什么：TF 链的朝向会静默偏掉，而 detect 对法向极敏感 —— 2026-09-29 现场实测（test_jia4，37 帧）地面/台面平面之间只差 1.14°，而 **TF 与它们差 12.52°**，37 帧里 TF 一个数都没变（静态偏差，不是抖动）。偏 12.4° 的后果是 `too_few_edges` **37/37 全拒**；换成拟合值、其它参数不动 **37/37 全过**。false = 退回历史行为（TF 给什么用什么）",
+      "key": "pallet_engine_path",
+      "remark": "托盘 OBB 的 TensorRT `.engine` 路径。**留空 = 用包内默认** `skills/atomic/perception/pallet_detect/models/pallet_obb_fp32.engine`（不进 git）。engine 必须在**目标机**上用本机 TensorRT 版本导出：`trtexec --onnx=pallet_obb.onnx --saveEngine=pallet_obb_fp32.engine --noTF32 --buildOnly`。换机 / 换 TRT 版本要重导。",
+      "type": "string",
+      "value": ""
+    },
+    {
+      "key": "pallet_infer_backend",
+      "remark": "托盘检测的推理后端：`auto`（默认，engine 文件在就用 engine、否则 ONNX）/ `engine`（强制 engine，缺失即启动报错）/ `onnx`（强制旧 ONNX 路径）。**只认这三个值**。engine 是预先导出的静态文件，启动不编译、首帧没有 ~19s 的 cuDNN 选核。",
+      "type": "string",
+      "value": "auto"
+    },
+    {
+      "key": "pallet_imgsz",
+      "remark": "托盘 OBB 的输入边长，像素。**必须与导出 ONNX 时一致** —— 不一致不报错，只是检测框整体缩放错、残差照样算得出一个像模像样的位姿。默认 640，与训练/导出口径一致。",
+      "type": "int",
+      "value": "640"
+    },
+    {
+      "key": "pallet_conf",
+      "remark": "托盘检测置信度阈值。只用于**过滤 + NMS**，**不参与选框打分**（选框看 `pallet_obb_pick`）。低于此值的候选直接丢。默认 0.25（松门槛）。",
+      "type": "float",
+      "value": "0.25"
+    },
+    {
+      "key": "pallet_nms_iou",
+      "remark": "旋转框 NMS 的 IoU 阈值。导出的 ONNX **不带 NMS**，同一托盘会出多个重复框，**必须自己去重**。调大 = 去重更松（可能留两个近框）。默认 0.45。",
+      "type": "float",
+      "value": "0.45"
+    },
+    {
+      "key": "pallet_obb_pick",
+      "remark": "一帧多个候选时挑哪个：`bottom_center`（离画面下方中心最近）/ `conf`（置信度最高）/ `area`（面积最大）。**部署用 bottom_center** —— 托盘与箱子一样在俯视相机正下方，与纸箱那条链同一约定。⚠️ 拼错（不在上面三个里）会**静默退回 bottom_center**，不报错。",
+      "type": "string",
+      "value": "bottom_center"
+    },
+    {
+      "key": "pallet_detector",
+      "remark": "托盘检测前端：`obb`（OBB 初值 + 全 refine）/ `pose`（YOLO-pose 15Hz 路径，四边解算 + 轻量 edge_refine）。**只认这两个值**，写错节点启动就 SystemExit。**当前部署值 = pose**。回滚：把 value 改回 `obb` 并重启检测器（节点只在启动时读这个键；`start_all.sh` 每次启动重读 board.json，不需要改 launch）。⚠️ pose 路线默认 `pallet_pose_refine=false`（不再跑全 refine，edge_refine 已在 detect 内做过）。⚠️ 切 pose 前确认部署机上有 `skills/atomic/perception/pallet_detect/models/pallet_pose.onnx`（权重不进 git，缺失节点起不来）。",
+      "type": "string",
+      "value": "pose"
+    },
+    {
+      "key": "pallet_pose_model_path",
+      "remark": "托盘 POSE 的 .onnx 权重路径。**留空 = 用包内默认** `skills/atomic/perception/pallet_detect/models/pallet_pose.onnx`。模型缺失 / 加载失败节点**起不来**（启动时 SystemExit，不静默回退到 OBB）。导出见 `pallet_detect/scripts/export_onnx_pose.py`。",
+      "type": "string",
+      "value": ""
+    },
+    {
+      "key": "pallet_pose_engine_path",
+      "remark": "托盘 POSE 的 TensorRT `.engine` 路径。**留空 = 用包内默认** `skills/atomic/perception/pallet_detect/models/pallet_pose_fp32.engine`。导出：`trtexec --onnx=pallet_pose.onnx --saveEngine=pallet_pose_fp32.engine --noTF32 --buildOnly`（在目标机上导）。",
+      "type": "string",
+      "value": ""
+    },
+    {
+      "key": "pallet_pose_conf",
+      "remark": "托盘 POSE 检测置信度阈值（只用于过滤 + NMS）。默认 0.25。",
+      "type": "float",
+      "value": "0.25"
+    },
+    {
+      "key": "pallet_pose_kconf",
+      "remark": "托盘 POSE 参与边拟合的最低关键点置信度。默认 0.5。调低 = 多收弱点（可能被噪声带偏），调高 = 更容易只剩 2~3 个点拟合一条边。",
+      "type": "float",
+      "value": "0.5"
+    },
+    {
+      "key": "pallet_pose_edge_refine",
+      "remark": "POSE 初解成功后是否做一次局部梯度边修正并重解（默认 true）。失败时静默保留初解，diag 记 `edge_refine_reject`。601 帧实测：开 = 角点中位 3.98 / p90 9.34px；关 = 6.37 / 12.06px。",
       "type": "bool",
       "value": true
+    },
+    {
+      "key": "pallet_pose_pick",
+      "remark": "POSE 一帧多个候选时挑哪个：`bottom_center` / `conf` / `area`。部署用 bottom_center，与 OBB 链同一约定。",
+      "type": "string",
+      "value": "bottom_center"
+    },
+    {
+      "key": "pallet_pose_refine",
+      "remark": "**POSE 路线**检出后是否再跑全 refine（`refine_pallet_frame`）。默认 **false** —— POSE 已在 detect 内做 edge_refine，再跑全 refine 是纯 CPU 的重复开销。start_all.sh 按 `pallet_detector` 自动选本键；OBB 路线用 `pallet_refine`。",
+      "type": "bool",
+      "value": false
+    },
+    {
+      "key": "pallet_refine",
+      "remark": "**OBB 路线**检出后是否跑全 refine（`refine_pallet_frame`）。默认 true，保持现状。start_all.sh 按 `pallet_detector` 自动选本键；POSE 路线用 `pallet_pose_refine`。",
+      "type": "bool",
+      "value": true
+    },
+    {
+      "key": "fit_normal",
+      "remark": "**TF 先验的 z 与托盘实际法向有 0~10° 的偏差，靠当前帧深度拟合纠正**（默认 true = 开）。为什么必须有它：TF 链是通的，但 base_link 的 z 转进相机系后与真实台面法向差 0~10°，而 OBB 路线把法向**锁死**成这个先验（frame_from_obb 的 4 自由度），**偏了没有任何下游步骤会纠正它** —— 那 0~10° 会直接进位姿。现场实测（test_jia4，37 帧）：TF 与地面/台面平面差 **12.52°**，37 帧里 TF 一个数都没变（静态偏差，不是抖动）；偏 12.4° 时 `too_few_edges` **37/37 全拒**，换拟合值、其它参数不动 **37/37 全过**。**true = 拟合值；false = 退回 TF 给什么用什么（等于用带偏差的法向）。** 拟合失败不会拒帧，只退回 TF 先验（日志 `normal_source=tf`）。",
+      "type": "bool",
+      "value": true
+    },
+    {
+      "key": "refine_support_min",
+      "remark": "refine 里「一条边算不算被观测到」的直线支持率下限（比例 0..1）。⚠️ 它同时管两处（抬平面时这条边算不算数、主循环里它约不约束自由度），所以要在这儿调。0.5 是按 5_test 那批数据拍的，换到现场那批数据上四条边全落在 0/0.33/0 这个量级、全被挡住（refine 拒 no_edges、节点不发布）。实测 0.5/0.3/0.2 三档在真机上的出数率差不多 —— 调它救不了「采不到边」，治的是「采到了但被判成不像直线」",
+      "type": "float",
+      "value": "0.3"
     },
     {
       "key": "normal_refit",
       "remark": "重新拟合：**false（默认）= 只在首帧拟合一次、之后一直复用**。依据是伺服时机器人**只做平面内平移**（前后左右，不动腰），所以相机相对 base 的朝向不变、base 的 z 与地面法向的关系也不变 —— 法向是这个过程中唯一的常量，首帧 ~10ms 就够（实测 37 帧里只首帧花 13ms，后 36 帧 0ms）。⚠️ **真动了腰 / 换了工位要设成 true**，否则会拿过期法向静默继续算（法向偏了不崩，只换个 score 继续「如实拒绝」）",
       "type": "bool",
       "value": false
+    },
+    {
+      "key": "pallet_d_mm",
+      "remark": "D 闸门的参考平面距离：相机原点到托盘**台面**、沿台面法向的距离（毫米）。它是这条链路里唯一一个**看图看不出来**的量 —— 给定法向之后，托盘的远近只表现为投影尺寸，而投影尺寸与「托盘多大」不可分（远一点的大托盘和近一点的小托盘在图像上完全一样），所以必须靠这个外部先验兜住。**890 是现场实测值**；换机位 / 动腰之后要重新量（本项目不同机位实测从 ~650 到 ~1650mm 都有）。给错不会崩，但会把所有帧判成超限、**一帧都不发布**，表现是「检测坏了」—— 所以节点启动会打一条 INFO 写明生效的 ref/tol，心跳里也带实测 D。反解的唯一真相源是 `skills/atomic/perception/pallet_detect/dsearch.py` 的 `D_from_frame`，算的是 **refine 之后最终 frame** 的 D；⚠️ 它与 `user_rule` 里那个 `D_ANOMALY`（比 D_obb 与深度测出的 D_depth）**不是一回事**。⚠️ **别把它接到 servo 的 `D` 上** —— 那个 D 是相机畸变系数（floatArr），撞名会把毫米距离当畸变系数用。`<= 0` = 关闸。",
+      "type": "float",
+      "value": "890.0"
+    },
+    {
+      "key": "pallet_d_tol",
+      "remark": "D 闸门的容差：`|D / pallet_d_mm - 1|` 超过它就**不发布这一帧**并写一条 WARN（5 秒节流，心跳的 `d闸=` 会计数）。0.1 = 10%，是「挡离群帧」的量级 —— 对 890mm 就是 ±89mm。**太紧**会把正常抖动全拒、链路出不了数；**太松**则挡不住。实测 D 的抖动主要来自深度噪声与法向误差。`<= 0` = 关闸（启动时打 WARN 说明，现场调参不用改代码就能停用）。",
+      "type": "float",
+      "value": "0.15"
     }
   ],
   "box": [
-    {
-      "key": "box_size_mm",
-      "remark": "纸箱顶面 [长, 短]，毫米。换箱子改这一条（原来是两处代码常量、零出口）",
-      "type": "json",
-      "value": [
-        530.0,
-        350.0
-      ]
-    },
     {
       "key": "z_near_mm",
       "remark": "选箱深度项：近于此得满分，毫米。**默认值是拍的，要用真机数据核**",
@@ -92,8 +228,8 @@
       "value": "1500.0"
     },
     {
-      "key": "score_w_conf",
-      "remark": "选箱综合打分：置信度权重（三项归一化后加权求和）",
+      "key": "score_w_dcenter",
+      "remark": "选箱主判据权重：框质心到**画面下方中心**的距离，越近分越高。⚠️ 置信度**不再参与打分**（2026-10-13 换 OBB 时改）——现场实测邻箱的 conf 与手箱分不开（0.9642 vs 0.9773），而邻箱面积还更大；「离下方中心最近」挑对了。",
       "type": "float",
       "value": "0.5"
     },
@@ -120,12 +256,24 @@
       "remark": "纸箱检测置信度阈值。训练时验证集 conf 都 >0.9，0.25 是松门槛",
       "type": "float",
       "value": "0.25"
+    },
+    {
+      "key": "d_near_px",
+      "value": "100.0",
+      "type": "float",
+      "remark": "距离项刻度：近于此得满分（像素）。⚠️ 640x480 口径，换分辨率要改。"
+    },
+    {
+      "key": "d_far_px",
+      "value": "450.0",
+      "type": "float",
+      "remark": "距离项刻度：远于此得 0 分（像素）。手箱实测 d 中位 140~150px，邻箱 244~463px。"
     }
   ],
   "servo": [
     {
       "key": "max_dt_s",
-      "remark": "两路观测配对的**最大时间差**，秒。超过就 reject（不猜、不外推）",
+      "remark": "两路观测配对的**最大时间差**，秒。超过就 reject（不猜、不外推）。**0.4 是按实测定的**：托盘检测单帧 670~2000ms（首帧 2s），而纸箱那条 ~60ms —— 0.05 会把大部分帧判成「两路对不上」。⚠️ 它必须**大于托盘检测的端到端延迟**（GPU 没设对时会静默退回 CPU，见部署文档 §0.3：163ms/帧 vs 5.6ms/帧）",
       "type": "float",
       "value": "0.4"
     },
@@ -139,7 +287,7 @@
       "key": "window",
       "remark": "成对序列的平滑窗长（帧数）。1 = 不平滑。**与 pair_cache 是两个独立旋钮**",
       "type": "int",
-      "value": "5"
+      "value": "3"
     },
     {
       "key": "agg",

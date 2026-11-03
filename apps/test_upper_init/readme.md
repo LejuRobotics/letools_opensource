@@ -1,10 +1,13 @@
 # 行为树 JSON 启动器使用说明
 
+> 本文中的相对路径（如 `apps/test_upper_init/run_behavior_tree_json.py`、
+> `orchestration/scenarios/`）一律相对 **LeTools 仓库根目录**；各命令需在仓库根目录下执行。
+
 ## 简介
 
 轻量级机器人行为树启动工具，仅负责从 JSON 加载并运行行为树，**所有业务逻辑由行为树配置定义**。支持离线验证（无 ROS）和 ROS 环境运行。
 
-> 编排层主入口 `orchestration/main.py` 默认场景为 `studio_smoke_v1`，详见 [orchestration/README.md](../../orchestration/README.md)。本启动器是**通用、场景无关**的入口，建议新场景优先使用本启动器。
+> 编排层主入口 `orchestration/main.py` 默认场景为 `studio_smoke_v1`，详见 [行为树编排（orchestration）说明](../../docs/03-接口详细文档/05-orchestration-行为树编排.md)。本启动器是**通用、场景无关**的入口，建议新场景优先使用本启动器。
 
 <!-- AUTO-GENERATED:START directory-tree -->
 ## 目录结构
@@ -12,18 +15,13 @@
 ```
 apps/test_upper_init/
 ├── readme.md                           # 本文件
-├── run_behavior_tree_json.py            # 通用 JSON 行为树启动器（场景无关）
-├── run_all_dismantle_box.py             # 拆垛系列一键跑通（dismantle_box 6 场景）
-└── run_all_palletize_box.py             # 码垛系列一键跑通（palletize_box 系列）
+└── run_behavior_tree_json.py            # 通用 JSON 行为树启动器（场景无关）
 ```
 
 | 脚本 | 用途 | 适用场景 |
 |------|------|----------|
 | `run_behavior_tree_json.py` | 从 `--scenario` 加载单棵行为树并运行 | 通用入口 / CI / 多场景复用 |
-| `run_all_dismantle_box.py` | 批量跑通拆垛 6 个场景，支持顶层不满垛动态识别 | 拆垛实机 / 仿真整链验证 |
-| `run_all_palletize_box.py` | 批量跑通码垛系列场景，支持顶层不满垛动态识别 | 码垛实机 / 仿真整链验证 |
 
-> ⚠️ `run_all_dismantle_box.py` 和 `run_all_palletize_box.py` 头部均标注：「此脚本未经过长时间测试，参数量较大、耦合后可能会出现问题，实机运行万分小心」。
 <!-- AUTO-GENERATED:END directory-tree -->
 ---
 
@@ -63,18 +61,6 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 python3 apps/test_upper_init/run_behavior_tree_json.py \
   --scenario orchestration/scenarios/<your_scenario> --dry-run --tick-once
 
-#跑全部 6 个场景，每个场景全部 6 组动作
-python3 apps/test_upper_init/run_all_dismantle_box.py
-
-# 只跑场景 1 和 3，每个场景只跑第 1、3 组动作
-python3 apps/test_upper_init/run_all_dismantle_box.py  \
-  --scenario orchestration/scenarios/<your_scenario> --scenarios 1,3 --action-groups 1,3
-
-#  指定场景子集 + 动作组子集
-python3 apps/test_upper_init/run_all_dismantle_box.py  \
-   --scenarios 2,4,6 --action-groups 1
-
-
 ```
 
 ---
@@ -95,28 +81,6 @@ python3 apps/test_upper_init/run_all_dismantle_box.py  \
 | `--spin` | 否 | 树跑完后 `rospy.spin()`（Ctrl+C 退出） | `--spin` |
 | `--parallel-load` | 否 | 启用并行构树（可能引发 import 死锁，默认关闭） | `--parallel-load` |
 | `--ros-node NAME` | 否 | ROS 节点名，默认 `behavior_tree_main` | `--ros-node behavior_tree_main` |
-
-### `run_all_dismantle_box.py` — 拆垛一键跑通
-
-| 参数 | 必填 | 说明 | 示例 |
-|------|:----:|------|------|
-| `--scenarios` | 否 | 场景编号逗号分隔，默认 `1,2,3,4,5,6`（与 `--dynamic-top` 互斥） | `--scenarios 1,3` |
-| `--dynamic-top N` | 否 | 顶层不满垛动态识别，指定最高层（1~6，与 `--scenarios` 互斥） | `--dynamic-top 3` |
-| `--action-groups` | 否 | 动作组编号逗号分隔，默认全部（`--dynamic-top` 顶层忽略此项） | `--action-groups 1,3` |
-| `--dry-run` | 否 | 离线验证（不连 ROS） | `--dry-run` |
-| `--tick-once` | 否 | 与 `--dry-run` 合用：执行一次 tick | `--dry-run --tick-once` |
-
-### `run_all_palletize_box.py` — 码垛一键跑通
-
-| 参数 | 必填 | 说明 | 示例 |
-|------|:----:|------|------|
-| `--scenarios` | 否 | 场景编号逗号分隔，默认全部 | `--scenarios 1,2` |
-| `--action-groups` | 否 | 动作组编号逗号分隔，默认全部 | `--action-groups 1,3` |
-| `--dry-run` | 否 | 离线验证（不连 ROS） | `--dry-run` |
-| `--tick-once` | 否 | 与 `--dry-run` 合用：执行一次 tick | `--dry-run --tick-once` |
-<!-- AUTO-GENERATED:END script-reference -->
-
----
 
 ## 场景目录规范
 
@@ -187,7 +151,7 @@ skills
 需先启动下位机控制器(`load_kuavo_real.launch`)，然后同上条命令。
 
 - 节点调用真实硬件
-- 验证：闭环控制、安全降级(如 `real_tag_timeout_sec` 触发 fake tag 注入)
+- 验证：闭环控制、超时处理(`real_tag_timeout_sec` 内未识别到真实 Tag 时返回 FAILURE；仅在显式 `fallback_to_virtual=true` 时注入 fake tag，真机不要开启)
 
 ---
 
@@ -195,7 +159,7 @@ skills
 
 | 退出码 | 含义 |
 |---|---|
-| `0` | 根节点 SUCCESS |
+| `0` | 根节点 SUCCESS（`--dry-run` 时只表示加载成功，tick 结果看输出中的 `tick 后根状态:`） |
 | `1` | 根节点 FAILURE |
 | `2` | 异常 / 其他状态 / 未达终态 |
 
@@ -223,8 +187,8 @@ skills
 - `board.json` 支持两种结构:扁平 dict 或分组 list(启动器自动识别)
 - 子树 JSON 的 `interface.inputs` 字段描述该子树需要的外部输入
 - 节点类自动从 `orchestration/nodes/` 发现:snake_case 文件名 → PascalCase 类名
-- 详细编排机制见 [orchestration/README.md](../../orchestration/README.md)
-- 完整链路示例见各 scenario 自带 readme(如 [refactored_sdk_atomic_v1 § 完整链路示例](../../scenarios/refactored_sdk_atomic_v1/readme.md#完整链路示例))
+- 详细编排机制见 [行为树编排（orchestration）说明](../../docs/03-接口详细文档/05-orchestration-行为树编排.md)
+- 完整链路示例见各 scenario 自带 readme(如 [refactored_sdk_atomic_v1 § 完整链路示例](../../orchestration/scenarios/refactored_sdk_atomic_v1/readme.md#完整链路示例))
 
 ---
 

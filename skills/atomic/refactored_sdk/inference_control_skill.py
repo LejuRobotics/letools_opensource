@@ -3,11 +3,13 @@
 
 通过子进程调用 letools conda 环境的 python 运行推理循环。
 推理子进程负责创建 Kuavo 推理环境 → 加载策略 → 循环 select_action/step。
-检测夹爪闭合，闭合后保持若干步再退出。
+推理子进程订阅夹爪驱动反馈，夹爪运动或到位后，state=3连续保持配置时长才确认抓取成功。
+判断时长统一配置于场景 board.json 的 grasp_feedback.hold_seconds。
 
-推理完成后（子进程退出码 0），行为树继续走原来的导航与放置链路。
+推理成功结束后（子进程退出码 0），行为树执行导航与放置阶段。
 """
 
+import json
 import os
 import subprocess
 import time
@@ -24,9 +26,118 @@ logger = get_logger(__name__)
 
 _STUDIO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
-_LETOOLS_PYTHON = "/home/zwl/miniforge3/envs/letools/bin/python"
+_LETOOLS_PYTHON = os.path.expanduser("~/miniforge3/envs/letools/bin/python")
 _RUNNER_SCRIPT = os.path.join(_STUDIO_ROOT, "orchestration", "nodes", "inference_runner.py")
 _DEFAULT_CONFIG = os.path.join(_STUDIO_ROOT, "LeTools-Learning", "configs", "deploy", "deploy.yaml")
+
+
+def _load_scenario_runtime_config():
+    """Load the scenario board selected by the behavior-tree launcher."""
+    if "RING_SIM_CONFIG" not in os.environ:
+        return None
+    config_name = os.environ["RING_SIM_CONFIG"]
+    if not config_name.strip():
+        raise ValueError("RING_SIM_CONFIG must name a configuration file")
+    config_path = os.path.abspath(os.path.expanduser(config_name))
+    with open(config_path, "r", encoding="utf-8") as stream:
+        config = json.load(stream)
+    if not isinstance(config, dict) or not isinstance(config.get("paths"), dict):
+        raise ValueError("RING_SIM_CONFIG must contain a paths object")
+    return config_path, config
+
+
+def _inference_python_for_environment(inference_env, loaded_config=None):
+    """Use the scenario configuration for simulation only; preserve old defaults."""
+    loaded_config = (
+        loaded_config
+        if loaded_config is not None
+        else _load_scenario_runtime_config()
+    )
+    if loaded_config is None:
+        return _LETOOLS_PYTHON
+    if inference_env != "sim":
+        raise ValueError("scenario runtime config is for simulation only")
+    config_path, config = loaded_config
+    value = config["paths"].get("learning_python")
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("paths.learning_python must be a nonempty path")
+    if os.path.basename(value).startswith("REPLACE_WITH_"):
+        raise ValueError(
+            "Please replace paths.learning_python in the scenario board with "
+            "your inference environment's Python interpreter"
+        )
+    expanded = os.path.expanduser(value)
+    if not os.path.isabs(expanded):
+        expanded = os.path.join(os.path.dirname(config_path), expanded)
+    python_path = os.path.abspath(expanded)
+    if not os.path.isfile(python_path) or not os.access(python_path, os.X_OK):
+        raise ValueError("paths.learning_python must be an executable file: " + python_path)
+    return python_path
+
+
+def _resolve_config_path(value, config_path):
+    expanded = os.path.expanduser(value)
+    if not os.path.isabs(expanded):
+        expanded = os.path.join(os.path.dirname(config_path), expanded)
+    return os.path.abspath(expanded)
+
+
+def _is_sdk_root(path):
+    return os.path.isfile(os.path.join(path, "kuavo_humanoid_sdk", "__init__.py"))
+
+
+def _sdk_pythonpath_entries(loaded_config):
+    """Return SDK import paths, preferring the configured Kuavo workspace."""
+    candidates = []
+    if loaded_config is not None:
+        config_path, config = loaded_config
+        kuavo_root = config.get("paths", {}).get("kuavo_root")
+        if (
+            isinstance(kuavo_root, str)
+            and kuavo_root.strip()
+            and not os.path.basename(kuavo_root).startswith("REPLACE_WITH_")
+        ):
+            kuavo_root = _resolve_config_path(kuavo_root.strip(), config_path)
+            candidates.append(os.path.join(kuavo_root, "src", "kuavo_humanoid_sdk"))
+
+    for entry in os.environ.get("PYTHONPATH", "").split(os.pathsep):
+        if entry and _is_sdk_root(entry):
+            candidates.append(os.path.abspath(entry))
+
+    candidates.append(os.path.join(
+        _STUDIO_ROOT,
+        "drivers", "leju", "kuavo_humanoid_sdk",
+        "src", "kuavo_humanoid_sdk",
+    ))
+
+    entries = []
+    for sdk_root in candidates:
+        if sdk_root in entries or not _is_sdk_root(sdk_root):
+            continue
+        entries.append(sdk_root)
+        msg_root = os.path.join(sdk_root, "kuavo_humanoid_sdk", "msg")
+        if os.path.isdir(msg_root):
+            entries.append(msg_root)
+        kuavo_root = os.path.dirname(os.path.dirname(sdk_root))
+        common_python = os.path.join(kuavo_root, "src", "kuavo_common", "python")
+        if os.path.isdir(common_python):
+            entries.append(common_python)
+    return entries
+
+
+def _build_inference_env(loaded_config, extra_pythonpath):
+    env = os.environ.copy()
+    entries = _sdk_pythonpath_entries(loaded_config)
+    entries.extend(extra_pythonpath)
+    current_entries = [
+        entry for entry in env.get("PYTHONPATH", "").split(os.pathsep) if entry
+    ]
+    merged = []
+    for entry in entries + current_entries:
+        if entry and entry not in merged:
+            merged.append(entry)
+    env["PYTHONPATH"] = os.pathsep.join(merged)
+    return env
 
 
 @dataclass
@@ -41,9 +152,6 @@ class InferenceControlParams(SkillParams):
     device: str = "cuda"
     inference_env: str = "sim"
     gripper_pre_position: float = 50.0
-    gripper_close_threshold: float = 0.3
-    gripper_hold_frames: int = 5
-    post_close_steps: int = 10
     timeout: float = 300.0
 
 
@@ -79,12 +187,14 @@ class InferenceControlSkill(SkillBase):
 
     def _start_inference(self):
         p = self.params
+        loaded_config = _load_scenario_runtime_config()
         config_path = p.inference_config_path
         if not os.path.isabs(config_path):
             config_path = os.path.join(_STUDIO_ROOT, config_path)
 
         cmd = [
-            _LETOOLS_PYTHON, "-u", _RUNNER_SCRIPT,
+            _inference_python_for_environment(p.inference_env, loaded_config),
+            "-u", _RUNNER_SCRIPT,
             "--config", config_path,
             "--pretrained-path", p.pretrained_path,
             "--policy-type", p.policy_type,
@@ -93,14 +203,12 @@ class InferenceControlSkill(SkillBase):
             "--device", p.device,
             "--inference-env", p.inference_env,
             "--gripper-pre-position", str(p.gripper_pre_position),
-            "--gripper-close-threshold", str(p.gripper_close_threshold),
-            "--gripper-hold-frames", str(p.gripper_hold_frames),
-            "--post-close-steps", str(p.post_close_steps),
         ]
+        if loaded_config is not None:
+            cmd.extend(["--grasp-feedback-config", loaded_config[0]])
 
         letools_root = os.path.join(_STUDIO_ROOT, "LeTools-Learning")
-        env = os.environ.copy()
-        env["PYTHONPATH"] = _STUDIO_ROOT + os.pathsep + letools_root + os.pathsep + env.get("PYTHONPATH", "")
+        env = _build_inference_env(loaded_config, [_STUDIO_ROOT, letools_root])
 
         print(f"[InferenceControlSkill] 启动推理子进程: {' '.join(cmd[:4])} ...")
         self._proc = subprocess.Popen(
@@ -141,8 +249,6 @@ class InferenceControlSkill(SkillBase):
                 elif msg.startswith("error"):
                     self._wait_process()
                     return Result.fail(msg)
-                elif msg == "gripper_closed":
-                    print("[InferenceControlSkill] 检测到夹爪闭合")
                 elif msg.startswith("step"):
                     pass
                 else:

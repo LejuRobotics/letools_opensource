@@ -1,5 +1,10 @@
 # jibot_nav_v1_sim — 仿真可运行版导航场景
 
+本文中的相对路径（如 `apps/test_upper_init/run_behavior_tree_json.py`、`orchestration/scenarios/jibot_nav_v1_sim/`）
+一律相对 **LeTools 仓库根目录**；文中 `~/letools_opensource` 为宿主机上 LeTools 的仓库根（按实际克隆位置调整），
+`/root/kuavo_ws` 为容器内 kuavo-ros-opensource 的工作空间、不属本仓库。
+部署方式与 [`docs/02-环境安装/03-安装步骤.md`](../../../docs/02-环境安装/03-安装步骤.md) 1.1 一致：终端 1 在 Docker 容器内运行仿真，终端 2、3 在宿主机运行 LeTools（Docker 使用 host 网络，共用同一个 ROS master）。
+
 `jibot_nav_v1` 的**仿真版本**。把依赖 JiBot 调度服务的节点替换为基于 ROS **话题**的等价实现，
 使这棵行为树可以直接在 MuJoCo 仿真环境下跑通，不需要 JiBot 底盘机。
 
@@ -29,19 +34,19 @@
 docker ps --format '{{.Names}}'
 ```
 
-然后在宿主机上开 **3 个终端**，每个都执行下面这条（把容器名换成你查到的）：
+然后开 **3 个终端**：终端 1 进入容器运行仿真，终端 2、3 直接使用宿主机终端。终端 1 执行下面这条进入容器（把容器名换成你查到的）：
 
 ```bash
 # 【宿主机】进入容器，得到容器内的 zsh
 docker exec -it kuavo_container_GPU_7c70d3a3 zsh
 ```
 
-> - 容器**默认 shell 是 zsh**，所以本文所有 setup 都用 **`.zsh` 结尾**的文件（`setup.zsh`）。
+> - 容器**默认 shell 是 zsh**，所以终端 1 的 setup 都用 **`.zsh` 结尾**的文件（`setup.zsh`）；终端 2、3 在宿主机上使用 `.bash`。
 >   如果你手动用 bash 进容器，把 `.zsh` 换成 `.bash` 即可。
 > - 镜像里的 `/root/.zshrc` 已经自动执行了 `source /opt/ros/noetic/setup.zsh`，
 >   所以**每个新开的 zsh 里 `rospy` / `rostopic` / `roslaunch` 直接可用**，不用再手动 source ROS。
 > - 但每个工作空间**自己的** `setup.zsh` 仍然必须 source，见下面各终端。
-> - 你执行 `./docker/run_with_gpu.sh` 时已经自带一个 zsh，那个就算终端 1，再开两个终端 exec 进去即可。
+> - 你执行 `./docker/run_with_gpu.sh` 时已经自带一个 zsh，那个就算终端 1。
 
 ---
 
@@ -69,16 +74,16 @@ roslaunch humanoid_controllers load_kuavo_mujoco_sim_wheel.launch
 ## 四、终端 2：起 TF 转发服务（必须在终端 1 之后）
 
 ```bash
-# 【终端 2 · 容器内】
-cd /root/LeTools/infrastructure/ros_packages
-source /opt/ros/noetic/setup.zsh     # 脚本会检查 $ROS_DISTRO，先 source 保险
-source devel/setup.zsh               # LeTools 的 ros_packages 工作空间
+# 【终端 2 · 宿主机】
+cd ~/letools_opensource/infrastructure/ros_packages
+source /opt/ros/noetic/setup.bash    # 脚本会检查 $ROS_DISTRO
+source devel/setup.bash              # LeTools 的 ros_packages 工作空间
 ./start_tf_republisher.sh
 ```
 
 - 看到 `✅ 服务启动成功！` 才算成功，**这个终端保持不关**。
 - 若提示 `未找到编译后的可执行文件`，先编译一次：`./build.sh`（或 `catkin build kuavo_tf2_web_republisher`）。
-- 官方 `docs/user_guides.md` 2.2 节的要求是：**这个服务要在仿真开启之后再启动**，所以顺序是 终端 1 → 终端 2。
+- 官方 `docs/02-环境安装/03-安装步骤.md` 3.6 节的要求是：**这个服务要在仿真开启之后再启动**，所以顺序是 终端 1 → 终端 2。
 - 为什么必须起：SDK 初始化时会 `wait_for_service('/republish_tfs')`，拿不到就抛 `SDK 初始化失败`，
   后续每个 SDK 动作都报 `SDK 未初始化，请先调用 initialize()`——头部动作会**假成功**（打 ERROR 但返回 True），
   腿部动作返回 False 导致行为树 FAILURE。详见「十一、已知差异与风险」第 5 条。
@@ -90,25 +95,27 @@ source devel/setup.zsh               # LeTools 的 ros_packages 工作空间
 ## 五、终端 3：跑行为树（本仓库）
 
 ```bash
-# 【终端 3 · 容器内】
-cd /root/LeTools
-export PYTHONPATH=/root/LeTools/infrastructure/ros_packages/src/kuavo_common/python:$PYTHONPATH
+# 【终端 3 · 宿主机】
+cd ~/letools_opensource
+source /opt/ros/noetic/setup.bash
+source infrastructure/ros_packages/devel/setup.bash
+export PYTHONPATH="$PWD/infrastructure/ros_packages/src/kuavo_common/python:$PWD:$PYTHONPATH"
 
 python3 apps/test_upper_init/run_behavior_tree_json.py \
   --scenario orchestration/scenarios/jibot_nav_v1_sim
 ```
 
-- `PYTHONPATH` 那一行**每开一个新终端都要执行一次**（原因见第六节第 2 条，建议直接写进 `.zshrc`）。
+- `PYTHONPATH` 那一行**每开一个新终端都要执行一次**（原因见第六节第 2 条，建议直接写进 `~/.bashrc`）。
 - 这条命令**不需要**额外 source 任何 setup：入口脚本 `core/common/ros_environment.py` 会自己把
   `infrastructure/ros_packages/devel/lib/python3/dist-packages` 加进 `sys.path`，
-  `rospy` 由容器 `.zshrc` 提供。手动补一句 `source devel/setup.zsh` 也无害。
-- 跑起来后机器人会：**后退 0.1 m → 依次走 6 个点位（每个点位做低头 / 抬腿 / 复位）→ 等回车结束**。
+  `rospy` 由上面的 `source /opt/ros/noetic/setup.bash` 提供。
+- 跑起来后机器人会：**后退 0.2 m → 依次走 6 个点位（每个点位做低头 / 抬腿 / 复位）→ 等回车结束**。
 
 **离线自检**（不连 ROS，只验证行为树能否加载；不需要终端 1 / 2，CI 可跑）：
 
 ```bash
-# 【终端 3 · 容器内】
-cd /root/LeTools
+# 【终端 3 · 宿主机】
+cd ~/letools_opensource
 python3 apps/test_upper_init/run_behavior_tree_json.py \
   --scenario orchestration/scenarios/jibot_nav_v1_sim --dry-run --tick-once
 ```
@@ -122,30 +129,29 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 ### 1. 装 `py_trees`（任意终端）
 
 ```bash
-# 【容器内 · 任意终端】
+# 【宿主机 · 任意终端】
 pip3 install "py_trees==2.2.3"
 ```
 
-> 版本依据：`.gitlab-ci.yml` 装的是不锁版本的 `py_trees`；
-> `module_internal/bin_planner/requirements-jetson.txt` 锁的是 `2.2.3`。
-> ⚠️ `docs/beginner_tutorial.md` 里写的是 `pip3 install ... pytrees`，
+> 版本依据：`requirements.txt` 不锁 `py_trees` 版本，本场景在 `2.2.3` 上验证。
+> ⚠️ 旧版 `beginner_tutorial.md` 里写的是 `pip3 install ... pytrees`，
 > `pytrees` 是另一个不相干的包，**正确包名是 `py_trees`**（下划线）。
 > 漏装的表现：`ModuleNotFoundError: No module named 'py_trees'`。
 
-### 2. 让 SDK 找得到 `robot_version`（终端 3，或写进 `.zshrc`）
+### 2. 让 SDK 找得到 `robot_version`（终端 3，或写进 `~/.bashrc`）
 
 ```bash
-# 【终端 3 · 容器内】
-export PYTHONPATH=/root/LeTools/infrastructure/ros_packages/src/kuavo_common/python:$PYTHONPATH
+# 【终端 3 · 宿主机】
+export PYTHONPATH="$HOME/letools_opensource/infrastructure/ros_packages/src/kuavo_common/python:$PYTHONPATH"
 
 # 验证：应打印出 robot_version.py 的路径
 python3 -c "import robot_version; print(robot_version.__file__)"
 ```
 
-想省事就写进容器的 `.zshrc`（容器具名可复用，能留住，之后每个新终端自动生效）：
+想省事就写进宿主机的 `~/.bashrc`，之后每个新终端自动生效：
 
 ```bash
-echo 'export PYTHONPATH=/root/LeTools/infrastructure/ros_packages/src/kuavo_common/python:$PYTHONPATH' >> /root/.zshrc
+echo 'export PYTHONPATH="$HOME/letools_opensource/infrastructure/ros_packages/src/kuavo_common/python:$PYTHONPATH"' >> ~/.bashrc
 ```
 
 > **为什么必须手动加**：SDK 的 `robot_blockly.py` 通过
@@ -154,7 +160,6 @@ echo 'export PYTHONPATH=/root/LeTools/infrastructure/ros_packages/src/kuavo_comm
 > `installed/share/kuavo_common/` 和 `devel/share/kuavo_common/` 下只有 `cmake/` 和 `package.xml`。
 > 两条回退路径都指向不存在的目录，结果是 `ModuleNotFoundError: No module named 'robot_version'`，
 > 进而让整个 SDK 导入链断掉、`LowLevelSDKManager` 无法初始化。
-> CI 里是靠 `.gitlab-ci.yml` 的 `KUAVO_COMMON_PY` 绕过的，用户文档里没写。
 
 ### 3. 确认 `ROBOT_VERSION`
 
@@ -174,7 +179,7 @@ echo $ROBOT_VERSION    # 应与你的机型一致，官方文档里常用 62
 | 终端 | 成功标志 | 常见报错 → 原因 |
 |---|---|---|
 | 1 仿真 | MuJoCo 窗口出现机器人；`rostopic list` 有 `/cmd_pose_world` | 找不到 `humanoid_controllers` → 忘了 `source devel/setup.zsh` 或没 `catkin build` |
-| 2 TF 服务 | `✅ 服务启动成功！`；`rosservice list` 有 `/republish_tfs` | `ROS 环境未配置` → 没 source `/opt/ros/noetic/setup.zsh`；`未找到编译后的可执行文件` → 先 `./build.sh` |
+| 2 TF 服务 | `✅ 服务启动成功！`；`rosservice list` 有 `/republish_tfs` | `ROS 环境未配置` → 没 source `/opt/ros/noetic/setup.bash`；`未找到编译后的可执行文件` → 先 `./build.sh` |
 | 3 行为树 | 机器人按 6 个点位走动，日志无 ERROR | `No module named 'py_trees'` → 第六节第 1 条；`No module named 'robot_version'` → 第六节第 2 条；`SDK 初始化失败: ... /republish_tfs` → 终端 2 没起 |
 
 ---
@@ -220,7 +225,7 @@ echo $ROBOT_VERSION    # 应与你的机型一致，官方文档里常用 62
 1. **坐标系不同**：原场景的 `x/y` 是 JiBot 地图（`map`）坐标；仿真里 `/cmd_pose_world` 是世界坐标系，
    原点约为机器人启动位姿。数值沿用了原场景，若机器人走向不符合预期，改 `nav_point_N` 的 `x/y` 即可。
 2. **`timeout_sec` 目前不生效**：`orchestration/nodes/wheel_nav_move.py` 只读取 `x` / `y` / `yaw_deg`，
-   `timeout_sec` 是为与 `grasp_ring_pick_place` 场景写法保持一致而保留的占位参数。
+   `timeout_sec` 是保留的占位参数。
 3. **`/lb_leg_control_srv` 在仿真里不存在**：下位机 `motion_capture_ik/launch/ik_node.launch` 里
    腿部 IK 服务节点是被注释掉的，SDK 初始化时会等它 5 秒超时。实测**不影响**本场景的抬腿动作
    （`LegJointSdkMove` 走的是 `/lb_leg_traj` 话题），但属于下位机仿真侧的一个缺口。

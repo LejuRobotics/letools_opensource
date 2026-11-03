@@ -13,8 +13,8 @@
 # 只是托盘位姿整体偏了一截。上机前拿卡尺量一次黑框外沿，别用卷尺、别含白边。
 standalone_tags:
   [
-    {id: 0, size: 0.18, name: 'tag_0'},
-    {id: 1, size: 0.18, name: 'tag_1'},
+    {id: 1, size: 0.10, name: 'tag_1'},
+    {id: 2, size: 0.10, name: 'tag_2'},
   ]
 
 tag_bundles:

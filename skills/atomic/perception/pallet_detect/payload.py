@@ -4,7 +4,7 @@
 
 分层的意义：业务逻辑（怎么把 frame 拆成 16 个 double、单位怎么换、诊断串里该带
 哪些字段）全在这里，能被单元测试直接调；ROS 那一层（订阅 / 出队 / 填消息 / 发布）
-只剩搬运，改算法不用动它 —— 与 `box_frame/window.py` 的 `build_payload` 同一分层。
+只剩搬运，改算法不用动它 —— 与箱子那边 `window.py` 的 `build_payload` 同一分层。
 
     build_payload(found, diag, k, ...)  ->  dict，键**逐字对应消息字段名**
     format_diag(diag, ...)              ->  逗号分隔的 key=value（格式不进契约）
@@ -27,8 +27,15 @@ from __future__ import annotations
 
 import numpy as np
 
-from .algorithm import COVERAGE_MIN, MASK_AREA_RATIO_MAX, MIN_WOOD_PX
-from .algorithm import _corners_mm, _project_px
+from .geom import _corners_mm, _project_px
+
+# `format_rejects` 里写阈值用的三个数，来自**旧的颜色/深度掩码路线**
+# （`algorithm.py`，已随该路线整体删除）。当前 OBB 路线的拒绝码是
+# `no_detection` / `refine:*`，不走这三条，留着只是为了**旧字段串仍能照常格式化**
+# （历史日志、外部评测脚本还会传这些 reject 码）。数值就是删除前 `algorithm.py` 里的值。
+COVERAGE_MIN = 0.35          # 旧：ambiguous_theta 的 score 阈值
+MASK_AREA_RATIO_MAX = 3.0    # 旧：mask_too_large 的面积比阈值
+MIN_WOOD_PX = 500            # 旧：no_wood 的木色像素下限
 
 
 
@@ -123,7 +130,6 @@ def format_diag(diag: dict, normal_source: str | None = None,
     if diag.get('rect_why') is not None:
         parts.append(f"rect_why={diag['rect_why']}")
     _add_deg('theta_ref_deg')
-    _add_deg('theta_search_deg')
     if diag.get('dense_measured_mm') is not None:
         m = diag['dense_measured_mm']
         parts.append(f"dense_mm={float(m[0]):.0f}x{float(m[1]):.0f}")
@@ -133,6 +139,20 @@ def format_diag(diag: dict, normal_source: str | None = None,
         parts.append(f"prior_used={int(bool(diag['prior_used']))}")
     if diag.get('prior_reason') is not None:
         parts.append(f"prior_reason={diag['prior_reason']}")
+    # ⚠️ **残差校正（T13，2026-10-08）一定要进串**：它是"这一步动了没有、
+    # 动了多少、用了几条边"的唯一证据。现场那个"参考边越跑越远"的症状就是
+    # 它该治的，而**没动**（`applied=0`）与**动了但量不出来**是两条完全不同的
+    # 排查路 —— 不写进串，操作员只能看到位姿偏了，看不出是哪一种。
+    fix = diag.get('rect_fix')
+    if fix:
+        parts.append(f"fix={int(bool(fix.get('applied')))}")
+        if fix.get('why'):
+            parts.append(f"fix_why={fix['why']}")
+        if fix.get('applied'):
+            parts.append(f"fix_mm={float(fix['du_mm']):+.1f},{float(fix['dv_mm']):+.1f}"
+                         f",{fix['dtheta_deg']:+.2f}deg")
+            parts.append(f"fix_edges={len(fix.get('edges_used') or [])}"
+                         f"/n={int(fix.get('n_pts') or 0)}")
     parts.append(f'normal_source={_normal_source_tag(diag, normal_source)}')
     if normal is not None:
         n = np.asarray(normal, float)
@@ -159,13 +179,24 @@ def format_rejects(diag: dict) -> str:
     `mask_too_large` / `no_theta_ref` / `ambiguous_theta` / `too_few_edges` /
     `degenerate`），不写清是哪一条、差多少，排查不了。
 
+    现行 OBB 路线的拒绝码是 `no_detection` / `lsq_failed` / `refine:*`，另加节点侧的
+    **`D_out_of_tol`**（D 闸门：最终帧的平面距离偏离板上参考值太多）。
+
     成功（`reject is None`）返回空串 —— 契约说空串 = 没有失败。
     """
     code = diag.get('reject')
     if not code:
         return ''
     bits = [f'reject={code}']
-    if code == 'ambiguous_theta' and diag.get('score') is not None:
+    if code == 'D_out_of_tol':
+        # 四个量都要写：实际 D、参考 D、偏差、容差。只写"超限"排查不了 ——
+        # 到底是 D 算歪了，还是参考值给错了，看这四个数一眼就分得开。
+        d, ref = diag.get('D_mm'), diag.get('D_ref_mm')
+        if d is not None and ref is not None and float(ref) > 0.0:
+            tol = float(diag.get('D_tol') or 0.0)
+            bits.append(f'D={float(d):.1f}mm ref={float(ref):.1f}mm '
+                        f'dev={abs(float(d) / float(ref) - 1.0):.1%}>tol={tol:.1%}')
+    elif code == 'ambiguous_theta' and diag.get('score') is not None:
         bits.append(f"score={float(diag['score']):.4f}<threshold={COVERAGE_MIN:g}")
     elif code == 'mask_too_large' and diag.get('mask_area_ratio') is not None:
         bits.append(f"mask_area_ratio={float(diag['mask_area_ratio']):.4f}"
