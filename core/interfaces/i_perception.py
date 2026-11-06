@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 from ..domain.perception import TagDetection, ObjectDetection, PerceptionResult
 from ..domain.camera import CameraFrame, PointCloudData, DepthData, CameraInfo, CameraStatus
 from ..interfaces.i_camera import ICamera
+from ..domain.result import Result
 
 class IPerception(ABC):
     """感知层基础接口
@@ -23,14 +24,24 @@ class IPerception(ABC):
         pass
 
     @abstractmethod
+    def start(self) -> Result:
+        """显式启动持续 Tag 检测；重复启动不创建额外进程。"""
+        pass
+
+    @abstractmethod
+    def stop(self) -> Result:
+        """停止 Tag 检测并释放检测资源，保留注入的相机及初始化状态。"""
+        pass
+
+    @abstractmethod
     def shutdown(self) -> None:
-        """关闭感知模块并释放资源"""
+        """停止检测、关闭感知模块并释放资源（不关闭注入的相机）。"""
         pass
 
     # 算法输出
     @abstractmethod
     def get_tag_detections(self) -> List[TagDetection]:
-        """获取当前帧的标签检测结果"""
+        """只读当前检测缓存；不会隐式启动检测，未启动或已停止时返回空列表。"""
         pass
 
     @abstractmethod

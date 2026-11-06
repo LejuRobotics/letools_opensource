@@ -36,7 +36,7 @@
     # 真机跑：先确认两件事，否则这个节点会直接 FAILURE
     #   1. config/camera_config.yaml 里 launch_apriltag: true
     #      （现在是 false，此时 hardware.perception 是 None，NodePercep 会先崩）
-    #   2. config/apriltag_tags.yaml 里有你要用的两个 tag id 和尺寸
+    #   2. config/apriltag_config.yaml 的 standalone_tags 里有你要用的两个 tag id 和尺寸
     python3 apps/test_upper_init/run_behavior_tree_json.py \
         --scenario orchestration/scenarios/<场景目录>
 """

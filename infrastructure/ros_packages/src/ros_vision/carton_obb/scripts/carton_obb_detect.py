@@ -14,7 +14,7 @@
 
 订阅（两路都要时间戳接近，用 `ApproximateTimeSynchronizer` 对齐）：
   * `~image_color`  sensor_msgs/Image          彩色图（默认 `/camera/color/image_raw`）
-  * `~image_depth`  sensor_msgs/Image          对齐后的深度图，16UC1 单位 mm；**只用于选箱打分**
+  * `~image_depth`  sensor_msgs/Image          对齐后的深度图，16UC1 单位 mm；用于选箱打分与深度下沿修正（默认开）
   * `~camera_info`  sensor_msgs/CameraInfo     内参。OBB 推理本身**不需要**内参，
     但下游 / 叠加图要用于反投影，且换相机时要能对上，所以照订。
 
@@ -32,7 +32,7 @@
   | 名字 | 默认 | 说明 |
   |---|---|---|
   | `image_color` | `/camera/color/image_raw` | 彩色话题 |
-  | `image_depth` | `/camera/depth/image_raw` | 深度话题，**只用于选箱打分** |
+  | `image_depth` | `/camera/depth/image_raw` | 深度话题，**用于选箱打分与可选的深度下沿修正** |
   | `camera_info` | `/camera/color/camera_info` | 内参话题 |
   | `detection_out` | `/box/detection` | 四角输出 |
   | `model_path` | `<算法包>/models/carton_obb.onnx` | ONNX 权重（留空 = 用默认值） |
@@ -49,6 +49,11 @@
   | `score_w_depth` | `0.3` | 中心深度项权重 |
   | `z_near_mm` / `z_far_mm` | `500.0` / `1500.0` | 深度项刻度 |
   | `depth_patch_px` | `15` | 中心深度采样方块的半边长 |
+  | `depth_refine_bottom` | `true` | 用**深度下沿**把手持箱被拉长的下边收回去；只在框内箱体与下方背景有明确深度跳变时生效，没有跳变保持模型框 |
+  | `depth_refine_step` | `2` | 深度剖面的行/列采样步长（越大越快、y 的量化越粗） |
+  | `depth_refine_band_px` | `45` | 沿框中心左右各取多少像素做深度剖面 |
+  | `depth_refine_jump_mm` | `150.0` | 箱体到下方背景的最小持续深度跳变 |
+  | `depth_refine_min_shrink_px` | `3.0` | 至少收缩这么多像素才改框（只收缩，不放大） |
   | `depth_scale_mm` | `1.0` | 深度图单位换算到 mm 的系数 |
   | `sync_slop_s` | `0.05` | 两路时间戳允许的最大差 |
   | `queue_warn_ms` | `200.0` | 处理慢于这个就告警一次（节流） |
@@ -141,11 +146,13 @@ except ImportError:                              # pragma: no cover
 from skills.atomic.perception.carton_detect import (        # noqa: E402
     DEFAULT_D_FAR_PX, DEFAULT_D_NEAR_PX, DEFAULT_DEPTH_PATCH_PX,
     DEFAULT_MODEL_PATH, DEFAULT_NMS_IOMIN, DEFAULT_NMS_IOU,
+    DEFAULT_REFINE_BOTTOM_BAND_PX, DEFAULT_REFINE_BOTTOM_JUMP_MM,
+    DEFAULT_REFINE_BOTTOM_MIN_SHRINK_PX, DEFAULT_REFINE_BOTTOM_STEP,
     DEFAULT_SCORE_W_AREA, DEFAULT_SCORE_W_DCENTER, DEFAULT_SCORE_W_DEPTH,
     DEFAULT_Z_FAR_MM, DEFAULT_Z_NEAR_MM,
     angle_deg_from_corners, decode_obb, dets_from_rotated_rects,
     nms_rotated, pick_best, score_candidates,
-    sample_depth_mm, to_input_tensor,
+    refine_bottom_by_depth, sample_depth_mm, to_input_tensor,
 )
 
 
@@ -321,6 +328,17 @@ class CartonObbNode:
         self.z_near = float(rospy.get_param('~z_near_mm', DEFAULT_Z_NEAR_MM))
         self.z_far = float(rospy.get_param('~z_far_mm', DEFAULT_Z_FAR_MM))
         self.depth_patch = int(rospy.get_param('~depth_patch_px', DEFAULT_DEPTH_PATCH_PX))
+        # 深度下沿修正（默认开；见 obb_decoder.refine_bottom_by_depth）。
+        # 只在「框内箱体 → 下方远背景」有持续跳变时收缩下边，没有跳变保持模型框。
+        self.refine_bottom = _as_bool(rospy.get_param('~depth_refine_bottom', True))
+        self.refine_step = max(1, int(rospy.get_param('~depth_refine_step',
+                                                     DEFAULT_REFINE_BOTTOM_STEP)))
+        self.refine_band = max(5, int(rospy.get_param('~depth_refine_band_px',
+                                                     DEFAULT_REFINE_BOTTOM_BAND_PX)))
+        self.refine_jump = float(rospy.get_param('~depth_refine_jump_mm',
+                                                 DEFAULT_REFINE_BOTTOM_JUMP_MM))
+        self.refine_min_shrink = float(rospy.get_param(
+            '~depth_refine_min_shrink_px', DEFAULT_REFINE_BOTTOM_MIN_SHRINK_PX))
         if self.z_far <= self.z_near:
             rospy.logwarn('[carton_obb] ~z_far_mm(%.1f) <= ~z_near_mm(%.1f)，'
                           '深度项退化成阶跃', self.z_far, self.z_near)
@@ -449,6 +467,11 @@ class CartonObbNode:
                       self.win.window,
                       self.win.process_every, self.max_rate, self.heartbeat_s,
                       self.publish_empty, self._mode)
+        if self.refine_bottom:
+            rospy.loginfo('[carton_obb] 深度下沿修正：step=%d band=±%dpx '
+                          'jump=%gmm min_shrink=%gpx',
+                          self.refine_step, self.refine_band,
+                          self.refine_jump, self.refine_min_shrink)
 
     # ------------------------------------------------------------ 推理后端
     def _select_backend(self) -> None:
@@ -736,6 +759,26 @@ class CartonObbNode:
                     self._publish_empty(src_header)
                 self._heartbeat()
                 continue
+
+            # ---- 深度下沿修正（默认开，可关）---------------------------
+            # 现场问题：手持箱相对相机静止，但模型下边会跳到下方背景上。
+            # 用框内箱体与下方背景的深度跳变把下边收回去；找不到跳变就不动。
+            # 必须在时间窗 push 之前改，窗口才会用修正后的四角。
+            if self.refine_bottom:
+                nc, rinfo = refine_bottom_by_depth(
+                    depth, best['corners_uv'], step=self.refine_step,
+                    band_px=self.refine_band, jump_mm=self.refine_jump,
+                    min_shrink_px=self.refine_min_shrink,
+                    z_near=self.z_near, z_far=self.z_far)
+                if nc is not None:
+                    best['corners_uv'] = nc
+                    best['box_uv'] = [float(nc[:, 0].min()), float(nc[:, 1].min()),
+                                      float(nc[:, 0].max()), float(nc[:, 1].max())]
+                    rospy.logdebug_throttle(
+                        5.0, '[carton_obb] 深度下沿修正 %.1f -> %.1fpx'
+                             '（y_new=%.1f，%s）',
+                        rinfo['h_before'], rinfo['h_after'],
+                        rinfo['y_new'], rinfo['reason'])
 
             out = self.win.push(best['corners_uv'], best['confidence'])
             if out is None:

@@ -44,6 +44,16 @@
     <arg name="score_w_depth"   default="0.3"/>
     <arg name="z_near_mm"       default="500.0"/>
     <arg name="z_far_mm"        default="1500.0"/>
+    <!-- 深度下沿修正（2026-11-06）：用框内箱体与下方背景的深度跳变把被拉长的
+         下边收回去。只收缩、找不到明确跳变就不动。现场修拉长，默认开启；
+         需要时传 depth_refine_bottom:=false 关掉。详见
+         skills/atomic/perception/carton_detect/obb_decoder.py 的
+         refine_bottom_by_depth。 -->
+    <arg name="depth_refine_bottom"        default="true"/>
+    <arg name="depth_refine_step"          default="2"/>
+    <arg name="depth_refine_band_px"       default="45"/>
+    <arg name="depth_refine_jump_mm"       default="150.0"/>
+    <arg name="depth_refine_min_shrink_px" default="3.0"/>
     <arg name="box_python"    default=""
          doc="解释器的绝对路径；空串 = 用系统 python3（默认）"/>
 
@@ -111,6 +121,11 @@
         <param name="score_w_depth"   value="$(arg score_w_depth)"/>
         <param name="z_near_mm"       value="$(arg z_near_mm)"/>
         <param name="z_far_mm"        value="$(arg z_far_mm)"/>
+        <param name="depth_refine_bottom"        value="$(arg depth_refine_bottom)"/>
+        <param name="depth_refine_step"          value="$(arg depth_refine_step)"/>
+        <param name="depth_refine_band_px"       value="$(arg depth_refine_band_px)"/>
+        <param name="depth_refine_jump_mm"       value="$(arg depth_refine_jump_mm)"/>
+        <param name="depth_refine_min_shrink_px" value="$(arg depth_refine_min_shrink_px)"/>
 
         <!-- onnxruntime / OpenBLAS 在这个规模的模型上开多线程是纯开销，
              而且会和 ROS 回调线程抢核 -->

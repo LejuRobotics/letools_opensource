@@ -101,8 +101,9 @@ CUDA buffer 不能并发复用。
 ### `~image_depth`（`sensor_msgs/Image`，默认 `/camera/depth/image_raw`）
 
 深度图，认 `16UC1`（**已经是毫米**）与 `32FC1`（**米**，节点自动 ×1000）。
-**只用于选箱打分**（见 §3 ⑥），不参与四角的计算 —— 所以取不到深度**不影响
-四角的正确性**，只影响「挑哪一个」。
+用于**选箱打分**（见 §3 ⑥）与**深度下沿修正**（`depth_refine_bottom`，默认开，
+只在明确跳变时收缩下边）。取不到深度**不影响四角的正确性** —— 打分退回无深度
+口径，下沿修正也不执行。
 
 ⚠️ **要求深度已配准到彩色**。没配准的话采样到的不是这个箱子的深度，打分就是噪声。
 **给空串 = 不订阅深度**，全部候选走"无深度"降级。
@@ -139,7 +140,7 @@ CUDA buffer 不能并发复用。
 | 名字 | 默认 | 说明 |
 |---|---|---|
 | `image_color` | `/camera/color/image_raw` | 输入彩色图 |
-| `image_depth` | `/camera/depth/image_raw` | 深度图，**只用于选箱打分**；空串 = 不订阅 |
+| `image_depth` | `/camera/depth/image_raw` | 深度图，用于选箱打分与可选的深度下沿修正；空串 = 不订阅 |
 | `camera_info` | `/camera/color/camera_info` | 内参（只记日志） |
 | `detection_out` | `/box/detection` | 四角输出 |
 | `model_path` | `<算法包>/models/carton_obb.onnx` | ONNX 权重（**留空 = 用默认值**，见 `carton_detect.DEFAULT_MODEL_PATH`） |
@@ -161,6 +162,16 @@ CUDA buffer 不能并发复用。
 **选箱**（见 §3 ⑥）：`score_w_dcenter` `0.5`、`score_w_area` `0.2`、`score_w_depth` `0.3`、
 `d_near_px` `100.0`、`d_far_px` `450.0`、`z_near_mm` `500.0`、`z_far_mm` `1500.0`、
 `depth_patch_px` `15`。
+
+**深度下沿修正**（2026-11-06，默认开）：`depth_refine_bottom` `true` →
+`depth_refine_step` `2`、`depth_refine_band_px` `45`、`depth_refine_jump_mm` `150.0`、
+`depth_refine_min_shrink_px` `3.0`。只在「框内箱体 → 下方远背景」有持续深度跳变时
+把下边收回去；没有跳变（箱子放在料垛上、下沿出画）保持模型框，只收缩不放大。
+用于修手持箱被拉长到下方背景的情况，见 `obb_decoder.refine_bottom_by_depth`。
+
+⚠️ **关闭方式**：`config/carton_obb.yaml` 里的同名键会被 `carton_obb.launch`
+的 `<param>`（arg 默认 `true`）覆盖。在启动命令或场景脚本里传
+`depth_refine_bottom:=false`，或把 launch 里的 arg 默认值改成 `false`。
 
 ⚠️ **所有参数都是私有参数**（`~name`，即 `/carton_obb_detect/<name>`）。
 launch 里 `<param>` / `<rosparam>` **必须写在 `<node>` 标签内部** —— 写在

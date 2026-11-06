@@ -16,6 +16,10 @@
     <arg name="enable_head" default="true"/>
     <arg name="enable_left_wrist" default="false"/>
     <arg name="enable_right_wrist" default="false"/>
+    <!-- 命名空间与 frame 分离；允许绝对命名空间，直接 roslaunch 也使用默认值 -->
+    <arg name="head_camera_name" default="/camera"/>
+    <arg name="left_wrist_camera_name" default="/left_wrist_camera"/>
+    <arg name="right_wrist_camera_name" default="/right_wrist_camera"/>
     <arg name="wrist_color_width" default="848"/>
     <arg name="wrist_color_height" default="480"/>
     <arg name="wrist_color_fps" default="15"/>
@@ -26,8 +30,29 @@
 
     <!-- 启动 orbbec 头部相机 -->
     <group if="$(arg enable_head)">
+      <!-- 固定 camera_name=camera 保留 frame 后，驱动仍使用 /camera/... 绝对话题。
+           图像、内参、元数据和压缩子话题必须一并重映射到目标命名空间。 -->
+      <remap from="/camera/color/image_raw" to="$(arg head_camera_name)/color/image_raw"/>
+      <remap from="/camera/color/image_raw/compressed" to="$(arg head_camera_name)/color/image_raw/compressed"/>
+      <remap from="/camera/color/image_raw/compressedDepth" to="$(arg head_camera_name)/color/image_raw/compressedDepth"/>
+      <remap from="/camera/color/camera_info" to="$(arg head_camera_name)/color/camera_info"/>
+      <remap from="/camera/color/metadata" to="$(arg head_camera_name)/color/metadata"/>
+      <remap from="/camera/depth/image_raw" to="$(arg head_camera_name)/depth/image_raw"/>
+      <remap from="/camera/depth/image_raw/compressed" to="$(arg head_camera_name)/depth/image_raw/compressed"/>
+      <remap from="/camera/depth/image_raw/compressedDepth" to="$(arg head_camera_name)/depth/image_raw/compressedDepth"/>
+      <remap from="/camera/depth/camera_info" to="$(arg head_camera_name)/depth/camera_info"/>
+      <remap from="/camera/depth/metadata" to="$(arg head_camera_name)/depth/metadata"/>
+      <!-- 辅助信息也使用固定 camera_name 拼接绝对话题，需随命名空间一起移动。 -->
+      <remap from="/camera/depth_to_color" to="$(arg head_camera_name)/depth_to_color"/>
+      <remap from="/camera/depth_to_ir" to="$(arg head_camera_name)/depth_to_ir"/>
+      <remap from="/camera/depth_to_left_ir" to="$(arg head_camera_name)/depth_to_left_ir"/>
+      <remap from="/camera/depth_to_right_ir" to="$(arg head_camera_name)/depth_to_right_ir"/>
+      <remap from="/camera/depth_to_accel" to="$(arg head_camera_name)/depth_to_accel"/>
+      <remap from="/camera/depth_to_gyro" to="$(arg head_camera_name)/depth_to_gyro"/>
+      <remap from="/camera/filter_status" to="$(arg head_camera_name)/filter_status"/>
+      <remap from="/camera/sdk_version" to="$(arg head_camera_name)/sdk_version"/>
       <include file="$(find orbbec_camera)/launch/gemini_330_series.launch">
-          <arg name="camera_name" value="camera"/>
+          <arg name="camera_name" value="$(arg head_camera_name)"/>
           <arg name="color_width" value="$(arg color_width)"/>
           <arg name="color_height" value="$(arg color_height)"/>
           <arg name="color_fps" value="$(arg color_fps)"/>
@@ -41,12 +66,15 @@
           <arg name="enable_colored_point_cloud" value="$(arg head_enable_colored_point_cloud)"/>
           <arg name="ordered_pc" value="true"/>
       </include>
+      <!-- Orbbec camera_name 同时决定 ns 和 frame；覆盖节点私有参数只固定 frame。
+           放在 include 之后，确保覆盖驱动 launch 中的同名参数，不修改 SDK。 -->
+      <param name="$(arg head_camera_name)/camera/camera_name" value="camera" type="str"/>
     </group>
 
     <!-- 启动 手腕 realsense 相机 -->
     <group if="$(arg enable_left_wrist)">
       <include file="$(find realsense2_camera)/launch/rs_camera.launch">
-        <arg name="camera" value="left_wrist_camera"/>
+        <arg name="camera" value="$(arg left_wrist_camera_name)"/>
         <arg name="tf_prefix" value="left_wrist_camera"/>
         <arg name="serial_no" value="$(env LEFT_WRIST_CAMERA_SERIAL_NO)"/>
         <arg name="color_width" value="$(arg wrist_color_width)"/>
@@ -61,7 +89,7 @@
 
     <group if="$(arg enable_right_wrist)">
       <include file="$(find realsense2_camera)/launch/rs_camera.launch">
-        <arg name="camera" value="right_wrist_camera"/>
+        <arg name="camera" value="$(arg right_wrist_camera_name)"/>
         <arg name="tf_prefix" value="right_wrist_camera"/>
         <arg name="serial_no" value="$(env RIGHT_WRIST_CAMERA_SERIAL_NO)"/>
         <arg name="color_width" value="$(arg wrist_color_width)"/>

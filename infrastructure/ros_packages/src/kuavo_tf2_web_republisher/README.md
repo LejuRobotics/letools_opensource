@@ -24,8 +24,8 @@ For full documentation, see [the ROS wiki](http://ros.org/wiki/tf2_web_republish
 This project is released as part of the [Robot Web Tools](http://robotwebtools.org/) effort.
 
 ### License
-tf2_web_republisher is released with a BSD license. For full terms and conditions, see the [LICENSE](LICENSE) file.
+tf2_web_republisher is released under the BSD license, as declared in [package.xml](package.xml). The upstream LICENSE file is not included in this vendored copy.
 
 ### Authors
-See the [AUTHORS](AUTHORS.md) file for a full list of contributors.
+[package.xml](package.xml) records Julius Kammer as the author and Russell Toris as the maintainer. The upstream AUTHORS.md file is not included in this vendored copy.
 

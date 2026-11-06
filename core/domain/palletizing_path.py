@@ -20,10 +20,10 @@ Point3 = Tuple[float, float, float]
 class PalletizingPathParams:
     """一组搬运行程的几何参数（单位：米）。"""
 
-    x_distance: float = 0.80     # 前后行程
-    y_offset: float = 0.30       # 左右行程（源脚本 y_width）
-    z_height: float = 0.50       # 提升高度
-    approach_distance: float = 0.05  # 接近/撤离距离；0 表示不做接近段
+    x_distance: float = 0.10     # 前后行程
+    y_offset: float = 0.10       # 左右行程（源脚本 y_width）
+    z_height: float = 0.10       # 提升高度
+    approach_distance: float = 0.10  # 接近/撤离距离；0 表示不做接近段
 
 
 @dataclass(frozen=True)

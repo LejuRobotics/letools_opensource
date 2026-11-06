@@ -102,8 +102,7 @@ The drop probabilities will be:
 The user should include the `step()` call at the start of the batch loop, 
 or at the the start of a model's `forward` call. 
 
-Check [examples/resnet-cifar10.py](examples/resnet-cifar10.py) to
-see an implementation example.
+Call `step()` once per batch, as demonstrated in the scheduler example above. The upstream `examples/resnet-cifar10.py` file is not included in this vendored copy.
 
 ## Implementation details
 
@@ -113,7 +112,7 @@ Regardless, everything else should work similarly to what is described in the pa
 
 ## Benchmark
 
-Refer to [BENCHMARK.md](BENCHMARK.md)
+The upstream benchmark results are not included in this vendored copy.
 
 ## Reference
 [Ghiasi et al., 2018] DropBlock: A regularization method for convolutional networks

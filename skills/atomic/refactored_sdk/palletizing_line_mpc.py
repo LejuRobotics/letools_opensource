@@ -68,9 +68,9 @@ class PalletizingLineMpcParams(SkillParams):
     right_ee_frame: str = "zarm_r7_end_effector"
     x_direction: str = "forward"            # 'forward' / 'backward'
     lateral_direction: str = "left"         # 'left' / 'right'
-    x_distance: float = 0.80                # 前后行程
-    y_offset: float = 0.30                  # 左右行程
-    z_height: float = 0.50                  # 提升/下放高度
+    x_distance: float = 0.20                # 前后行程
+    y_offset: float = 0.20                  # 左右行程
+    z_height: float = 0.20                  # 提升/下放高度
     approach_distance: float = 0.05         # 接近/撤离距离，0 表示不做接近段
     approach_duration: float = 1.5
     edge_duration: float = 3.0
@@ -78,7 +78,7 @@ class PalletizingLineMpcParams(SkillParams):
     grasp_dwell: float = 0.5                # 接近段后的虚拟抓取停顿
     place_dwell: float = 0.5                # 下放段后的虚拟放置停顿
     segment_settle: float = 0.25
-    prepare_pose: bool = True
+    prepare_pose: bool = False
     prep_settle: float = 2.0
     tf_timeout: float = 5.0
     timeout: float = 600.0
@@ -181,9 +181,8 @@ class PalletizingLineMpcSkill(SkillBase):
         )
         try:
             for arm in arms:
-                self._paths[arm] = build_palletizing_path(
-                    starts[arm], x_dir, y_dir, _WORLD_Z, path_params,
-                    edge_duration=p.edge_duration, approach_duration=p.approach_duration)
+                self._paths[arm] = self._build_path(
+                    starts[arm], x_dir, y_dir, _WORLD_Z, path_params)
         except ValueError as exc:
             self._done = True
             return Result.fail(f"路径参数非法: {exc}")
@@ -231,6 +230,13 @@ class PalletizingLineMpcSkill(SkillBase):
         self.current_segment_index = None
         self._done = True
         return Result.ok(f"MPC 直线搬运完成：{len(segments)} 段，{len(arms)} 臂")
+
+    def _build_path(self, start, x_dir, y_dir, z_dir, path_params):
+        """构建单臂路径；子类可覆盖路径形状并复用段执行与验收流程。"""
+        p = self.params
+        return build_palletizing_path(
+            start, x_dir, y_dir, z_dir, path_params,
+            edge_duration=p.edge_duration, approach_duration=p.approach_duration)
 
     def _run_segment(self, segment: PathSegment, trajectories: List[dict]) -> Result:
         """提交并跑完一段离线轨迹；成功与否都确保关闭使能。"""

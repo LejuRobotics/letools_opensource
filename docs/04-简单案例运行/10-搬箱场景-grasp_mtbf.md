@@ -126,7 +126,7 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 | 想改什么 | 改哪里 | 详见 |
 |---|---|---|
 | 相机分辨率、帧率，是否启动 AprilTag 检测 | `config/camera_config.yaml` | 5.2 |
-| 二维码的 ID、尺寸、家族 | `config/apriltag_tags.yaml`、`config/apriltag_settings.yaml`、场景 `board.json` 与 `py_tree.json` | 5.3 |
+| 二维码的 ID、尺寸、家族 | `config/apriltag_config.yaml`（检测器参数与标签同在一个文件）、场景 `board.json` 与 `py_tree.json` | 5.3 |
 | 抓取 / 放置目标相对二维码的位置、箱子尺寸 | 场景 `board.json`：`pick_position_offset`、`place_position_offset`、`box_size` | 5.3 |
 | 抓取点、放置点、导航速度与避障 | 场景 `board.json`：`navigation_config` | 5.4 |
 | 导航途中经过的途经点 | 场景 `board.json` 与 `py_tree.json` | 5.4 |
@@ -137,7 +137,7 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 ```text
 头部相机（Orbbec，config/camera_orbbec.launch 启动）
   → /camera/color/image_raw
-  → AprilTag 检测（config/apriltag_continuous.launch，参数来自 apriltag_settings.yaml / apriltag_tags.yaml）
+  → AprilTag 检测（config/apriltag_continuous.launch，参数来自 config/apriltag_config.yaml）
   → ar_control：相机光学坐标系 camera_color_optical_frame → base_link
   → /robot_tag_info
   → NodePercep 写黑板 latest_tag_<id> → NodeWaitForBlackboard 写 latest_tag_<id>_xyz
@@ -168,9 +168,15 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 
 本场景用两个二维码：**抓取 Tag** 贴在待搬的箱子上，**放置 Tag** 贴在放置位置。默认 `pick_tag_id=1`、`place_tag_id=2`。
 
-**换成其他 ID 或尺寸的二维码**，以把抓取 Tag 从 `1` 换成 `5` 为例，按顺序完成四处修改：
+**换成其他 ID 或尺寸的二维码**，以把抓取 Tag 从 `1` 换成 `5` 为例，按顺序完成三处修改：
 
-1. **`config/apriltag_tags.yaml`**：在 `standalone_tags` 中登记新标签。`size` 是**黑框外沿**的边长（米），不含白边，建议用卡尺测量：
+1. **`config/apriltag_config.yaml`**：检测器参数与待检测标签写在同一个文件，首次使用先从模板复制：
+
+   ```bash
+   cp config/apriltag_config.yaml.template config/apriltag_config.yaml
+   ```
+
+   然后在 `standalone_tags` 中登记新标签。`size` 是**黑框外沿**的边长（米），不含白边，建议用卡尺测量：
 
    ```yaml
    standalone_tags:
@@ -180,24 +186,22 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
      ]
    ```
 
-   尺寸写错不会报错，但检测出的距离会按比例偏差（实物 0.18 m 写成 0.09 m，距离就差一倍）。
+   尺寸写错不会报错，但检测出的距离会按比例偏差（实物 0.18 m 写成 0.09 m，距离就差一倍）。同一文件的 `tag_family` 要与打印的标签一致，模板默认 `tag16h5`，实际以现场实物为准。
 
-2. **`config/apriltag_settings.yaml`**：确认 `tag_family` 与打印的标签一致（当前为 `tag36h11`）。
-
-3. **场景 `board.json`**：
+2. **场景 `board.json`**：
 
    | 键 | 修改为 |
    |---|---|
    | `pick_tag_id` | `5` |
    | `tag_ids` | `[5, 2]`，必须同时包含抓取和放置两个 ID |
 
-4. **场景 `py_tree.json`**：把 `compute_pick_key_points` 节点读取的黑板键从 `latest_tag_1_xyz` 改为 `latest_tag_5_xyz`：
+3. **场景 `py_tree.json`**：把 `compute_pick_key_points` 节点读取的黑板键从 `latest_tag_1_xyz` 改为 `latest_tag_5_xyz`：
 
    ```json
    "tag_xyz": {"source": "READ_BOARD", "board_key": "latest_tag_5_xyz"}
    ```
 
-   这个键名由等待节点按 `latest_tag_<id>_xyz` 生成，**不会随 `pick_tag_id` 自动变化**。只改前三步时，干跑会以 `FAILURE` 结束，日志为 `关键点计算失败: latest_tag_1_xyz 未就绪`。放置 Tag 同理，对应 `place_tag_id` 和 `compute_place_key_points` 节点。
+   这个键名由等待节点按 `latest_tag_<id>_xyz` 生成，**不会随 `pick_tag_id` 自动变化**。只改前两步时，干跑会以 `FAILURE` 结束，日志为 `关键点计算失败: latest_tag_1_xyz 未就绪`。放置 Tag 同理，对应 `place_tag_id` 和 `compute_place_key_points` 节点。
 
 **二维码贴的位置与目标不重合时**，用位置偏置修正，不需要改代码：
 

@@ -278,6 +278,9 @@ class PerceptionAdapterTest:
             return
         
         try:
+            start_result = self.adapter.start()
+            if not start_result.success:
+                raise RuntimeError(start_result.message)
             print("   等待检测结果（请将二维码对准相机）")
             tags = None
             timeout = 15

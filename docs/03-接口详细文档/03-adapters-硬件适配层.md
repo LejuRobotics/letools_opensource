@@ -97,6 +97,7 @@ hw.shutdown()
 | 标准 | `get_torso_initial_pose` | `get_torso_initial_pose() -> Result` | 读躯干初始位姿（`data={position, euler}`） | `IHardware` |
 | 标准 | `reset_torso_to_initial` | `reset_torso_to_initial() -> Result` | 躯干回到初始位姿 | `TorsoControlMixin` |
 | 标准 | `send_leg_joint_command` | `send_leg_joint_command(positions[4]) -> Result` | 膝/腿/腰 pitch/腰 yaw 四关节（**默认 deg，不做弧度转换**）→ `/lb_leg_traj` | `IHardware` / `ArmControlMixin` |
+| 适配器 | `get_leg_joint_positions` | `get_leg_joint_positions() -> Result[List[float]]` | 读取膝/腿/腰 pitch/腰 yaw 四关节，顺序与写入一致；校验 4 个有限值，底层弧度经 `_from_rad()` 转为 `angle_unit` 用户单位；需要 `low` 管理器 | `SDKControlMixin` → `LowLevelSDKManager.robot_sdk.state.joint_state` |
 | 标准 | `send_leg_joint_positions` | `send_leg_joint_positions(joint_names, positions) -> Result` | 内部方法，可自定义关节名 | `ArmControlMixin` |
 | SDK | `send_torso_pose_sdk` | `send_torso_pose_sdk(x, z, yaw, pitch) -> Result` | 躯干位姿 SDK 单次 | `SDKControlMixin` |
 | SDK | `send_torso_6dof_sdk` | `send_torso_6dof_sdk(x, y, z, roll, pitch, yaw) -> Result` | 躯干 6DoF SDK 直调 | `robot_sdk.control.control_torso_6dof` |

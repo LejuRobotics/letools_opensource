@@ -78,8 +78,110 @@ topic_has_publishers() {
     | grep -q '^ \* '
 }
 
+list_topic_publishers() {
+  local topic_info
+  topic_info="$(rostopic info "$1" 2>/dev/null)" || return 0
+  sed -n '/^Publishers:/,/^Subscribers:/p' <<<"${topic_info}" \
+    | sed -n 's/^ \* //p'
+}
+
 wait_for_message() {
   timeout "$2" rostopic echo -n 1 "$1" >/dev/null 2>&1
+}
+
+wait_until_no_publishers() {
+  local topic="$1"
+  local timeout_seconds="$2"
+  local deadline=$((SECONDS + timeout_seconds))
+  while (( SECONDS < deadline )); do
+    topic_has_publishers "${topic}" || return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+stop_incomplete_head_camera() {
+  local publisher
+  local -a publishers=()
+  local -A seen=()
+
+  echo "  检测到不完整的公共 RGB-D，正在停止现有发布者后重拉 Orbbec ..."
+  echo "    color publisher=$(topic_has_publishers "${COLOR_TOPIC}" && echo 1 || echo 0), depth publisher=$(topic_has_publishers "${DEPTH_TOPIC}" && echo 1 || echo 0)"
+
+  while IFS= read -r publisher; do
+    [[ -n "${publisher}" ]] || continue
+    [[ -z "${seen[${publisher}]+x}" ]] || continue
+    seen["${publisher}"]=1
+    publishers+=("${publisher}")
+  done < <(
+    {
+      list_topic_publishers "${COLOR_TOPIC}"
+      list_topic_publishers "${DEPTH_TOPIC}"
+      # Orbbec 默认节点名；半残时可能仍挂在 master 上但只剩单路话题。
+      printf '%s\n' "/camera/camera"
+    } | sed '/^$/d'
+  )
+
+  if ((${#publishers[@]} > 0)); then
+    for publisher in "${publishers[@]}"; do
+      if rosnode list 2>/dev/null | grep -qx "${publisher}"; then
+        echo "  正在停止相机节点：${publisher}"
+        timeout 3 rosnode kill "${publisher}" >/dev/null 2>&1 || true
+      fi
+    done
+  fi
+
+  # 覆盖丢失终端、只剩驱动进程的情况。
+  pkill -INT -f '[c]amera_orbbec.launch' >/dev/null 2>&1 || true
+  pkill -INT -f '[o]rbbec_camera_node' >/dev/null 2>&1 || true
+  sleep 1
+  pkill -TERM -f '[c]amera_orbbec.launch' >/dev/null 2>&1 || true
+  pkill -TERM -f '[o]rbbec_camera_node' >/dev/null 2>&1 || true
+
+  if ! wait_until_no_publishers "${COLOR_TOPIC}" 10; then
+    echo "  ✗ 半残彩色发布者未能清空：${COLOR_TOPIC}" >&2
+    return 1
+  fi
+  if ! wait_until_no_publishers "${DEPTH_TOPIC}" 10; then
+    echo "  ✗ 半残深度发布者未能清空：${DEPTH_TOPIC}" >&2
+    return 1
+  fi
+
+  printf 'y\n' | rosnode cleanup >/dev/null 2>&1 || true
+  # 给 USB/SDK 一点释放时间，降低立刻重开失败概率。
+  sleep 2
+  echo "  ✓ 半残头部相机已停止"
+  return 0
+}
+
+start_public_orbbec_camera() {
+  if ! rospack find orbbec_camera >/dev/null 2>&1; then
+    echo "  ✗ ROS 找不到 orbbec_camera 包" >&2
+    return 1
+  fi
+
+  echo "  正在启动公共 Orbbec RGB-D ..."
+  roslaunch "${CAMERA_LAUNCH}" \
+    "color_width:=${COLOR_WIDTH}" \
+    "color_height:=${COLOR_HEIGHT}" \
+    "color_fps:=${COLOR_FPS}" \
+    "depth_width:=${DEPTH_WIDTH}" \
+    "depth_height:=${DEPTH_HEIGHT}" \
+    "depth_fps:=${DEPTH_FPS}" \
+    > >(tee -a "${CAMERA_LOG}") 2>&1 &
+  CAMERA_PID=$!
+  CAMERA_OWNED=1
+
+  if ! wait_for_message "${COLOR_TOPIC}" "${CAMERA_STARTUP_TIMEOUT}"; then
+    echo "  ✗ 等待头部彩色首帧超时，日志：${CAMERA_LOG}" >&2
+    return 1
+  fi
+  if ! wait_for_message "${DEPTH_TOPIC}" "${CAMERA_STARTUP_TIMEOUT}"; then
+    echo "  ✗ 等待头部深度首帧超时，日志：${CAMERA_LOG}" >&2
+    return 1
+  fi
+  echo "  ✓ 公共头部相机已就绪，日志：${CAMERA_LOG}"
+  return 0
 }
 
 wait_for_service() {
@@ -193,6 +295,23 @@ source_if_exists "${REPO_ROOT}/infrastructure/ros_packages/devel/setup.bash"
 export ROS_PACKAGE_PATH="${REPO_ROOT}/infrastructure/ros_packages/src:${ROS_PACKAGE_PATH:-}"
 export PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/infrastructure/ros_packages/devel/lib/python3/dist-packages:${PYTHONPATH:-}"
 
+# Noetic setup.bash 会把未设置的 ROS_MASTER_URI 填成 http://localhost:11311。
+# 现场 Kuavo 的 master 通常在下位机主机名 kuavo_master；若本机能解析该名，
+# 且当前仍是 Noetic 默认 localhost，则改用现场默认，避免「脚本起得来但连不上」。
+# 用户已显式 export 非 localhost 的 URI 时不改动；本机仿真（无 kuavo_master）也不改。
+prefer_field_ros_master() {
+  case "${ROS_MASTER_URI:-}" in
+    ""|http://localhost:11311|http://127.0.0.1:11311) ;;
+    *) return 0 ;;
+  esac
+  if getent hosts kuavo_master >/dev/null 2>&1 \
+      || grep -Eq '^[[:space:]]*[^#].*\bkuavo_master\b' /etc/hosts 2>/dev/null; then
+    export ROS_MASTER_URI="http://kuavo_master:11311"
+    echo "ROS_MASTER_URI 从 Noetic 默认 localhost 调整为现场：${ROS_MASTER_URI}"
+  fi
+}
+prefer_field_ros_master
+
 ENGINE_PATH="$(resolve_repo_path "$(board_get engine_path)")"
 SERVICE_NAME="$(board_get service_name)"
 WARMUP="$(board_get warmup)"
@@ -211,6 +330,9 @@ if [[ -n "${SERVO_CAPTURE_DIR_VALUE}" ]]; then
   SERVO_CAPTURE_DIR="$(resolve_repo_path "${SERVO_CAPTURE_DIR_VALUE}")"
 fi
 SERVO_CAPTURE_INTERVAL="$(board_get servo_capture_interval)"
+SERVO_DEPTH_WEIGHT="$(board_get servo_depth_weight)"
+SERVO_BOTTOM_CENTER_WEIGHT="$(board_get servo_bottom_center_weight)"
+SERVO_AREA_WEIGHT="$(board_get servo_area_weight)"
 START_CAMERA_IF_MISSING="$(board_get start_camera_if_missing)"
 CAMERA_LAUNCH="$(resolve_repo_path "$(board_get camera_launch)")"
 COLOR_TOPIC="$(board_get color_topic)"
@@ -266,6 +388,21 @@ value = float(sys.argv[1])
 raise SystemExit(0 if math.isfinite(value) and value > 0.0 else 1)
 PY
   echo "  ✗ servo_capture_interval 必须是正有限数，当前值：${SERVO_CAPTURE_INTERVAL}" >&2
+  exit 2
+}
+python3 - "${SERVO_DEPTH_WEIGHT}" "${SERVO_BOTTOM_CENTER_WEIGHT}" "${SERVO_AREA_WEIGHT}" <<'PY' || {
+import math
+import sys
+
+weights = []
+for raw in sys.argv[1:]:
+    value = float(raw)
+    if not math.isfinite(value) or value < 0.0:
+        raise SystemExit(1)
+    weights.append(value)
+raise SystemExit(0 if sum(weights) > 0.0 else 1)
+PY
+  echo "  ✗ servo_*_weight 必须非负且总和 > 0，当前值：depth=${SERVO_DEPTH_WEIGHT} bottom_center=${SERVO_BOTTOM_CENTER_WEIGHT} area=${SERVO_AREA_WEIGHT}" >&2
   exit 2
 }
 [[ "${START_CAMERA_IF_MISSING}" =~ ^(true|false)$ ]] || {
@@ -344,12 +481,18 @@ if [[ -z "${ROS_MASTER_URI:-}" ]]; then
 fi
 if ! rosnode list >/dev/null 2>&1; then
   echo "  ✗ 无法连接 ROS master：${ROS_MASTER_URI}" >&2
+  echo "    请确认：" >&2
+  echo "    1) 下位机已启动（或本机已起 roscore）" >&2
+  echo "    2) 本终端：export ROS_MASTER_URI=http://kuavo_master:11311   # 按现场实际 master 改" >&2
+  echo "    3) 本终端：export ROS_IP=<本机局域网 IP>（多机通信需要）" >&2
+  echo "    自检：echo \$ROS_MASTER_URI && rosnode list" >&2
   exit 2
 fi
 
 echo "  ✓ engine=${ENGINE_PATH}"
 echo "  ✓ service=${SERVICE_NAME}"
 echo "  ✓ servo_service=${SERVO_SERVICE_NAME}"
+echo "  ✓ servo_score_weights=depth:${SERVO_DEPTH_WEIGHT} bottom_center:${SERVO_BOTTOM_CENTER_WEIGHT} area:${SERVO_AREA_WEIGHT}"
 echo "  ✓ warmup=${WARMUP}"
 echo "  ✓ color_topic=${COLOR_TOPIC}"
 echo "  ✓ depth_topic=${DEPTH_TOPIC}"
@@ -378,11 +521,12 @@ if [[ "${DRY_RUN}" == "1" ]]; then
     "${ENGINE_PATH}" "${SERVICE_NAME}" "${WARMUP}" "${PYTHON_BIN}" \
     "${COLOR_TOPIC}" "${CAMERA_STARTUP_TIMEOUT}" "${MAX_FRAME_AGE}"
   echo "视觉伺服服务命令："
-  printf 'python3 %q --serve-servo --inference-service %q --servo-service-name %q --topic %q --depth-topic %q --servo-result-topic %q --servo-result-frame %q --servo-capture-dir %q --servo-capture-interval %q --no-display\n' \
+  printf 'python3 %q --serve-servo --inference-service %q --servo-service-name %q --topic %q --depth-topic %q --servo-result-topic %q --servo-result-frame %q --servo-capture-dir %q --servo-capture-interval %q --depth-weight %q --bottom-center-weight %q --area-weight %q --no-display\n' \
     "${SERVO_SCRIPT}" "${SERVICE_NAME}" "${SERVO_SERVICE_NAME}" \
     "${COLOR_TOPIC}" "${DEPTH_TOPIC}" "${SERVO_RESULT_TOPIC}" \
     "${SERVO_RESULT_FRAME}" "${SERVO_CAPTURE_DIR}" \
-    "${SERVO_CAPTURE_INTERVAL}"
+    "${SERVO_CAPTURE_INTERVAL}" "${SERVO_DEPTH_WEIGHT}" \
+    "${SERVO_BOTTOM_CENTER_WEIGHT}" "${SERVO_AREA_WEIGHT}"
   exit 0
 fi
 
@@ -400,12 +544,7 @@ DEPTH_HAS_PUBLISHER=0
 topic_has_publishers "${COLOR_TOPIC}" && COLOR_HAS_PUBLISHER=1
 topic_has_publishers "${DEPTH_TOPIC}" && DEPTH_HAS_PUBLISHER=1
 
-if [[ "${COLOR_HAS_PUBLISHER}" == "1" || "${DEPTH_HAS_PUBLISHER}" == "1" ]]; then
-  if [[ "${COLOR_HAS_PUBLISHER}" != "1" || "${DEPTH_HAS_PUBLISHER}" != "1" ]]; then
-    echo "  ✗ 检测到不完整的公共 RGB-D 相机发布者，不会重复启动硬件。" >&2
-    echo "    color publisher=${COLOR_HAS_PUBLISHER}, depth publisher=${DEPTH_HAS_PUBLISHER}" >&2
-    exit 2
-  fi
+if [[ "${COLOR_HAS_PUBLISHER}" == "1" && "${DEPTH_HAS_PUBLISHER}" == "1" ]]; then
   if ! wait_for_message "${COLOR_TOPIC}" "${CAMERA_STARTUP_TIMEOUT}"; then
     echo "  ✗ ${COLOR_TOPIC} 有发布者但未收到图像" >&2
     exit 2
@@ -415,37 +554,22 @@ if [[ "${COLOR_HAS_PUBLISHER}" == "1" || "${DEPTH_HAS_PUBLISHER}" == "1" ]]; the
     exit 2
   fi
   echo "  ✓ 复用现有公共头部相机，本场景退出时不会关闭它"
+elif [[ "${COLOR_HAS_PUBLISHER}" == "1" || "${DEPTH_HAS_PUBLISHER}" == "1" ]]; then
+  # 半残：彩色/深度只有一路有发布者 → 杀掉后重拉，避免带着坏状态继续。
+  if [[ "${START_CAMERA_IF_MISSING}" != "true" ]]; then
+    echo "  ✗ 公共 RGB-D 不完整，且禁止自动重启相机" >&2
+    echo "    color publisher=${COLOR_HAS_PUBLISHER}, depth publisher=${DEPTH_HAS_PUBLISHER}" >&2
+    exit 2
+  fi
+  stop_incomplete_head_camera || exit 2
+  start_public_orbbec_camera || exit 2
 else
   if [[ "${START_CAMERA_IF_MISSING}" != "true" ]]; then
     echo "  ✗ 公共头部相机未运行，且禁止自动启动" >&2
     exit 2
   fi
-  if ! rospack find orbbec_camera >/dev/null 2>&1; then
-    echo "  ✗ ROS 找不到 orbbec_camera 包" >&2
-    exit 2
-  fi
-
-  echo "  未检测到相机发布者，正在启动公共 Orbbec RGB-D ..."
-  roslaunch "${CAMERA_LAUNCH}" \
-    "color_width:=${COLOR_WIDTH}" \
-    "color_height:=${COLOR_HEIGHT}" \
-    "color_fps:=${COLOR_FPS}" \
-    "depth_width:=${DEPTH_WIDTH}" \
-    "depth_height:=${DEPTH_HEIGHT}" \
-    "depth_fps:=${DEPTH_FPS}" \
-    > >(tee -a "${CAMERA_LOG}") 2>&1 &
-  CAMERA_PID=$!
-  CAMERA_OWNED=1
-
-  if ! wait_for_message "${COLOR_TOPIC}" "${CAMERA_STARTUP_TIMEOUT}"; then
-    echo "  ✗ 等待头部彩色首帧超时，日志：${CAMERA_LOG}" >&2
-    exit 2
-  fi
-  if ! wait_for_message "${DEPTH_TOPIC}" "${CAMERA_STARTUP_TIMEOUT}"; then
-    echo "  ✗ 等待头部深度首帧超时，日志：${CAMERA_LOG}" >&2
-    exit 2
-  fi
-  echo "  ✓ 公共头部相机已就绪，日志：${CAMERA_LOG}"
+  echo "  未检测到相机发布者，准备启动公共 Orbbec RGB-D ..."
+  start_public_orbbec_camera || exit 2
 fi
 
 echo "[3/6] 检查头部相机 TF 桥接 ..."
@@ -580,6 +704,9 @@ python3 -u "${SERVO_SCRIPT}" \
   --servo-result-frame "${SERVO_RESULT_FRAME}" \
   --servo-capture-dir "${SERVO_CAPTURE_DIR}" \
   --servo-capture-interval "${SERVO_CAPTURE_INTERVAL}" \
+  --depth-weight "${SERVO_DEPTH_WEIGHT}" \
+  --bottom-center-weight "${SERVO_BOTTOM_CENTER_WEIGHT}" \
+  --area-weight "${SERVO_AREA_WEIGHT}" \
   --no-display \
   > >(tee -a "${SERVO_LOG}") 2>&1 &
 SERVO_PID=$!

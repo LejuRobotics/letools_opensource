@@ -29,7 +29,8 @@ from obb_decoder import (        # noqa: E402
     angle_deg_from_corners, decode_obb, d_center_px, d_center_score,
     depth_score, dets_from_rotated_rects, letterbox, nms_rotated,
     order_corners_uv, pick_best,
-    quad_from_xywhr, sample_depth_mm, score_candidates, to_input_tensor,
+    quad_from_xywhr, refine_bottom_by_depth, sample_depth_mm, score_candidates,
+    to_input_tensor,
 )
 
 _FAILED = []
@@ -388,6 +389,49 @@ def test_input_tensor() -> None:
           abs(x[0, 0, 5, 5] - 114.0 / 255.0) < 1e-6, str(x[0, 0, 5, 5]))
 
 
+def test_refine_bottom_by_depth() -> None:
+    print('refine_bottom_by_depth：按深度下沿收缩被拉长的框')
+    # 模拟现场 bag：箱体 580mm、下方背景 830mm，跳变在 y=363
+    depth = np.full((480, 640), 580, np.uint16)
+    depth[363:, :] = 830
+    # 框：中心 (320,260)、宽 350、高 234 → top=143、bottom=377（模型拉长了一点）
+    q = order_corners_uv(quad_from_xywhr(320, 260, 350, 234, 0.0))
+    new, info = refine_bottom_by_depth(depth, q, step=2, band_px=45)
+    check('触发了修正', info['changed'] and new is not None, str(info))
+    if new is not None:
+        check('y_new 落在深度跳变 363 附近（±2px）', abs(info['y_new'] - 363) <= 2,
+              str(info['y_new']))
+        check('上边不动', abs(new[:, 1].min() - q[:, 1].min()) < 1e-6,
+              f'{new[:, 1].min()} vs {q[:, 1].min()}')
+        check('宽度不变', abs((new[:, 0].max() - new[:, 0].min())
+                            - (q[:, 0].max() - q[:, 0].min())) < 1e-6)
+        check('h 收到 220 附近（±2.5）', abs(info['h_after'] - 220) < 2.5,
+              str(info['h_after']))
+        check('箱体深度 ≈580', abs(info['zi_mm'] - 580) < 1e-6, str(info['zi_mm']))
+        check('背景深度 ≈830', abs(info['zb_mm'] - 830) < 1e-6, str(info['zb_mm']))
+
+    # 没有远背景（箱体下方同深度）→ 不能动
+    flat = np.full((480, 640), 580, np.uint16)
+    none, info2 = refine_bottom_by_depth(flat, q)
+    check('无深度跳变时不改框', none is None and info2['reason'] == 'no_jump',
+          str(info2))
+
+    # 只收缩：框本来就比跳变短，搜索区到不了背景 → 不动
+    short = order_corners_uv(quad_from_xywhr(320, 220, 350, 154, 0.0))  # bottom=297
+    none3, info3 = refine_bottom_by_depth(depth, short)
+    check('已经比跳变短时不改框', none3 is None, str(info3))
+
+    # 没有深度图 → 不动
+    none4, info4 = refine_bottom_by_depth(None, q)
+    check('depth=None 时不改框', none4 is None and info4['reason'] == 'no_depth',
+          str(info4))
+
+    # 深度全 0（无效）→ 不动
+    bad = np.zeros((480, 640), np.uint16)
+    none5, info5 = refine_bottom_by_depth(bad, q)
+    check('深度全无效时不动', none5 is None, str(info5))
+
+
 def test_ultralytics_parity() -> None:
     """装了 ultralytics 才跑的**真判据**：与官方预测器逐帧比四点。"""
     print('与 ultralytics 的 LetterBox 逐像素比对')
@@ -414,6 +458,7 @@ if __name__ == '__main__':
                test_nms_rotated,
                test_nms_iomin_containment, test_d_center,
                test_depth, test_pick_best, test_angle_deg, test_input_tensor,
+               test_refine_bottom_by_depth,
                test_ultralytics_parity):
         fn()
         print()

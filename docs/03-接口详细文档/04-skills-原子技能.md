@@ -9,7 +9,7 @@ skills 层主要负责业务逻辑：参数校验、调用硬件接口、判断�
 | 点分路径 | 实体 | 说明 |
 |---|---|---|
 | `skills.base.skill_base` | `SkillBase` | 所有技能的基类（实现 `ISkill`，附带超时与异常兜底） |
-| `skills.atomic.refactored_sdk` | 39 个顶层技能文件 | **当前主力**：扁平结构、一文件一技能；具体控制路径见下方总表 |
+| `skills.atomic.refactored_sdk` | 40 个顶层技能文件 | **当前主力**：扁平结构、一文件一技能；具体控制路径见下方总表 |
 | `skills.atomic.manipulation.*` | 14 个目录 | **旧版**技能（`studio_smoke_v1` 场景使用） |
 | `skills.atomic.motion.chassis_velocity` / `move_to_pose` | 2 个技能 | **旧版**运动技能 |
 | `skills.atomic.perception.*` | `camera_capture` / `read_qrcode` / `pallet_*` / `box_frame` | 感知技能（非 SDK 路径） |
@@ -20,7 +20,7 @@ skills 层主要负责业务逻辑：参数校验、调用硬件接口、判断�
 
 | 口径 | 数量 |
 |---|---|
-| `refactored_sdk/` 顶层 `.py`（不含 `__init__.py`） | **39** |
+| `refactored_sdk/` 顶层 `.py`（不含 `__init__.py`） | **40** |
 | `manipulation/*/skill.py` | 14 |
 | `motion/*/skill.py` | 2 |
 | `perception/*/skill.py` | 4（另有若干 `algorithm.py` 纯计算模块） |
@@ -121,6 +121,7 @@ class HeadControlSdkSkill(SkillBase):
 | `wait_seconds.py` | `WaitSecondsSkill` | `WaitSecondsParams` | 无（纯编排） | 等待指定秒数 |
 | `wait_for_enter.py` | `WaitForEnterSkill` | `WaitForEnterParams` | 无（纯编排） | 等待人工按 Enter |
 | `palletizing_line_mpc.py` | `PalletizingLineMpcSkill` | `PalletizingLineMpcParams` | `set_offline_trajectory` + `enable_offline_trajectory` | 码垛直线搬运（MPC 离线轨迹，默认 10 段） |
+| `palletizing_line_mpc_restore.py` | `PalletizingLineMpcRestoreSkill` | `PalletizingLineMpcRestoreParams` | 继承原 MPC 调用；另调 `get_arm_joint_positions` + `get_leg_joint_positions` + `send_arm_joint_trajectory` + `send_leg_joint_command` | 搬运前记录双臂与下肢 18 关节，完成、失败或异常后恢复并读回验证；默认 `prepare_pose=False` |
 | `palletizing_line_ik.py` | `PalletizingLineIkSkill` | `PalletizingLineIkParams` | `solve_ik` + `publish_arm_joint_setpoint`（逐帧）；预备姿态 `send_arm_joint_trajectory` | 码垛直线搬运（逐帧 IK，默认 `ik_rate=40 Hz`，默认 10 段直线；`approach_distance=0` 时 8 段） |
 
 `palletizing_line_ik` 的「10 段」是默认值：`build_palletizing_path()` 在 `approach_distance > 0` 时生成 10 段（含接近 `approach` 与撤离 `retreat` 两段）；`approach_distance=0` 时这两段不生成，只剩 8 段。路径段数随该参数变化，不是固定常量。
@@ -131,7 +132,7 @@ class HeadControlSdkSkill(SkillBase):
 - **预备姿态**（执行前，技能内）：走阻塞的 `send_arm_joint_trajectory`。首帧 q0 与冻结姿态都依赖它已经到位。
 - **最终关节还原**（执行后，`apps` 侧）：验收脚本 teardown 用同一个阻塞接口把选中的关节还原，不在技能内部完成。
 
-`palletizing_line_mpc` 未参与这次改造，仍是 `set_offline_trajectory` + `enable_offline_trajectory`，不能据此认为整条技能链都是非阻塞。
+`palletizing_line_mpc` 原技能仍只做 `set_offline_trajectory` + `enable_offline_trajectory`，结束还原由入口负责。`palletizing_line_mpc_restore` 通过继承复用同一搬运实现，在原技能的每个返回路径外增加 18 关节恢复；恢复命令之后必须重新读取双臂和下肢角度，超过 `restore_arm_tolerance_deg` / `restore_leg_tolerance` 即返回失败，不能把发送成功当作恢复到位。
 
 ### manipulation 旧版技能
 

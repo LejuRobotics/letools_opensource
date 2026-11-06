@@ -3,7 +3,7 @@
 PerceptionAdapter AprilTag 检测 + 话题 publisher 校验
 
 验证:
-  - get_tag_detections() 惰性启动 AprilTag 节点
+  - start() 显式启动持续检测，stop() 停止检测但保留相机
   - (如二维码在视野内) 检测到标签
   - /tag_detections 和 /robot_tag_info 话题有 publisher
 """
@@ -85,6 +85,10 @@ class PerceptionApriltagTest:
                     break
                 time.sleep(0.5)
 
+            start_result = self.perception_adapter.start()
+            if not start_result.success:
+                print(f"   ❌ AprilTag 启动失败: {start_result.message}")
+                return False
             # 测试 1: AprilTag 检测
             print("\n📌 测试 1: get_tag_detections()")
             print("   请将 AprilTag 二维码对准相机（15s 超时）")

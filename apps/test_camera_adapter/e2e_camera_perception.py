@@ -103,6 +103,10 @@ class E2EValidator:
             # 步骤 5: 测试 AprilTag 检测
             print("🏷️  步骤 5: 测试 AprilTag 检测（15秒）")
             print("   请将 AprilTag 二维码对准相机")
+            start_result = self.perception_adapter.start()
+            if not start_result.success:
+                print(f"   ❌ AprilTag 启动失败: {start_result.message}")
+                return False
             timeout = 15
             start = time.time()
             tags = []

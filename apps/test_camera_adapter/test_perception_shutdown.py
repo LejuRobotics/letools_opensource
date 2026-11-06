@@ -59,10 +59,13 @@ class PerceptionShutdownTest:
                 print("   ❌ PerceptionAdapter 初始化失败")
                 return False
 
-            # 触发 AprilTag 节点启动（惰性启动）
-            self.perception_adapter.get_tag_detections()
+            # 显式启动 AprilTag 节点
+            start_result = self.perception_adapter.start()
+            if not start_result.success:
+                print(f"   ❌ AprilTag 启动失败: {start_result.message}")
+                return False
 
-            print("   ✅ 初始化完成，AprilTag 节点已启动（如有 tag 在视野内）")
+            print("   ✅ 初始化完成，AprilTag 节点已启动")
 
             # 测试: shutdown()
             print("\n📌 shutdown() 资源清理")
@@ -93,6 +96,8 @@ class PerceptionShutdownTest:
             return False
 
         finally:
+            if self.perception_adapter:
+                self.perception_adapter.shutdown()
             if self.camera_adapter:
                 self.camera_adapter.shutdown()
 

@@ -50,6 +50,7 @@ conf 0.9773、旁边的邻箱 conf **0.9642**，而**邻箱面积还更大**（4
 """
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
@@ -72,6 +73,18 @@ DEFAULT_D_FAR_PX = 450.0
 DEFAULT_Z_NEAR_MM = 500.0
 DEFAULT_Z_FAR_MM = 1500.0
 DEFAULT_DEPTH_PATCH_PX = 15
+
+# ---- 深度下沿修正（2026-11-06） -------------------------------------------
+# 现场 bag `2026-10-30-19-08-19`：手持箱相对相机静止（宽 349~358、角度 ±0.7°），
+# 上边稳定在 ~142，下边却在 365~480 之间跳。箱体深度 580mm，下沿以下背景 830mm，
+# 深度跳变稳定在 362~364px；把下边收回去后 h 从 227~333 收到 218~229（std 1.9）。
+# ⚠️ 只做**收缩**：找不到明确的远背景跳变就保持模型框；箱子放在料垛上（下方
+#    同深度）或下沿出画时不会触发。这是保守的兜底，不是第二个检测器。
+DEFAULT_REFINE_BOTTOM_STEP = 2
+DEFAULT_REFINE_BOTTOM_BAND_PX = 45
+DEFAULT_REFINE_BOTTOM_JUMP_MM = 150.0
+DEFAULT_REFINE_BOTTOM_START_PX = 40
+DEFAULT_REFINE_BOTTOM_MIN_SHRINK_PX = 3.0
 
 # ---- 旋转 NMS 的重叠判据（见 `nms_rotated`） -------------------------------
 # `iou_thr` 管「两个框互相错着盖」（同目标的两条预测）。
@@ -450,6 +463,159 @@ def sample_depth_mm(depth_mm, box_uv: Sequence[float], *,
     if not ok.any():
         return None
     return float(np.median(patch[ok]))
+
+
+def refine_bottom_by_depth(depth_mm, corners_uv, *,
+                           step: int = DEFAULT_REFINE_BOTTOM_STEP,
+                           band_px: int = DEFAULT_REFINE_BOTTOM_BAND_PX,
+                           jump_mm: float = DEFAULT_REFINE_BOTTOM_JUMP_MM,
+                           start_off_px: int = DEFAULT_REFINE_BOTTOM_START_PX,
+                           min_shrink_px: float = DEFAULT_REFINE_BOTTOM_MIN_SHRINK_PX,
+                           z_near: float = DEFAULT_Z_NEAR_MM,
+                           z_far: float = DEFAULT_Z_FAR_MM
+                           ) -> Tuple[Optional[np.ndarray], dict]:
+    """用**深度下沿**把手持箱被拉长的下边收回去；不满足条件返回 `(None, info)`。
+
+    ## 为什么需要它
+
+    现场 bag（2026-10-30-19-08-19）里箱子相对相机是静止的：宽度 349~358px、
+    角度 ±0.7°、上边 141~147px 都不动，只有下边在 365~480px 之间跳 —— 模型
+    偶尔把下方**背景**一起框进来。深度图里箱体在 580mm、下方背景在 830mm，
+    下沿的深度跳变始终在 362~364px。因此判据不是「框应该多高」，而是
+    **框内箱体与框外背景的深度不连续处**，与箱子大小/距离无关。
+
+    ## 判据（全部满足才改）
+
+    1. 框内（上边下方 60~100px）能取到稳定的箱体深度 `zi`；
+    2. 从 `top + start_off_px` 往下，出现**持续**（约 20px）`> zi + jump_mm` 的
+       远背景；
+    3. 在跳变附近找到深度穿越点 `y_new`（箱体/背景中值的中点）；
+    4. 框的「高度方向」（下边中点到上边中点）要基本竖直（`up[1] < -0.2`）；
+    5. 只收缩：`y_new` 至少比原下边高 `min_shrink_px`。
+
+    ## 输入/输出
+
+    * `depth_mm`：16UC1 或 float，**单位毫米**；`None`/形状不对 → 不改。
+    * `corners_uv`：四点，任意顺序（内部会过 `order_corners_uv`）；
+      返回的四点是**契约序**（右下 左下 左上 右上），只沿高度方向移动下边两点。
+    * 返回 `(new_corners, info)`。`info['reason']` 说明改/没改的原因，
+      供节点日志排查；`info` 不是下游契约。
+
+    ⚠️ 只移动下边，不动上边/宽度/角度。上边在这个 bag 本来就和深度上沿
+    （~147px）重合；如果以后遇到上边也漂的场景，应该单独加一条上沿判据，
+    不要在这里顺手改。
+    """
+    info = {'changed': False, 'reason': 'ok', 'zi_mm': None, 'zb_mm': None,
+            'y_new': None, 'h_before': None, 'h_after': None}
+    if depth_mm is None:
+        info['reason'] = 'no_depth'
+        return None, info
+    arr = np.asarray(depth_mm)
+    if arr.ndim != 2 or arr.size == 0:
+        info['reason'] = 'bad_depth'
+        return None, info
+    q = order_corners_uv(np.asarray(corners_uv, np.float64).reshape(4, 2))
+    h_img, w_img = int(arr.shape[0]), int(arr.shape[1])
+
+    top = float(q[:, 1].min())
+    bot = float(q[:, 1].max())
+    cx = float(q[:, 0].mean())
+    info['h_before'] = bot - top
+
+    step = max(1, int(step))
+    band_px = max(5, int(band_px))
+    x0 = max(0, int(round(cx - band_px)))
+    x1 = min(w_img, int(round(cx + band_px)) + 1)
+    if x1 - x0 < 5:
+        info['reason'] = 'bad_band'
+        return None, info
+
+    # 箱体内部深度：上边下方 60~100px（避开上沿的混合像素）
+    iy0 = max(0, int(round(top)) + 60)
+    iy1 = min(h_img, int(round(top)) + 100, int(round(bot)) + 1)
+    if iy1 - iy0 < 5:
+        info['reason'] = 'too_short'
+        return None, info
+    inner = arr[iy0:iy1, x0:x1].astype(np.float64, copy=False).ravel()
+    ok = np.isfinite(inner) & (inner >= float(z_near)) & (inner <= float(z_far))
+    if int(ok.sum()) < 30:
+        info['reason'] = 'too_few_inner'
+        return None, info
+    zi = float(np.median(inner[ok]))
+    info['zi_mm'] = zi
+
+    sy = max(0, int(round(top)) + max(0, int(start_off_px)))
+    ey = min(h_img - 1, int(round(bot)) + 10)
+    if ey - sy < 60:
+        info['reason'] = 'no_search_range'
+        return None, info
+
+    band = arr[sy:ey:step, x0:x1:step].astype(np.float64, copy=False)
+    band = np.where((band >= float(z_near)) & (band <= float(z_far)), band, np.nan)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', RuntimeWarning)   # 整行空是常态
+        prof = np.nanmedian(band, axis=1)
+    if int(np.isfinite(prof).sum()) < 10:
+        info['reason'] = 'too_few_profile'
+        return None, info
+
+    # 持续跳变：滑动窗口均值 + 有效样本数。逐窗 nanmedian 在节点里要 1ms+，
+    # 这里用 cumsum 一次算完（实测整函数 0.67ms，含深度切片）。
+    win = max(4, 20 // step)
+    filled = np.where(np.isfinite(prof), prof, 0.0)
+    valid = np.isfinite(prof).astype(np.float64)
+    cs = np.concatenate(([0.0], np.cumsum(filled)))
+    cv = np.concatenate(([0.0], np.cumsum(valid)))
+    sums = cs[win:] - cs[:-win]
+    cnts = cv[win:] - cv[:-win]
+    means = sums / np.maximum(cnts, 1.0)
+    okj = (cnts >= win * 0.6) & (means > zi + float(jump_mm))
+    if not okj.any():
+        info['reason'] = 'no_jump'
+        return None, info
+    ys = int(np.flatnonzero(okj)[0])
+
+    tail = prof[ys + win:ys + 2 * win]
+    if int(np.isfinite(tail).sum()) < 3:
+        info['reason'] = 'no_background'
+        return None, info
+    zb = float(np.nanmedian(tail))
+    info['zb_mm'] = zb
+    thr = (zi + zb) / 2.0
+    cr = None
+    for i in range(max(0, ys - 3), min(len(prof), ys + 2 * win)):
+        w = prof[max(0, i - 1):i + 2]
+        if int(np.isfinite(w).sum()) >= 2 and np.nanmedian(w) > thr:
+            cr = i
+            break
+    if cr is None:
+        info['reason'] = 'no_crossing'
+        return None, info
+    y_new = float(sy + cr * step)
+    info['y_new'] = y_new
+
+    bm = (q[0] + q[1]) / 2.0
+    tm = (q[2] + q[3]) / 2.0
+    up = tm - bm
+    n = float(np.linalg.norm(up))
+    if n < 1e-6:
+        info['reason'] = 'degenerate'
+        return None, info
+    up /= n
+    if up[1] > -0.2:               # 高度方向不竖直：深度扫描沿图像列，不可靠
+        info['reason'] = 'not_vertical'
+        return None, info
+    if bot - y_new < float(min_shrink_px):
+        info['reason'] = 'already_ok'
+        return None, info
+
+    delta = (y_new - bm[1]) / up[1]
+    new = q.copy()
+    new[0] = q[0] + up * delta
+    new[1] = q[1] + up * delta
+    info['changed'] = True
+    info['h_after'] = float(new[:, 1].max() - new[:, 1].min())
+    return new, info
 
 
 def angle_deg_from_corners(corners_uv) -> float:

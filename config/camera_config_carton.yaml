@@ -58,9 +58,8 @@ camera:
 
   # AprilTag 检测
   launch_apriltag: false
-  # AprilTag 参数文件位于 config/apriltag_settings.yaml 和 config/apriltag_tags.yaml
-  # tag_family: 'tag36h11'
-  # tag id/size 在 apriltag_tags.yaml 的 standalone_tags 列表中定义
+  # AprilTag 参数文件位于 config/apriltag_config.yaml（由 apriltag_config.yaml.template 复制得到）
+  # tag_family 与 tag id/size 都在 apriltag_config.yaml 中定义（standalone_tags 列表）
   # Tag结果话题可配置，默认保持为 /robot_tag_info。
   apriltag_topic: /robot_tag_info
 

@@ -237,6 +237,28 @@ flowchart LR
   5. 初始化 `StateManager`
   6. 初始化 3 个 SDK 管理器（可选，失败不影响主流程）
 
+#### 公用 AprilTag 检测启停
+
+`launch_apriltag: true` 只允许初始化公用感知模块，不会自动启动检测。
+`get_tag_detections()` / `get_latest_result()` 只读取缓存，也不再隐式启动。
+
+```python
+perception = hardware.perception  # 启用 launch_apriltag 后由硬件层初始化
+result = perception.start()
+if not result.success:
+    raise RuntimeError(result.message)
+try:
+    tags = perception.get_tag_detections()  # 连续检测期间可循环查询
+finally:
+    result = perception.stop()
+    if not result.success:
+        raise RuntimeError(result.message)
+```
+
+`stop()` 停止自有检测/坐标转换进程并清空缓存，但不关闭相机，可再次 `start()`。
+重新启动存在冷启动耗时。通用 `NodePercep` 已按行为节点生命周期自动启停；
+兆丰专用 `ApriltagPerception` 保持原有的暂停/恢复门控。
+
 #### TimedCommandMixin
 - **planner_index 对照表**：
   | index | 含义 | cmd_vec 维度 |

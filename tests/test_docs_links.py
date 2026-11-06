@@ -41,36 +41,52 @@ SCAN_ROOTS = (
     "infrastructure",
 )
 
-# 各章目标篇目数。2026-10-12 用户定案在 03 章增补节点清单（现为 11-节点清单.md）
-# （03 章 10 → 11 篇），已回写飞书《16_LeTools项目文档目录方案》。
-# 2026-10-31：内部人员专用篇目（发布与贡献、代码规范与评审、版本记录、目录结构全貌等）
-# 移入 docs_internal/完整文档/，公开文档收敛为 7 章。
+# 各章目标篇目数。03 章增加节点与场景引用索引，现共 12 篇。
+# 内部人员专用篇目移入 docs_internal/完整文档/。
 # 模仿学习案例改为 04 章第 11 篇示教（05 章减为 7 篇、04 章增为 12 篇）。
 CHAPTER_ARTICLE_COUNTS = {
     "01-介绍": 7,
     "02-环境安装": 5,
-    "03-接口详细文档": 11,
+    "03-接口详细文档": 12,
     "04-简单案例运行": 12,
     "05-进阶开发指南": 7,
     "06-常见问题FAQ": 8,
     "07-补充内容": 2,
     "08-贡献指南": 6,
 }
-TOTAL_ARTICLES = sum(CHAPTER_ARTICLE_COUNTS.values())  # 58，外加首页共 59 条 .md
+TOTAL_ARTICLES = sum(CHAPTER_ARTICLE_COUNTS.values())  # 59 篇，另有公开文档首页
 
 # 历史失效链接已修复或取消链接；后续新增失效链接不允许入库。
 KNOWN_DEAD_LINKS = ()
 
 
+def _without_code_blocks(text):
+    """屏蔽代码围栏与 HTML 注释，保留换行供错误定位使用。"""
+    lines = []
+    fence = None
+    for line in text.splitlines(keepends=True):
+        match = re.match(r"^\s{0,3}(?:>\s*)?(`{3,}|~{3,})(.*)$", line)
+        masked = fence is not None or match is not None
+        if match:
+            marker, suffix = match.groups()
+            if fence is None:
+                fence = marker
+            elif marker[0] == fence[0] and len(marker) >= len(fence) and not suffix.strip():
+                fence = None
+        lines.append(re.sub(r"[^\r\n]", " ", line) if masked else line)
+    return re.sub(
+        r"<!--[\s\S]*?-->",
+        lambda match: re.sub(r"[^\r\n]", " ", match.group()),
+        "".join(lines),
+    )
+
+
 def _iter_markdown_links(text):
-    """逐个产出 markdown 链接的目标串。
+    """逐个产出代码围栏之外的 Markdown 链接目标。
 
-    不用 ``\\[([^\\]]*)\\]\\(([^)]*)\\)`` 这种朴素正则：本仓库的篇名含**半角括号**
-    （``12-搬箱案例精讲(一).md``）与 **URL 编码**（``%20``），朴素正则会提前在
-    括号或 ``)`` 处截断，把好好的链接读成断链。同一棵文档树实测假阳性 22 处。
-
-    改为：从左到右找 ``](``，按**括号深度配对**取完整目标串，再交给调用方解码。
+    按括号深度配对，避免含半角括号的文件名或 URL 被提前截断。
     """
+    text = _without_code_blocks(text)
     cursor = 0
     while True:
         open_at = text.find("](", cursor)
@@ -163,18 +179,28 @@ def _heading_slug(heading):
 
 
 def _iter_heading_slugs(path):
-    """产出目标 .md 里全部 ATX 标题的 slug（跳过 fenced code block 内的行）。"""
-    slugs = set()
-    in_fence = False
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        match = re.match(r"^#{1,6}\s+(.*)$", line)
+    """收集标题锚点和显式 HTML 锚点，跳过代码围栏与注释。
+
+    标题使用 GitHub 风格 slug；重复标题按出现次序添加 -1、-2 等后缀。
+    含 emoji 的章节可声明显式 id，使链接不依赖阅读器的 slug 规则。
+    """
+    text = _without_code_blocks(path.read_text(encoding="utf-8", errors="replace"))
+    slugs = set(re.findall(
+        r'''<(?:[A-Za-z][\w:-]*)\b[^>]*?\b(?:id|name)\s*=\s*["']([^"']+)["']''',
+        text,
+    ))
+    seen = set()
+    for line in text.splitlines():
+        match = re.match(r"^\s{0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$", line)
         if match:
-            slugs.add(_heading_slug(match.group(1)))
+            base = _heading_slug(match.group(1))
+            slug = base
+            suffix = 0
+            while slug in seen:
+                suffix += 1
+                slug = f"{base}-{suffix}"
+            seen.add(slug)
+            slugs.add(slug)
     return slugs
 
 
@@ -240,6 +266,65 @@ def test_cross_file_anchor_targets_exist():
 
 
 @pytest.mark.unit
+def test_page_anchor_targets_exist():
+    """全仓自有文档的页内与跨文件锚点必须存在，不能依赖站点模糊修复。"""
+    missing = []
+    anchor_cache = {}
+    for source in _iter_markdown_sources(SCAN_ROOTS):
+        text = source.read_text(encoding="utf-8", errors="replace")
+        for raw in _iter_markdown_links(text):
+            raw = raw.strip()
+            if not raw or raw.startswith(("http://", "https://", "mailto:", "/")):
+                continue
+            path_part, anchor = _split_target(raw)
+            if not anchor:
+                continue
+            target_path = (
+                (source.parent / urllib.parse.unquote(path_part)).resolve()
+                if path_part else source
+            )
+            if not target_path.is_file() or target_path.suffix.lower() != ".md":
+                continue
+            if target_path not in anchor_cache:
+                anchor_cache[target_path] = _iter_heading_slugs(target_path)
+            if urllib.parse.unquote(anchor) not in anchor_cache[target_path]:
+                missing.append((str(source.relative_to(REPO_ROOT)), raw))
+    assert not missing, "文档锚点失配：\n" + "\n".join(
+        f"  {src} -> {raw}" for src, raw in sorted(missing)
+    )
+
+
+@pytest.mark.unit
+def test_anchor_parser_handles_explicit_ids_and_duplicate_headings(tmp_path):
+    source = tmp_path / "anchors.md"
+    source.write_text(
+        '<a id="quick-start"></a>\n'
+        "## 🚀 快速开始\n"
+        "## 运行步骤\n"
+        "## 运行步骤\n"
+        "```md\n## 不是真实标题\n<a id=\"code-only\"></a>\n```\n"
+        "~~~md\n## 也不是真实标题\n~~~\n"
+        '<!-- <a id="comment-only"></a> -->\n',
+        encoding="utf-8",
+    )
+    assert _iter_heading_slugs(source) == {
+        "quick-start", "-快速开始", "运行步骤", "运行步骤-1",
+    }
+
+
+@pytest.mark.unit
+def test_link_parser_ignores_code_and_preserves_balanced_paths():
+    text = (
+        "[案例](案例(一).md)\n"
+        '```md\n[示例](missing.md)\n```\n'
+        '~~~md\n[示例](missing-too.md)\n~~~\n'
+        '<!-- [旧链接](removed.md) -->\n'
+        "[目录](#quick-start)\n"
+    )
+    assert list(_iter_markdown_links(text)) == ["案例(一).md", "#quick-start"]
+
+
+@pytest.mark.unit
 def test_no_unescaped_space_in_link_target():
     """带空格的链接目标必须写成 ``<路径>`` 或把空格写成 ``%20``，不能裸着写。
 
@@ -253,7 +338,7 @@ def test_no_unescaped_space_in_link_target():
     offenders = []
     for source in _iter_markdown_sources(SCAN_ROOTS):
         rel = source.relative_to(REPO_ROOT).as_posix()
-        text = source.read_text(encoding="utf-8", errors="replace")
+        text = _without_code_blocks(source.read_text(encoding="utf-8", errors="replace"))
         for lineno, line in enumerate(text.splitlines(), 1):
             for raw in _iter_markdown_links(line):
                 stripped = raw.strip()
@@ -280,7 +365,7 @@ def test_chapter_article_count(chapter, expected):
 
 @pytest.mark.unit
 def test_total_article_count():
-    """全部章篇目合计 58 篇，加首页 docs/README.md 共 59 条 .md。"""
+    """核对八章正文的篇目合计；公开文档首页另列。"""
     total = sum(
         len(list((REPO_ROOT / "docs" / chapter).glob("*.md")))
         for chapter in CHAPTER_ARTICLE_COUNTS

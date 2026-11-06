@@ -26,6 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 from apps.test_kuavo_5w_skills import _scaffold  # noqa: E402
 from apps.test_kuavo_5w_skills import test_palletizing_line_ik as ik_entry  # noqa: E402
 from apps.test_kuavo_5w_skills import test_palletizing_line_mpc as mpc_entry  # noqa: E402
+from apps.test_kuavo_5w_skills import test_palletizing_line_mpc_restore as mpc_restore_entry  # noqa: E402
 from apps.test_kuavo_5w_skills._eval.line_metrics import LineMetricsRecorder  # noqa: E402
 from core.domain.result import Result  # noqa: E402
 from core.domain.transform import Transform  # noqa: E402
@@ -491,3 +492,27 @@ def test_main_fails_when_restore_send_fails(entry, skill_attr, monkeypatch, capl
     assert "恢复选中手臂关节角失败" in caplog.text
     assert "验收未通过" in caplog.text
     assert "验收通过" not in caplog.text
+
+
+def test_mpc_restore_build_params_only_limits_motion_arms():
+    params = mpc_restore_entry.build_params('left')
+
+    assert params.skill_name == 'palletizing_line_mpc_restore'
+    assert params.arms == 'left'
+    assert params.prepare_pose is False
+    assert params.roundtrip_axis == 'full'
+
+
+def test_mpc_restore_build_params_selects_axis_roundtrip():
+    for axis in ('x', 'y', 'z'):
+        params = mpc_restore_entry.build_params('left', axis)
+        assert params.roundtrip_axis == axis
+
+
+def test_mpc_restore_entry_loads_low_manager_and_never_resets_joints():
+    source = Path(mpc_restore_entry.__file__).read_text(encoding='utf-8')
+
+    assert "whitelist=['arm', 'timed', 'low']" in source
+    for forbidden_call in (
+            'skill_setup(', 'skill_teardown(', 'reset_torso_to_initial(', 'arm_reset('):
+        assert forbidden_call not in source

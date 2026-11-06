@@ -103,7 +103,7 @@
       "key": "pallet_infer_backend",
       "remark": "托盘检测的推理后端：`auto`（默认，engine 文件在就用 engine、否则 ONNX）/ `engine`（强制 engine，缺失即启动报错）/ `onnx`（强制旧 ONNX 路径）。**只认这三个值**。engine 是预先导出的静态文件，启动不编译、首帧没有 ~19s 的 cuDNN 选核。",
       "type": "string",
-      "value": "auto"
+      "value": "engine"
     },
     {
       "key": "pallet_imgsz",
@@ -143,7 +143,7 @@
     },
     {
       "key": "pallet_pose_engine_path",
-      "remark": "托盘 POSE 的 TensorRT `.engine` 路径。**留空 = 用包内默认** `skills/atomic/perception/pallet_detect/models/pallet_pose_fp32.engine`。导出：`trtexec --onnx=pallet_pose.onnx --saveEngine=pallet_pose_fp32.engine --noTF32 --buildOnly`（在目标机上导）。",
+      "remark": "托盘 POSE 的 TensorRT `.engine` 路径。**留空 = 用包内默认**（相对 `pallet_detect` 包：`models/pallet_pose_fp32.engine`，随仓库位置自动解析，勿写绝对路径）。导出：`trtexec --onnx=pallet_pose.onnx --saveEngine=pallet_pose_fp32.engine --noTF32 --buildOnly`（在目标机上导）。",
       "type": "string",
       "value": ""
     },

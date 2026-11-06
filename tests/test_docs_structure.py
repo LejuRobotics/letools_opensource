@@ -36,6 +36,7 @@ CHAPTERS = (
 # （2026-10-13 新增一份报告即掉到 1 failed, 28 passed）。
 # 白名单只防「既有文件被删/改名/挪走」，新增文件不再触发失败。
 DOCS_INTERNAL_FILES = (
+    "00-技能节点场景速查.md",
     "托盘伺服部署与跑通.md",
     "app_debug_reference/README.md",
     "app_debug_reference/TEST_SCRIPT_MAPPING.md",
@@ -105,9 +106,10 @@ def test_no_executables_under_docs():
 
 @pytest.mark.unit
 def test_docs_internal_moved_to_root():
-    """docs_internal/ 在仓库根（与 module_internal/ 同级），既有 13 份文件都在。"""
+    """docs_internal/ 在仓库根（与 module_internal/ 同级），受保护文件都在。"""
     assert DOCS_INTERNAL.is_dir(), "缺少仓库根 docs_internal/"
     assert not (DOCS / "docs_internal").exists(), "docs/docs_internal/ 应已移走"
+    assert not (DOCS / "00-技能节点场景速查.md").exists(), "技能节点场景速查应保留在 docs_internal/"
     actual = {
         p.relative_to(DOCS_INTERNAL).as_posix()
         for p in DOCS_INTERNAL.rglob("*")

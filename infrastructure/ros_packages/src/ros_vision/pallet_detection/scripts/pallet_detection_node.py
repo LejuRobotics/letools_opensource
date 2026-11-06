@@ -731,7 +731,15 @@ class PalletDetectionNode:
             return self.normal_param, 'param'
         missing: list = []
         stale: list = []
-        stamp = color_msg.header.stamp
+        # tf_normal.normal_from_tf 约定 stamp 为浮点秒（内部 float(stamp)/
+        # rospy.Time.from_sec）；这里不能直接传 header.stamp（rospy.Time）。
+        raw_stamp = color_msg.header.stamp
+        if raw_stamp is None:
+            stamp = None
+        elif hasattr(raw_stamp, 'to_sec'):
+            stamp = float(raw_stamp.to_sec())
+        else:
+            stamp = float(raw_stamp)
         n = normal_from_tf(self.tf_buffer, self.camera_frame,
                            source_frame=self.base_frame, stamp=stamp,
                            missing=missing, stale=stale)

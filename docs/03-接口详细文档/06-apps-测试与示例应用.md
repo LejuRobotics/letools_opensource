@@ -69,7 +69,7 @@
 |---|---|---|
 | `test_kuavo_5w_adapter`（标准接口层） | `01_base_control`(4) `02_lower_body`(2) `03_arm_control`(4) `04_timed_commands`(10) `05_force_control`(1) `06_services`(3) `07_debug_feedback`(3) `08_end_effector`(1) | 标准接口全量；`04_timed_commands` 用了 `_timed` 方法属**架构违规**（保留不动，由 T3+T4 覆盖） |
 | `test_kuavo_5w_sdk_adapter`（SDK 路径层） | 按 `_sdk` / `_timed` 方法族分组 | `hw.send_*_sdk()`、`hw.send_*_timed()` |
-| `test_kuavo_5w_skills` | 硬件技能 / 定时指令类 / SDK 轨迹类 / 末端位姿类 | `test_arm_reset.py`、`test_head_control.py`、`test_base_pose_local.py`、`test_leg_joint.py`、`test_leg_joint_timed.py`、`test_wait_seconds.py`、`test_arm_ee_*.py` |
+| `test_kuavo_5w_skills` | 硬件技能 / 定时指令类 / SDK 轨迹类 / 末端位姿类 | `test_arm_reset.py`、`test_head_control.py`、`test_base_pose_local.py`、`test_leg_joint.py`、`test_leg_joint_timed.py`、`test_wait_seconds.py`、`test_arm_ee_*.py`、`test_palletizing_line_mpc.py`、`test_palletizing_line_mpc_restore.py` |
 | `test_kuavo_5w_orchestration` | 与 skills 目录一一对应的 `*_move.py` | `test_arm_reset_sdk_move.py`、`test_head_control_sdk_move.py`、`test_wait_seconds.py` 等 |
 | `test_camera_adapter` | 按功能拆分 | `test_camera_init/frame/depth/pointcloud/status/shutdown/tf/rviz.py`、`test_camera_carton.py`、`test_perception_*.py`、`e2e_camera_perception.py` |
 | `jibot_adapter` | — | `test_base_move.py`、`test_move_to_target.py`、`test_check_arrived.py`、`test_enable_vel_control.py` |

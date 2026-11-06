@@ -3,7 +3,7 @@
 #
 # 部署步骤：
 #   1. 复制本文件为 config/camera_config.yaml
-#      cp config/camera_config.template.yaml config/camera_config.yaml
+#      cp config/camera_config.yaml.template config/camera_config.yaml
 #   2. 按本机硬件修改下方标注 [必填] 的字段
 #   3. 启动程序。camera_config.yaml 不纳入 git，不会被覆盖或提交。
 #
@@ -17,6 +17,7 @@ camera:
 
   # ---------- 头部 Orbbec 相机（分辨率与帧率，0 表示使用驱动默认值） ----------
   # 注意：分辨率、帧率需与下游模型输入尺寸匹配，修改前先确认。
+  head_camera_namespace: ""            # 留空默认 /camera；例如 /cam_h，只改话题前缀，不改 frame_id
   color_width: 1280
   color_height: 800
   color_fps: 15
@@ -47,8 +48,10 @@ camera:
   # 未安装的一侧请保持 has_*_wrist: false，序列号可留空。
   has_left_wrist: false                # [必填] 左腕是否实际安装
   left_wrist_camera_sn: ""             # [必填] 左腕相机序列号（has_left_wrist 为 true 时必填）
+  left_wrist_camera_namespace: ""      # 留空默认 /left_wrist_camera；例如 /cam_l，不改 frame_id
   has_right_wrist: false               # [必填] 右腕是否实际安装
   right_wrist_camera_sn: ""            # [必填] 右腕相机序列号（has_right_wrist 为 true 时必填）
+  right_wrist_camera_namespace: ""     # 留空默认 /right_wrist_camera；例如 /cam_r，不改 frame_id
 
   # 腕部 RealSense 分辨率与帧率（左右腕共用）
   wrist_color_width: 848
@@ -63,6 +66,8 @@ camera:
   use_wrist_rgb_caminfo_overlay: false
 
   # ---------- AprilTag / RViz ----------
+  # 允许公用感知模块启动 AprilTag；不会在初始化或读取结果时自动启动。
+  # 业务需要检测时调用 perception.start()，完成后调用 perception.stop()。
   launch_apriltag: false
   apriltag_topic: /robot_tag_info
 

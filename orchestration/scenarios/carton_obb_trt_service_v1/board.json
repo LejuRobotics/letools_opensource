@@ -67,6 +67,24 @@
       "type": "float",
       "value": 1.0,
       "remark": "抓取伺服过程中保存标注图的最小间隔，单位秒；伺服结束帧不受此间隔限制并始终保存。"
+    },
+    {
+      "key": "servo_depth_weight",
+      "type": "float",
+      "value": 0.2,
+      "remark": "拆垛抓箱选箱权重：深度越近分越高。仅影响 /carton_obb/servo，不影响码垛侧 carton_obb 的 score_w_*。"
+    },
+    {
+      "key": "servo_bottom_center_weight",
+      "type": "float",
+      "value": 0.6,
+      "remark": "拆垛抓箱选箱权重：离画面下方中心越近分越高。仅影响 /carton_obb/servo。"
+    },
+    {
+      "key": "servo_area_weight",
+      "type": "float",
+      "value": 0.2,
+      "remark": "拆垛抓箱选箱权重：框面积越大分越高。贴箱误选时可先降这个；仅影响 /carton_obb/servo。"
     }
   ],
   "camera": [
@@ -74,7 +92,7 @@
       "key": "start_camera_if_missing",
       "type": "bool",
       "value": true,
-      "remark": "头部相机没有发布者时，由一键脚本启动公共 Orbbec 驱动。"
+      "remark": "头部相机完全缺失时启动 Orbbec；彩色/深度半残时先杀掉再重拉。健康 RGB-D 直接复用。"
     },
     {
       "key": "camera_launch",

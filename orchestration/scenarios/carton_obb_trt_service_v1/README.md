@@ -125,6 +125,9 @@ rosrun tf tf_echo base_link camera_color_optical_frame
 | `servo_script` | `skills/.../realtime_carton_obb_trt.py` | 视觉伺服服务端脚本 |
 | `servo_result_topic` | `/carton_obb/servo_result` | 成功结果锁存话题 |
 | `servo_result_frame` | `waist_link` | 成功响应坐标系 |
+| `servo_depth_weight` | `0.3` | 拆垛抓箱选箱：深度权重（仅 `/carton_obb/servo`） |
+| `servo_bottom_center_weight` | `0.5` | 拆垛抓箱选箱：画面下方中心权重（仅 `/carton_obb/servo`） |
+| `servo_area_weight` | `0.2` | 拆垛抓箱选箱：面积权重（仅 `/carton_obb/servo`） |
 | `start_camera_if_missing` | `true` | 没有相机发布者时自动启动 |
 | `camera_launch` | `config/camera_orbbec.launch` | 公共头部相机 launch |
 | `color_topic` | `/camera/color/image_raw` | 服务端最新帧来源 |

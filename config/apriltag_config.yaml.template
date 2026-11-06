@@ -1,0 +1,43 @@
+# ============================================================
+# AprilTag 配置模板（提交进仓库）
+#
+# 检测器参数与待检测标签合并在一个文件里，直接以 ROS 顶层参数加载，
+# 结构与 apriltag_ros 读取的参数完全一致。
+#
+# 部署步骤：
+#   1. 复制本文件为 config/apriltag_config.yaml
+#      cp config/apriltag_config.yaml.template config/apriltag_config.yaml
+#   2. 修改 [必填] 字段：标签家族、标签 ID 和尺寸
+#   3. 启动程序。config/apriltag_config.yaml 不纳入 git。
+#
+# ============================================================
+
+# ---------- 检测器参数（详见 apriltag/include/apriltag.h:struct apriltag_detector） ----------
+
+# [必填] 标签家族，必须与打印的标签一致。
+
+tag_family: 'tag16h5'  # 可选：tag36h11, tag25h9, tag16h5, tagCustom48h12,
+                        # tagStandard52h13, tagStandard41h12, tagCircle21h7, tagCircle49h12
+tag_threads: 2          # default: 2
+tag_decimate: 1.0       # default: 1.0
+tag_blur: 0.0           # default: 0.0
+tag_refine_edges: 1     # default: 1
+tag_debug: 0            # default: 0
+max_hamming_dist: 0     # default: 2；值 >=3 会大量占用内存，尽量取大
+publish_tf: false       # default: false
+transport_hint: "raw"   # default: raw
+
+# ---------- 待检测标签 ----------
+
+# [必填] 每个标签的 id、黑框外沿边长（米）和名称。
+standalone_tags:
+  [
+    {id: 1, size: 0.06, name: 'tag_1'},
+    {id: 2, size: 0.06, name: 'tag_2'},
+    {id: 3, size: 0.06, name: 'tag_1'},
+    {id: 4, size: 0.06, name: 'tag_2'},
+  ]
+
+# 标签束（多个标签共同定义一个刚体）；无需要时保持空列表。
+tag_bundles:
+  []

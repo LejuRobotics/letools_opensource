@@ -71,7 +71,8 @@
             （空 = 包内 models/pallet_pose.onnx），缺失即起不来（不静默回退 OBB）。 -->
     <arg name="detector"      default="pose"/>
     <arg name="pose_model_path" default=""/>
-    <arg name="pose_engine_path" default="/home/leju_kuavo/ztz/LeTools/skills/atomic/perception/pallet_detect/models/pallet_pose_fp32.engine"/>
+    <!-- 空 = 节点用包内默认 models/pallet_pose_fp32.engine；勿写死本机绝对路径。 -->
+    <arg name="pose_engine_path" default=""/>
     <arg name="pose_conf"     default="0.25"/>
     <arg name="pose_kconf"    default="0.5"/>
     <arg name="pose_edge_refine" default="true"/>
