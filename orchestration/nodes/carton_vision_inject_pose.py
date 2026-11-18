@@ -12,7 +12,7 @@ from py_trees.common import Status
 
 from orchestration.nodes.base_node import BaseAction
 from orchestration.shared_hardware import get_shared_hardware
-from orchestration.nodes.carton_sequence import build_pick_summary
+from orchestration.nodes.haichen_internal.carton_sequence import build_pick_summary
 from orchestration.utils.manifest_decorators import define_manifest
 
 _DRY_RUN = os.environ.get("STUDIO_DRY_RUN", "").lower() in ("1", "true", "yes")
