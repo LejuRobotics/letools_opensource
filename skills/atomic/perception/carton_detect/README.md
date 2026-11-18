@@ -18,9 +18,9 @@ ROS 壳：`infrastructure/ros_packages/src/ros_vision/carton_obb/`
 | 函数 | 作用 |
 |---|---|
 | `to_input_tensor(img_bgr, imgsz)` | letterbox 到 `imgsz`，返回 `(x, ratio, pad)` |
-| `decode_obb(raw, ratio, pad, *, conf_thr, orig_shape)` | ONNX 输出 → 旋转框列表 |
-| `dets_from_rotated_rects(cx, cy, w, h, angle_deg, scores, ...)` | 公共推理服务的输出（原图坐标的 `cv2.RotatedRect`）→ **与 `decode_obb` 同字段**的列表。过滤/排序/截断/越界口径逐条对齐，有逐字段等价性测试 |
-| `nms_rotated(dets, iou_thr, size, *, iomin_thr)` | 旋转框去重（**导出图没有 NMS，必须自己去**）。两条判据：IoU 管「错着盖」，IoMin 管「小框整个套在大框里」 |
+| `decode_obb(raw, ratio, pad, *, conf_thr, orig_shape)` | ONNX 输出（`(N,4+nc+1)`，单类 6 列 / 两类 7 列）→ 旋转框列表，含 `class_id` |
+| `dets_from_rotated_rects(cx, cy, w, h, angle_deg, scores, *, classes=None, ...)` | 公共推理服务的输出（原图坐标的 `cv2.RotatedRect` + 类别）→ **与 `decode_obb` 同字段**的列表。过滤/排序/截断/越界口径逐条对齐，有逐字段等价性测试 |
+| `nms_rotated(dets, iou_thr, size, *, iomin_thr, class_aware=False)` | 旋转框去重（**导出图没有 NMS，必须自己去**）。两条判据：IoU 管「错着盖」，IoMin 管「小框整个套在大框里」。`class_aware=True` 时不同类别互不抑制（码垛侧 held/neighbor 都要留） |
 | `score_candidates(dets, ref_uv, z_list, ...)` | 选箱打分 |
 | `pick_best(dets, ref_uv, ...)` | 取分最高的那个（`score_candidates` + `max` 的便捷封装） |
 | `sample_depth_mm(depth_mm, box_uv, ...)` | 在框中心采一块深度（选箱的深度项） |

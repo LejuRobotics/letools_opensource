@@ -94,19 +94,22 @@ class ArmJointTrajSdkMove(BaseAction):
             self.feedback_message = "arm_joint_traj_sdk: no joint_traj available"
             return
 
-        if _DRY_RUN:
-            self.feedback_message = f"dry-run arm_joint_traj_sdk points={len(joint_traj)}"
-            self._dry_done = True
-            return
-
         skill_params = ArmJointTrajSdkParams(
             joint_traj=list(joint_traj),
             total_time=float(total_time),
         )
-        self._skill = ArmJointTrajSdkSkill(hardware=get_shared_hardware())
-        result = self._skill.initialize(skill_params)
+        # dry-run 也走技能的参数校验（每点 14 个关节角），但不接触硬件。
+        skill = ArmJointTrajSdkSkill(hardware=None if _DRY_RUN else get_shared_hardware())
+        result = skill.initialize(skill_params)
         if not result.success:
             self.feedback_message = result.message or "arm_joint_traj_sdk init failed"
+            return
+
+        if _DRY_RUN:
+            self.feedback_message = f"dry-run arm_joint_traj_sdk points={len(joint_traj)}"
+            self._dry_done = True
+            return
+        self._skill = skill
 
     def update(self):
         if _DRY_RUN:

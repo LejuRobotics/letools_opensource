@@ -203,13 +203,14 @@ class CartonObbTrtService:
             response.source_header = source_header
             response.image_width = image.shape[1]
             response.image_height = image.shape[0]
-            for rect, score in detections:
+            for rect, score, class_id in detections:
                 response.center_x.append(float(rect[0][0]))
                 response.center_y.append(float(rect[0][1]))
                 response.width.append(float(rect[1][0]))
                 response.height.append(float(rect[1][1]))
                 response.angle_deg.append(float(rect[2]))
                 response.scores.append(float(score))
+                response.classes.append(int(class_id))
             response.success = True
             response.message = ""
             response.inference_ms = float(inference_ms)

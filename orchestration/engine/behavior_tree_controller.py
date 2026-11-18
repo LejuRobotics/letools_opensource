@@ -78,6 +78,7 @@ class BehaviorTreeController:
         self.current_iteration = 0
         self.last_root_status = None
 
+        failure = None
         try:
             if not self.bt_instance:
                 self.bt_instance = self.bt_core.load_tree_from_json(tree_json_path)
@@ -101,11 +102,15 @@ class BehaviorTreeController:
             else:
                 rate = None
 
+            # ROS 2 运行时由启动器注入 pre_tick_hook（喂回调）；ROS 1 默认 None 无感
+            pre_tick = getattr(self, "pre_tick_hook", None)
             while (not HAS_ROSPY or not rospy.is_shutdown()) and self.running_flag:
                 if self.max_iterations > 0 and self.current_iteration >= self.max_iterations:
                     self.running_flag = False
                     break
                 if not self.paused_flag:
+                    if pre_tick is not None:
+                        pre_tick()
                     self.bt_core.tick()
                     if self.bt_instance and hasattr(self.bt_instance, "root") and self.bt_instance.root:
                         new_root_status = self.bt_instance.root.status
@@ -134,6 +139,11 @@ class BehaviorTreeController:
                                     print(
                                         f"[BehaviorTree] 完成: {new_root_status.name}"
                                     )
+                                    if (
+                                        new_root_status
+                                        == py_trees.common.Status.FAILURE
+                                    ):
+                                        self._log_failure_details()
                             if (
                                 self.max_iterations > 0
                                 and self.current_iteration >= self.max_iterations
@@ -154,6 +164,7 @@ class BehaviorTreeController:
                 else:
                     time.sleep(1.0 / rate_hz)
         except Exception as e:
+            failure = e
             logger.error("[BehaviorTree] 主循环异常: %s", e, exc_info=True)
             if HAS_ROSPY:
                 rospy.logerr(f"[BehaviorTree] 主循环异常: {e}")
@@ -161,13 +172,29 @@ class BehaviorTreeController:
                 failed_event.set()
         finally:
             self.running_flag = False
+            collector = getattr(self.bt_instance, "_zhaofeng_batch_timing", None)
+            if collector is not None:
+                try:
+                    root_status = getattr(self.last_root_status, "name", None)
+                    collector_status = (
+                        root_status
+                        if root_status in ("SUCCESS", "FAILURE")
+                        else "INTERRUPTED"
+                    )
+                    collector.close(
+                        "FAILED" if failure is not None else collector_status
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[BehaviorTree] 兆丰耗时统计收口失败: %s", exc
+                    )
 
         return self.last_root_status
 
     def _log_failure_details(self):
         """记录真正失败的叶节点，避免根节点 FAILURE 丢失业务原因。"""
         root = getattr(self.bt_instance, "root", None)
-        if root is None or not HAS_ROSPY:
+        if root is None:
             return
         try:
             failed = [
@@ -176,12 +203,13 @@ class BehaviorTreeController:
                 if node.status == py_trees.common.Status.FAILURE
             ]
         except Exception as exc:
-            rospy.logerr("[BehaviorTree] 读取失败节点异常: %s", exc)
+            logger.error("[BehaviorTree] 读取失败节点异常: %s", exc)
             return
         for node in failed:
-            rospy.logerr(
-                "[BehaviorTree] 失败节点: name=%s type=%s feedback=%s",
+            logger.error(
+                "[BehaviorTree] 失败节点: name=%s label=%s type=%s feedback=%s",
                 getattr(node, "name", "?"),
+                getattr(node, "label", ""),
                 type(node).__name__,
                 getattr(node, "feedback_message", ""),
             )

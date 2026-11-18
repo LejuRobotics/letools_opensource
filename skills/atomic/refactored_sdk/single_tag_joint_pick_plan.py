@@ -11,7 +11,7 @@ from core.domain.pose import Pose6D
 from core.domain.result import Result
 from core.domain.skill_params import SkillParams
 from core.interfaces.i_hardware import IHardware
-from orchestration.scenarios.wheel_arm_single_tag_pick_v1.utils.source_joint_planner import (
+from orchestration.scenarios.scenarios_internal.wheel_arm_single_tag_pick_v1.utils.source_joint_planner import (
     generate_source_keypoints,
     plan_source_joint_trajectory,
 )

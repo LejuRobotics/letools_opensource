@@ -11,8 +11,8 @@
 |------|------|-----------|---------|
 | `arm_ee_traj_local_sdk_move.py` | `ArmEeTrajLocalSdkMove` | `arm_ee_traj_local_sdk` | `arm_v1` |
 | `arm_ee_traj_world_sdk_move.py` | `ArmEeTrajWorldSdkMove` | `arm_ee_traj_world_sdk` | `arm_v1` |
-| `arm_joint_timed_move.py` | `ArmJointTimedMove` | `arm_joint_timed` | `instructional_case_02` |
-| `arm_joint_traj_sdk_move.py` | `ArmJointTrajSdkMove` | `arm_joint_traj_sdk` | `atomic_v1` `arm_v1` |
+| `arm_joint_timed_move.py` | `ArmJointTimedMove` | `arm_joint_timed` | `instructional_case_02` 阶段 1、`03` 各阶段、`05` 快照 |
+| `arm_joint_traj_sdk_move.py` | `ArmJointTrajSdkMove` | `arm_joint_traj_sdk` | `atomic_v1`、`arm_v1`、`instructional_case_02` 阶段 2–5、`05` 快照 |
 | `arm_reset_sdk_move.py` | `ArmResetSdkMove` | `arm_reset_sdk` | `arm_v1` |
 | `move_arm_base_joint_trajectories.py` | `MoveArmBaseJointTrajectories` | 旧版 arm_control | `smoke_v1` |
 
@@ -22,12 +22,14 @@
 |------|------|-----------|---------|
 | `base_pose_local_move.py` | `BasePoseLocalMove` | `base_pose_local` | `atomic_v1` |
 | `chassis_short_move.py` | `ChassisShortMove` | `chassis_velocity` (旧版) | `smoke_v1` |
+| `base_move_relative_jibot_move.py` | `BaseMoveRelativeJibotMove` | `base_move_relative_jibot_sdk` | `instructional_case_04`、`05` 快照等 |
+| `node_enable_vel_control.py` | `NodeEnableVelControl` | 无（直接调用权限接口） | `instructional_case_04`、`05` 快照等 |
 
 ### 头部 / 下肢
 
 | 文件 | 类名 | 对应 Skill | 场景使用 |
 |------|------|-----------|---------|
-| `head_control_sdk_move.py` | `HeadControlSdkMove` | `head_control_sdk` | `atomic_v1`、`instructional_case_01` 至 `04` |
+| `head_control_sdk_move.py` | `HeadControlSdkMove` | `head_control_sdk` | `atomic_v1`、`instructional_case_01` 至 `05` |
 | `move_head.py` | `MoveHead` | 旧版 head_control | **未使用** ❌ |
 | `leg_joint_sdk_move.py` | `LegJointSdkMove` | `leg_joint_sdk` | `atomic_v1` |
 | `leg_short_move.py` | `LegShortMove` | `leg_control` (旧版) | `smoke_v1` |
@@ -36,15 +38,23 @@
 
 | 文件 | 类名 | 对应 Skill | 场景使用 |
 |------|------|-----------|---------|
-| `multi_timed_command_move.py` | `MultiTimedCommandMove` | `multi_timed_command` | `instructional_case_03`、`04` |
+| `multi_timed_command_move.py` | `MultiTimedCommandMove` | `multi_timed_command` | `instructional_case_03`（仅 planner 2 位姿）、`04`（3/8/9 关节）、`05` 快照 |
 
 ### 编排工具
 
 | 文件 | 类名 | 对应 Skill | 场景使用 |
 |------|------|-----------|---------|
 | `wait_for_enter.py` | `WaitForEnter` | `wait_for_enter` | 全部场景 |
-| `wait_seconds.py` | `WaitSeconds` | `wait_seconds` | `atomic_v1` |
+| `wait_seconds.py` | `WaitSeconds` | `wait_seconds` | `atomic_v1`、`instructional_case_01`、`05`（含案例间 2 秒等待） |
 | `async_decorator.py` | `Async` | 无（装饰器） | `atomic_v1` |
+
+### 示教场景返回边界
+
+- case03 为每阶段 `HeadControlSdkMove → MultiTimedCommandMove → ArmJointTimedMove` 串行，非多部位同步树；case04 独立使用并行结构。
+- 头部 SDK 不查到位；两个 TimedCmd 节点按规划时长 `sleep`，SDK 关节轨迹节点完成发送循环；这些 `SUCCESS` 均不是实测到位。
+- `MultiTimedCommandMove` 默认准备模式 2 并设置焦点，结束不恢复；`ArmJointTimedMove` 本身不切模式。SDK 轨迹收尾仅尝试恢复 MPC 默认模式/流，不恢复原手臂模式。
+- case04 的 `BaseMoveRelativeJibotMove` 只提交底盘任务，不向黑板输出 `task_id`、不查询到达；`NodeEnableVelControl` 的权限恢复是 best-effort。
+- [case05：01→04 顺序联测](../scenarios/instructional_case_05/README.md) 复用上述现有节点的子树，相邻案例间各插入公共 `WaitSeconds` 等待 2 秒；不新增动作技能、到位检查或复位。
 
 ### 基础设施
 

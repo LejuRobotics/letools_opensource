@@ -75,7 +75,7 @@ core 层是 LeTools 的**共同语言层**：它定义接口、领域数据模�
 | 查询 | `get_mpc_observation` / `get_mpc_control_mode` / `get_body_acceleration` / `get_joint_torque` / `get_ee_poses` | `get_*() -> Optional[...]` | 状态反馈 | `IHardware` 抽象 |
 | 查询 | `get_ee_pose_reach_error` | `get_ee_pose_reach_error(is_left: bool) -> Result` | 末端位姿静差（`data['err_vector']` 6 维） | `IHardware` 抽象 |
 
-> **实现新适配器**：除下文五个「可选能力」导航方法外，表中方法均为 `@abstractmethod`（共 50 个，以 `core/interfaces/i_hardware.py` 为准），漏实现任何一个都会在实例化时抛 `TypeError`。
+> **实现新适配器**：除下文五个「可选能力」导航方法外，表中方法均为 `@abstractmethod`（共 51 个，以 `core/interfaces/i_hardware.py` 为准），漏实现任何一个都会在实例化时抛 `TypeError`。
 
 > **「可选能力」的含义**：`move_chassis_relative` 等五个导航方法在 `IHardware` 里给的是**默认失败实现**（`return Result.fail("当前 Hardware Adapter 不支持底盘相对导航")`），而不是 `@abstractmethod`。没有导航底盘的 Adapter 不必实现它们。
 
@@ -167,7 +167,7 @@ hw = HardwareFactory.create_hardware(config={'robot_type': 'leju_wheeled', 'angl
 | `FrameType` | `KEEP_CURRENT = 0`、`WORLD = 1`、`LOCAL = 2`、`JOINT_SPACE = 5` | 坐标系类型。`WORLD` 基于 odom，`LOCAL` 为 `base_link`，`JOINT_SPACE`=5 用于关节空间（不做 IK） |
 | `ArmSide` | `LEFT = "left"`、`RIGHT = "right"`、`BOTH = "both"` | 手臂侧别 |
 | `MPCControlMode` | `NO_CONTROL = 0`、`ARM_ONLY = 1`、`BASE_ONLY = 2`、`BASE_ARM = 3`、`ARM_EE_ONLY = 4` | 当前固件接收并回显该值，但不按其选择实际控制分支；`get_mpc_control_mode()` 读到值也不代表分支已切换 |
-| `EndEffectorType` | `LEJU_CLAW`、`QIANGNAO_HAND` | 末端执行器类型 |
+| `EndEffectorType` | `LEJU_CLAW = "leju_claw"`、`QIANGNAO_HAND = "qiangnao"`、`SG100_HAND = "sg100"`、`SUCTION_CUP = "suction_cup"`、`NONE = "none"` | 末端执行器类型 |
 | `GripperStatus` | （见 `core.domain.end_effector`） | 夹爪状态枚举 |
 | `SG100ControlMode` | `JOINT_POSITION` 等 | SG100 灵巧手控制模式，默认 `JOINT_POSITION`，`enable_mask=0x07FF` 表示全部 11 关节 |
 

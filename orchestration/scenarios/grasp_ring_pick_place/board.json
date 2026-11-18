@@ -9,7 +9,7 @@
   "gripper_close_position": 0,
   "gripper_effort": 1.0,
   "ring_name": "ring_01",
-  "inference_config_path": "LeTools-Learning/configs/deploy/deploy.yaml",
+  "inference_config_path": "LeTools-Learning/tools/ring_sim/config/ring_deploy.yaml",
   "policy_type": "act",
   "pretrained_path": "LeTools-Learning/outputs/train/act_8/lerobot_grasp_ring_20261016_133258/checkpoints/080000",
   "task_prompt": "Pick and Place",

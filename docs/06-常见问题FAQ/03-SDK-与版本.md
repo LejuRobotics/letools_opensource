@@ -3,7 +3,7 @@
 [返回文档首页](../README.md) · [02-环境安装](../02-环境安装/) · [03-接口详细文档](../03-接口详细文档/)
 
 > 本篇收录 LeTools SDK 安装、版本锁定、子模块与开源版本对齐的典型问题。
-> SDK 统一用 `scripts/install_sdk.sh` 安装（版本由 `scripts/kuavo_humanoid_sdk_tools/sdk_version.env` 锁定），用 `scripts/remove_local_sdk.sh` 卸载。
+> SDK 统一用 `scripts/sdk_tools/install.sh` 安装（版本由 `scripts/sdk_tools/sdk_version.env` 锁定），用 `scripts/sdk_tools/remove.sh` 卸载。
 
 ---
 
@@ -15,7 +15,7 @@
 
 ```bash
 cd ~/letools_opensource
-cat scripts/kuavo_humanoid_sdk_tools/sdk_version.env
+cat scripts/sdk_tools/sdk_version.env
 ```
 
 版本以该文件为准，例如 `SDK_REPO_BRANCH="master"`、`SDK_REPO_TAG="1.4.5"`。Tag 是正式复现基线；即使 master 后续前进，也不能用新的 master HEAD 冒充 1.4.5。
@@ -42,9 +42,8 @@ git submodule status drivers/leju/kuavo_humanoid_sdk
 ```bash
 cd ~/letools_opensource
 git submodule sync --recursive
-git submodule update --init --recursive drivers/leju/kuavo_humanoid_sdk
-chmod +x scripts/install_sdk.sh
-./scripts/install_sdk.sh
+chmod +x scripts/sdk_tools/install.sh
+./scripts/sdk_tools/install.sh
 ```
 
 **成功标准**：子模块目录非空，安装脚本退出码为 0。
@@ -71,7 +70,7 @@ conda deactivate
 source /opt/ros/noetic/setup.bash
 source ~/letools_opensource/infrastructure/ros_packages/devel/setup.bash
 cd ~/letools_opensource
-./scripts/install_sdk.sh
+./scripts/sdk_tools/install.sh
 python3 -c 'from kuavo_humanoid_sdk import KuavoRobot; print("SDK Ready")'
 ```
 
@@ -85,17 +84,17 @@ python3 -c 'from kuavo_humanoid_sdk import KuavoRobot; print("SDK Ready")'
 
 ## 4. 问题：`.gitmodules` 中 SDK 子模块的 branch 是 `dev`，与 `sdk_version.env` 的 `master` 不一致
 
-**原因**：两者用途不同，不需要一致。`sdk_version.env` 的 `SDK_REPO_BRANCH` + `SDK_REPO_TAG` 是安装版本的唯一依据，`install_sdk.sh` 按其中的 tag 安装；`.gitmodules` 中的 `branch` 只在执行 `git submodule update --remote` 时决定更新目标，不影响 `install_sdk.sh` 安装的版本。
+**原因**：两者用途不同，不需要一致。`sdk_version.env` 的 `SDK_REPO_BRANCH` + `SDK_REPO_TAG` 是安装版本的唯一依据，`sdk_tools/install.sh` 按其中的 tag 安装；`.gitmodules` 中的 `branch` 只在执行 `git submodule update --remote` 时决定更新目标，不影响 `sdk_tools/install.sh` 安装的版本。
 
 **判断命令**
 
 ```bash
-cat scripts/kuavo_humanoid_sdk_tools/sdk_version.env | grep '^SDK_REPO'
+cat scripts/sdk_tools/sdk_version.env | grep '^SDK_REPO'
 git -C drivers/leju/kuavo_humanoid_sdk describe --tags --exact-match   # 子模块当前所在 tag
 pip3 show kuavo-humanoid-sdk | grep -i '^version'                      # 已安装的 SDK 版本
 ```
 
-**解决方案**：以 `sdk_version.env` 为准，用 `./scripts/install_sdk.sh` 安装。**不要**执行 `git submodule update --remote`：它会把子模块移到 `.gitmodules` 所写分支的最新提交，而不是锁定的 tag。如果已经执行过，重新运行 `./scripts/install_sdk.sh` 即可回到锁定版本。
+**解决方案**：以 `sdk_version.env` 为准，用 `./scripts/sdk_tools/install.sh` 安装。**不要**执行 `git submodule update --remote`：它会把子模块移到 `.gitmodules` 所写分支的最新提交，而不是锁定的 tag。如果已经执行过，重新运行 `./scripts/sdk_tools/install.sh` 即可回到锁定版本。
 
 **成功标准**：后两条命令的输出与 `sdk_version.env` 中的 `SDK_REPO_TAG` 一致（当前为 `1.4.5`）。
 

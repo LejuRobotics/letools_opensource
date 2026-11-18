@@ -684,7 +684,7 @@ def test_pose_backend_wiring():
               f"params={sorted(params)}")
 
     # start_all.sh：按 detector 选 refine 键，两个键都不能漏。
-    start_all = (_REPO_ROOT / 'orchestration' / 'scenarios'
+    start_all = (_REPO_ROOT / 'orchestration' / 'scenarios' / 'scenarios_internal'
                  / 'pallet_servo_real_v1' / 'start_all.sh')
     if start_all.exists():
         s = start_all.read_text(encoding='utf-8')

@@ -402,6 +402,13 @@ class BehaviorTreeFactory:
 
         root_node = self._build_tree_recursive(tree_config["tree"], parent_namespace=None, override_params=override_params)
         self.tree = py_trees.trees.BehaviourTree(root=root_node)
+        # 兆丰耗时统计是旁路能力；安装失败不得影响行为树执行。
+        try:
+            from module_internal.zhaofeng_feeding.batch_timing import install_for_tree
+
+            install_for_tree(self.tree, json_file)
+        except Exception:
+            logger.exception("[TreeFactory] 兆丰 batch 耗时统计安装失败")
         return self.tree
     
     # ==================== V3.0 Lite: Interface 校验 + 宏替换 ====================

@@ -9,7 +9,7 @@ skills 层主要负责业务逻辑：参数校验、调用硬件接口、判断�
 | 点分路径 | 实体 | 说明 |
 |---|---|---|
 | `skills.base.skill_base` | `SkillBase` | 所有技能的基类（实现 `ISkill`，附带超时与异常兜底） |
-| `skills.atomic.refactored_sdk` | 40 个顶层技能文件 | **当前主力**：扁平结构、一文件一技能；具体控制路径见下方总表 |
+| `skills.atomic.refactored_sdk` | 45 个顶层 Python 文件 | **当前主力**：扁平结构，包含技能及场景辅助模块；具体控制路径见下方总表 |
 | `skills.atomic.manipulation.*` | 14 个目录 | **旧版**技能（`studio_smoke_v1` 场景使用） |
 | `skills.atomic.motion.chassis_velocity` / `move_to_pose` | 2 个技能 | **旧版**运动技能 |
 | `skills.atomic.perception.*` | `camera_capture` / `read_qrcode` / `pallet_*` / `box_frame` | 感知技能（非 SDK 路径） |
@@ -20,7 +20,7 @@ skills 层主要负责业务逻辑：参数校验、调用硬件接口、判断�
 
 | 口径 | 数量 |
 |---|---|
-| `refactored_sdk/` 顶层 `.py`（不含 `__init__.py`） | **40** |
+| `refactored_sdk/` 顶层 `.py`（不含 `__init__.py`） | **45** |
 | `manipulation/*/skill.py` | 14 |
 | `motion/*/skill.py` | 2 |
 | `perception/*/skill.py` | 4（另有若干 `algorithm.py` 纯计算模块） |
@@ -91,7 +91,7 @@ class HeadControlSdkSkill(SkillBase):
 | `arm_reset_sdk.py` | `ArmResetSdkSkill` | `ArmResetSdkParams` | `arm_reset()` | 手臂归位 |
 | `arm_ee_dual_timed.py` | `ArmEEDualTimedSkill` | `ArmEEDualTimedParams` | `send_arm_ee_world_timed` / `_local_timed` | 双臂单次末端位姿（双 planner 并发） |
 | `arm_ee_single_timed.py` | `ArmEESingleTimedSkill` | `ArmEESingleTimedParams` | `send_left/right_arm_ee_*_timed` | 单臂单次末端位姿 |
-| `arm_ee_burst_timed.py` | `ArmEEBurstTimedSkill` | `ArmEEBurstTimedParams` | `send_timed_single_command` 循环 | 在线连发航点（可双臂互不干扰） |
+| `arm_ee_burst_timed.py` | `ArmEEBurstTimedSkill` | `ArmEEBurstTimedParams` | `send_timed_<side>_arm_ee_<frame>` 循环 | 在线连发航点（可双臂互不干扰） |
 | `arm_ee_local_relative_timed.py` | `ArmEELocalRelativeTimedSkill` | `ArmEELocalRelativeTimedParams` | 相对补偿 TimedCmd | 双臂末端 local 相对补偿 |
 | `arm_ee_timed_cmd.py` | `ArmEETimedCmdSkill` | `ArmEETimedCmdParams` | `send_timed_multi_commands` | TimedCmd 末端位姿（多航点 index 切换） |
 | `arm_ee_offline_traj.py` | `ArmEEOfflineTrajSkill` | `ArmEEOfflineTrajParams` | `set_offline_trajectory` + `enable_offline_trajectory` | 离线时间最优轨迹 |
@@ -114,6 +114,11 @@ class HeadControlSdkSkill(SkillBase):
 | `single_tag_joint_pick_plan.py` | `SingleTagJointPickPlanSkill` | 同名 Params | IK + 关节轨迹 | 按 Tag 位姿规划双臂抓取关节轨迹 |
 | `grasp_ring.py` | `GraspRingSkill` | `GraspRingParams` | `send_ee_pose` + `control_end_effector` | 抓圆环：读位姿 → FK → 预抓 → 下抓 → 抬起 |
 | `place_ring.py` | `PlaceRingSkill` | `PlaceRingParams` | 同上 | 放圆环 |
+| `ring_real_action.py` | `RingRealActionSkill` | `RingRealActionParams` | 由传入的动作调用 | 在线程中执行实机圆环动作，支持协作取消 |
+| `ring_real_carry.py` | `RingRealCarrySkill` | 无独立 Params | 通过传入的机器人对象控制 | 圆环搬运的手臂、躯干和底盘动作 |
+| `ring_real_context.py` | `RingRealContext`（非 Skill） | 无 | 无 | 保存本轮抓取结果和左臂保持姿态 |
+| `ring_real_place.py` | `RingRealPlaceSkill` | 无独立 Params | 通过传入的机器人对象控制 | 圆环放置、开爪、后撤和归位 |
+| `ring_real_prepare.py` | `RingRealPrepareSkill` | 无独立 Params | 通过传入的机器人对象控制 | 圆环抓取前的躯干、夹爪、头部和手臂准备 |
 | `vacuum_485.py` | `Vacuum485Skill` | `Vacuum485Params` | `adapters.vacuum_485` | 气泵继电器（吸/吹/断电） |
 | `vacuum_control.py` | `VacuumControlSkill` | `VacuumControlParams` | `adapters.vacuum_control` | 气泵吸/放 |
 | `pressure_drop_detection.py` | `PressureDropDetectionSkill` | 同名 Params | 压力传感器 | 压力骤降检测 |
@@ -185,7 +190,7 @@ class HeadControlSdkSkill(SkillBase):
 
 | Params | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|---|
-| `ArmEEDualTimedParams` | `frame` | `str` | `'world'` | `world` → planner 4+5；`local` / `base_link` → 6+7 |
+| `ArmEEDualTimedParams` | `frame` | `str` | `'world'` | `world` → planner 4+5；`local` → 6+7 |
 | | `left_pose` / `right_pose` | `List[float]` | 见下 | 6 维 `[x, y, z, yaw, pitch, roll]`（**度**） |
 | | `desire_time` | `float` | `2.0` | 期望执行时长（秒） |
 | | `focus_ee` / `focus_z` | `bool` | `False` | 是否抢占笛卡尔 / Z 轴跟踪焦点 |
@@ -269,7 +274,7 @@ class HeadControlSdkSkill(SkillBase):
 | `Vacuum485Params` / `VacuumControlParams` | `action` | `str` | `'suck'` |
 | `InferenceControlParams` | `inference_config_path` | `str` | 内置默认 |
 | | `policy_type` | `str` | `'act'` |
-| | `pretrained_path` / `task_prompt` | `str` | `''` / `'Pick Place'` |
+| | `pretrained_path` / `task_prompt` | `str` | `''` / `'Pick and Place'` |
 | | `max_episode_steps` | `int` | `200` |
 | | `device` / `inference_env` | `str` | `'cuda'` / `'sim'` |
 

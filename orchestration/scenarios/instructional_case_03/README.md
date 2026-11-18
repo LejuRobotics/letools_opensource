@@ -1,121 +1,87 @@
-# instructional_case_03：头部、手臂与躯干并行动作
+# instructional_case_03：头部、躯干与手臂串行动作
 
-本案例在 `case_02` 的基础上加入躯干，演示如何用一个可配置的
-`MultiTimedCommandMove` 同时提交多个 TimedCmd planner。主树由四个
-`Parallel` 组成，所有动作参数均从 `board.json` 加载。
+本案例按 `home → left → right → home` 执行四个阶段。每阶段都是带记忆的
+`Sequence`，依次执行现有的 `HeadControlSdkMove`、`MultiTimedCommandMove` 和
+`ArmJointTimedMove`。躯干命令与手臂命令分开提交，不同时调用 TimedCmd。
 
-所有命令均需在仓库根目录执行。建议先执行 dry-run 检查配置，再连接真机。
+所有命令均需在仓库根目录执行。先 dry-run 检查配置，再由测试人员确认真机条件。
 
-## 树结构
-
-```text
-Sequence
-├── Parallel：头回正 + 双臂全零 + 躯干基准姿态
-├── Parallel：头左转 + 双臂左向姿态 + 躯干左转
-├── Parallel：头右转 + 双臂右向姿态 + 躯干右转
-└── Parallel：头回正 + 双臂全零 + 躯干回基准姿态
-```
-
-每个 `Parallel` 有两个子节点，并保持头部节点在前：
+## 树结构与返回边界
 
 ```text
-HeadControlSdkMove
-MultiTimedCommandMove
+Sequence(four_head_arm_torso_phases, memory=true)
+├── Sequence(phase_1_home)：头回正 → 躯干 home → 双臂 home
+├── Sequence(phase_2_turn_left)：头左转 → 躯干 left → 双臂 left
+├── Sequence(phase_3_turn_right)：头右转 → 躯干 right → 双臂 right
+└── Sequence(phase_4_return_home)：头回正 → 躯干 home → 双臂 home
 ```
 
-`HeadControlSdkMove` 先快速下发头部目标。随后 `MultiTimedCommandMove` 用一次
-`send_timed_multi_commands()` 请求提交 board 中的一组命令。当前案例配置的是：
+共 **17 个节点**：1 个根 `Sequence`、4 个阶段 `Sequence`、12 个叶子节点。
+每阶段的叶子顺序如下：
 
-| planner | 内容 | `cmd_vec` 维度 |
-|---:|---|---:|
-| `3` | 下肢/躯干关节角 | 4 |
-| `8` | 左臂关节角 | 7 |
-| `9` | 右臂关节角 | 7 |
+| 节点 | 当前配置与行为 |
+|---|---|
+| `HeadControlSdkMove` | 下发头部 yaw/pitch 目标；不查询头部是否到位 |
+| `MultiTimedCommandMove` | 一次 `send_timed_multi_commands()` 请求仅含 **planner 2**：躯干 4D 位姿；请求成功后等待 `actual_time + settle_time` |
+| `ArmJointTimedMove` | 调用 `send_arm_joint_timed()` 下发 **14D 双臂关节目标**；请求成功后等待 `actual_time + settle_time` |
 
-节点默认设置 `is_sync=true`，三个 planner 由 TimedCmd 服务端统一规划、同时完成。
-头部目标已在此前下发，因此头部与这组 TimedCmd 动作可以重叠。
-
-这里有两层“并行”，含义不同：行为树的 `Parallel` 会按子节点顺序逐个 tick；
-TimedCmd 的 `is_sync=true` 则让同一请求中的 `3/8/9` planner 按同一结束时间规划。
-`MultiTimedCommandMove` 会等待这组运动结束，所以头部节点必须放在它前面。
-
-本案例不使用 `Async`。`Async` 只改变行为树线程调度，并不能把多次 TimedCmd
-调用合成一次。若手臂和躯干在两个线程里分别调用 TimedCmd，它们会竞争同一个
-控制器主循环，可能返回 `main loop is updating the command and is busy`。
-
-## 配置其他组合
-
-`MultiTimedCommandMove` 不写死 `3/8/9`。每条命令只需要两个字段：
-
-```json
-{
-  "planner_index": 3,
-  "cmd_vec": [29.0, -41.11, 32.21, 20.0]
-}
-```
-
-所有命令放在同一个数组中。比如躯干位姿加双臂关节使用 `2/8/9`：
-
-```json
-[
-  {"planner_index": 2, "cmd_vec": [0.2, 1.0, 0.0, 0.0]},
-  {"planner_index": 8, "cmd_vec": [0, 0, 0, 0, 0, 0, 0]},
-  {"planner_index": 9, "cmd_vec": [0, 0, 0, 0, 0, 0, 0]}
-]
-```
-
-下肢关节加双臂局部末端位姿使用 `3/6/7`：
-
-```json
-[
-  {"planner_index": 3, "cmd_vec": [0, 0, 0, 0]},
-  {"planner_index": 6, "cmd_vec": [0.3, 0.2, 0.1, 0, 0, 0]},
-  {"planner_index": 7, "cmd_vec": [0.3, -0.2, 0.1, 0, 0, 0]}
-]
-```
-
-planner 编号表示运动规划类型，不是关节序号。编号和向量格式如下：
-
-| planner | 格式 |
-|---:|---|
-| `0` | 底盘世界坐标系目标 `[x, y, yaw]` |
-| `1` | 底盘本体坐标系目标 `[x, y, yaw]` |
-| `2` | 躯干局部位姿 `[x, z, yaw, pitch]` |
-| `3` | 下肢/躯干关节 `[j0, j1, j2, j3]` |
-| `4` / `5` | 左/右臂世界系末端 `[x, y, z, yaw, pitch, roll]` |
-| `6` / `7` | 左/右臂局部系末端 `[x, y, z, yaw, pitch, roll]` |
-| `8` / `9` | 左/右臂 7 个关节角 |
-
-位置单位为米；角度遵循 Adapter 的 `angle_unit` 配置，默认是度。这里的
-planner `0/1` 属于 TimedCmd 接口，不是 `case_04` 使用的 JiBot 相对导航接口；
-后者的 `theta` 固定使用弧度。
-
-节点会校验每个 planner 的向量维度，也不允许同一组中重复 planner。每条命令可以额外写
-`"desire_time": 4.0` 覆盖节点的默认执行时间。
-
-节点参数 `focus_ee` 控制本次下发前的笛卡尔跟踪焦点，默认 `false`：
-
-- `true`：专注手臂末端解算，躯干可能随动；
-- `false`：尽可能不动躯干，在手臂工作区间内解算，精度可能不高。
-
-技能会将 `focus_z` 设置为与 `focus_ee` 相同的值，不支持在节点上分别配置。任一焦点设置失败时，本次运动命令不会下发；dry-run 不调用硬件。
+这里的“串行”是节点执行与 TimedCmd 请求的串行：躯干节点成功后才运行手臂节点。
+头部没有到位等待，实际头部运动仍可能与后续躯干动作重叠。两个 TimedCmd 技能都只是
+按返回的规划时长 `sleep`；无 `actual_time` 时使用请求时长作为回退值，不读取实际关节或
+位姿误差。节点或根树 `SUCCESS` 不是实测到位或安全证明。
 
 ## 当前动作参数
 
-| 阶段 | board 命令组 | 头部 `[yaw, pitch]` | 左/右臂 `[J0..J6]` | 下肢/躯干 `[j0, j1, j2, j3]` |
-|---|---|---|---|---|
-| 1：初始归零 | `home_commands` | `[0, 0]` | `[0, 0, 0, 0, 0, 0, 0]` | `[0, 0, 0, 0]` |
-| 2：向左 | `forward_and_left_commands` | `[20, 0]` | `[0, 0, 0, -90, 0, 30, 0]` | `[29.00, -41.11, 32.21, 20]` |
-| 3：向右 | `forward_and_right_commands` | `[-20, 0]` | `[0, 0, 0, -90, 0, -30, 0]` | `[29.00, -41.11, 32.21, -20]` |
-| 4：回零 | `home_commands` | `[0, 0]` | `[0, 0, 0, 0, 0, 0, 0]` | `[0, 0, 0, 0]` |
+躯干 planner `2` 的 `cmd_vec` 是 **`[x, z, yaw, pitch]`**：`x/z` 单位为米，
+`yaw/pitch` 在本案例默认 Adapter `angle_unit=deg` 下为度。头部和手臂角度也按度填写；
+若改 Adapter 角度单位，必须同步核对全部角度值，参数名本身不会强制转换单位。
 
-当前默认配置下角度单位均为度，TimedCmd 期望时间为 3 秒。修改动作或 planner 组合时只需编辑
-`board.json` 中的 `home_commands`、`forward_and_left_commands` 和
-`forward_and_right_commands`。阶段 2 完成后会直接执行阶段 3，中间不会先回零。
+| 阶段 | 头部 `[yaw, pitch]`（度） | 躯干 `[x, z, yaw, pitch]`（米、米、度、度） | 左/右臂各自 `[J0..J6]`（度） |
+|---|---|---|---|
+| 1：home | `[0, 0]` | `[0.12, 0.97, 0, 0]` | `[0, 0, 0, 0, 0, 0, 0]` |
+| 2：left | `[20, 0]` | `[0.16, 1.10, 30, 0]` | `[0, 0, 0, -90, 0, 30, 0]` |
+| 3：right | `[-20, 0]` | `[0.16, 1.10, -30, 0]` | `[0, 0, 0, -90, 0, -30, 0]` |
+| 4：home | `[0, 0]` | `[0.12, 0.97, 0, 0]` | `[0, 0, 0, 0, 0, 0, 0]` |
+
+`home` 是配置的基准位姿，不是躯干全零，也不是专门的复位动作。阶段 2 后直接进入
+阶段 3，中间不回 home。双臂数组顺序为 `[左臂 7 关节, 右臂 7 关节]`。
+
+| board 键 | 内容 |
+|---|---|
+| `torso_home_commands` / `torso_left_commands` / `torso_right_commands` | 各仅一条 planner `2` 命令 |
+| `arm_home_joint_angles` / `arm_left_joint_angles` / `arm_right_joint_angles` | 各一个 14D 双臂关节目标 |
+| `motion_duration_sec` | `3.0`，分别作为躯干 `desire_time` 和手臂 `total_time` |
+| `motion_settle_time_sec` | `0.5`，躯干与手臂各自额外等待 |
+| `head_left_yaw_deg` / `head_right_yaw_deg` | `20.0` / `-20.0` |
+| `head_center_yaw_deg` / `head_center_pitch_deg` | 均为 `0.0` |
+
+例如左向躯干命令：
+
+```json
+[{"planner_index": 2, "cmd_vec": [0.16, 1.10, 30.0, 0.0]}]
+```
+
+每阶段分别申请两段 3 秒运动，而非整个阶段只用 3 秒；实际等待取决于各自返回的
+`actual_time`，再各加 0.5 秒，并有调用和 tick 开销。
+
+## 模式与真机前提
+
+- 每个躯干节点显式配置 `is_sync=true`、`focus_ee=false`、`prepare_arm_control=true`。
+  此处只有一个 planner，`is_sync` 不表示它会和后面的手臂节点同步。
+- `MultiTimedCommandMove` 下发前调用 `set_arm_control_mode(2)`，再设置
+  `focus_ee=false`、`focus_z=false`。任一步失败都不下发该节点的 TimedCmd；已经产生的
+  模式/焦点副作用不会自动回滚。`focus_ee=false` 也不表示禁止显式躯干目标运动。
+- `ArmJointTimedMove` 本身不切控制模式；本树的先行躯干节点负责准备外部控制模式。
+  树结束不会自动切回模式 0、恢复原焦点或执行物理复位。
+- 使用 `config/app_config.yaml` 全局配置，无场景级 `hardware_config.json`。非 dry-run
+  需要控制器、ROS/TF、LowLevel SDK、TimedCmd 及模式/焦点服务可用；运行准备见
+  [执行命令](../../../docs/04-简单案例运行/02-执行命令.md)。
+- 真机前须人工核对这些位姿的可达性、限位、碰撞与运动范围，清空人员、线缆及障碍物并
+  安排急停监护。串行、请求成功或等待时间过去都不能替代这些检查。
 
 ## 运行
 
-先做无 ROS、不会驱动机器人的结构校验：
+先做无 ROS、不会驱动机器人的加载与单拍检查：
 
 ```bash
 python3 apps/test_upper_init/run_behavior_tree_json.py \
@@ -123,19 +89,24 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
   --dry-run --tick-once
 ```
 
-确认输出中加载的是 `instructional_case_03/py_tree.json` 后，再进行真机运行：
+核对场景路径、根节点 `four_head_arm_torso_phases` 和
+`tick 后根状态: Status.SUCCESS`。当前启动器 dry-run 即使根为 `FAILURE` 也可能退出 0，
+不能只看退出码。dry-run 不能验证实机模式、可达性、碰撞或到位。
+
+完成现场检查后，由测试人员运行：
 
 ```bash
 python3 apps/test_upper_init/run_behavior_tree_json.py \
   --scenario orchestration/scenarios/instructional_case_03
 ```
 
-实机运行前确认头部、双臂及升降躯干的完整运动范围内没有人员、线缆或障碍物。
+修改上述参数后重启场景生效；若用于 [case05 的 01→04 顺序联测](../instructional_case_05/README.md)，
+还需手动更新其 JSON 中对应的子树与带前缀 board 参数；不依赖同步脚本。
 
 ## 文件
 
 | 文件 | 用途 |
 |---|---|
-| `py_tree.json` | 四阶段主行为树 |
-| `py_tree_child.json` | 空子树集合，本案例不使用子树 |
-| `board.json` | 头部参数与每阶段的 TimedCmd 命令组 |
+| `py_tree.json` | 四阶段串行主树，参数通过 `READ_BOARD` 引用 |
+| `py_tree_child.json` | 空子树集合 |
+| `board.json` | 头部角度、躯干 4D 位姿命令、双臂 14D 关节目标和时长 |

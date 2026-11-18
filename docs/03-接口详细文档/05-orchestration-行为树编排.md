@@ -11,7 +11,7 @@ orchestration 层是任务的「导演层」：它加载场景 JSON、把节点�
 
 | 点分路径 | 实体 | 说明 |
 |---|---|---|
-| `orchestration.main` | `main()` | 行为树主入口（ROS 节点名 `behavior_tree_main`），默认场景 `studio_smoke_v1` |
+| `orchestration.main` | `main()` | 行为树主入口（ROS 节点名 `behavior_tree_main`），默认场景 `instructional_case_01` |
 | `orchestration.engine.behavior_tree_factory` | `BehaviorTreeFactory`、`ParamsWrapper` | **核心工厂**：JSON → py_trees 树，节点动态发现与实例化 |
 | `orchestration.engine.behavior_tree_controller` | `BehaviorTreeController` | **运行控制器**：50Hz 主循环 `tick()`、终态检测、stop/pause/resume 服务 |
 | `orchestration.engine.py_trees_compat` | — | py_trees 0.7.x / 2.x Blackboard API 兼容层，**必须先于**工厂导入 |
@@ -89,7 +89,7 @@ orchestration 层是任务的「导演层」：它加载场景 JSON、把节点�
 ### 场景目录结构
 
 ```text
-orchestration/scenarios/<场景名>/
+orchestration/scenarios/scenarios_internal/<场景名>/
 ├── py_tree.json          # 必填：主行为树
 ├── py_tree_child.json    # 有子树时必填：子树库
 ├── board.json            # 建议配置：黑板初始值
@@ -256,13 +256,13 @@ export ROBOT_VERSION=62  # 62 夹爪轮臂示例；按目标机型调整
 # 干跑：只校验 import / JSON / 节点类名，不连 ROS 与硬件
 python3 orchestration/main.py --dry-run --tick-once
 
-# 真机（默认场景 studio_smoke_v1）
+# 真机（默认场景 instructional_case_01）
 python3 orchestration/main.py
 
 # 指定场景
 python3 orchestration/main.py \
-  --tree orchestration/scenarios/refactored_sdk_atomic_v1/py_tree.json \
-  --board orchestration/scenarios/refactored_sdk_atomic_v1/board.json
+  --tree orchestration/scenarios/scenarios_internal/refactored_sdk_atomic_v1/py_tree.json \
+  --board orchestration/scenarios/scenarios_internal/refactored_sdk_atomic_v1/board.json
 ```
 
 命令行参数：
@@ -328,6 +328,79 @@ class XxxMove(BaseAction):
         ...
 ```
 
+
+### 数据流全景
+
+本节及后续两张表源自原场景目录 readme（已并入本篇），以 `HeadControlSdkMove` 为例。
+
+```
+JSON                               Node                             Skill
+─────────────────────────────────────────────────────────────────────────────
+"name": "HeadControlSdkMove" ──→  importlib 导入类
+"params": {
+  "yaw_deg": {"value":"30.0"} ──→  self.params.get("yaw_deg") → 30.0
+                                     ↓
+                                   HeadControlSdkParams(         ──→  params.yaw_deg=30.0
+                                     yaw_deg=30.0, pitch_deg=0.0
+                                   )
+                                     ↓
+                                   HeadControlSdkSkill(hardware)  ──→  self.hardware
+                                     ↓
+                                   skill.initialize(params)       ──→  on_initialize()
+                                     ↓
+                                   skill.execute()                ──→  on_execute():
+                                                                         hardware.control_head_sdk(
+                                                                           yaw=30.0, pitch=0.0
+                                                                         )
+                                                                           ↓
+                                                                      Adapter → SDK → 机器人
+```
+
+### 三层对应关系统一表
+
+| 层级 | 文件 | 关键代码 | 作用 |
+|------|------|---------|------|
+| JSON | `py_tree_child.json` | `"name": "HeadControlSdkMove"` | 声明用哪个节点类 |
+| JSON | `py_tree_child.json` | `"yaw_deg": {"value": "30.0"}` | 声明传入的参数值 |
+| 节点 | `head_control_sdk_move.py` | `class HeadControlSdkMove` | JSON 的 `name` **必须等于**这个类名 |
+| 节点 | `head_control_sdk_move.py` | `self.params.get("yaw_deg", 0.0)` | 从 JSON 取值，key 必须匹配 |
+| 节点 | `head_control_sdk_move.py` | `HeadControlSdkParams(yaw_deg=...)` | 构造技能参数对象 |
+| 技能 | `head_control_sdk.py` | `class HeadControlSdkParams` | 参数 dataclass，定义字段与类型 |
+| 技能 | `head_control_sdk.py` | `hardware.control_head_sdk(...)` | 最终调用的 adapter 方法 |
+
+**关键约束**：
+
+| 约束 | 说明 |
+|------|------|
+| `JSON.name` = `Node 类名` | 精确匹配、含大小写；不是文件名，不是技能类名 |
+| `JSON.params 的 key` = `Node 中 self.params.get("xxx")` | 节点取值的 key 即 JSON 中 params 的 key |
+| `JSON params` → `Node._parse_params` → `SkillParams` | 值从 JSON → ParamsWrapper → dataclass 字段 |
+| 叶子节点 `childs` 和 `childBoard` | 必须为 `[]` |
+
+### 新增功能的标准步骤（checklist 版）
+
+与上文「新增一个动作节点（三层）」同一件事的核对清单形式，以 `head_control_sdk` 为模板：
+
+```
+□ 1. 创建原子技能
+     skills/atomic/refactored_sdk/<功能名>.py
+       ├── <功能名>Params(SkillParams)   ← dataclass，字段 = 可传参数
+       └── <功能名>Skill(SkillBase)
+             ├── on_initialize() → 校验参数
+             ├── on_execute()    → self.hardware.<adapter方法>(...)
+             └── on_is_finished()→ return self._done
+
+□ 2. 创建节点类
+     orchestration/nodes/<功能名>_move.py
+       ├── @define_manifest(params=[...])   ← key 必须与 Params 字段对应
+       └── class <功能名>Move(BaseAction)
+             ├── initialise() → self.params.get("xxx") → Params → Skill
+             └── update()     → skill.execute() → 返回 Status
+
+□ 3. 在 JSON 中使用
+     └── { "name": "<功能名>Move",
+           "params": { "xxx": {"value":"1.0", "source":"CUSTOM", "data_type":"float"} } }
+```
 ### 环境分档
 
 | 档位 | 启动方式 | 能验证什么 |
@@ -345,7 +418,7 @@ class XxxMove(BaseAction):
 
 ```bash
 grep -rho '"name"[[:space:]]*:[[:space:]]*"[^"]*"' \
-  orchestration/scenarios/<场景>/*.json | sort -u
+  orchestration/scenarios/scenarios_internal/<场景>/*.json | sort -u
 ```
 
 - 出现 `*JibotMove` → 真机 + JiBot；
@@ -358,4 +431,4 @@ grep -rho '"name"[[:space:]]*:[[:space:]]*"[^"]*"' \
 
 ## 05.07 节点清单与口径说明
 
-90 / 56 / 57 三个数字口径，以及 56 个公共节点的**作用 / 参数 / 底层**逐节点说明，已独立成篇：**[11-节点清单.md](./11-节点清单.md)**。
+100 个文件 / 60 个带 manifest 的文件 / 61 个注册节点三个数字口径，以及 61 个公共节点的**作用 / 参数 / 底层**逐节点说明，已独立成篇：**[11-节点清单.md](./11-节点清单.md)**。

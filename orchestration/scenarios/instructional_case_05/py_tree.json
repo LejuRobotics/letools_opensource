@@ -1,0 +1,89 @@
+{
+  "tree": {
+    "name": "Sequence",
+    "label": "instructional_cases_01_to_04_in_order",
+    "params": {
+      "memory": {
+        "value": true,
+        "source": "CUSTOM",
+        "data_type": "bool"
+      }
+    },
+    "childs": [
+      {
+        "name": "instructional_case_01.json",
+        "label": "case_01",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "WaitSeconds",
+        "label": "wait_between_case_01_and_02",
+        "params": {
+          "duration_sec": {
+            "value": 2.0,
+            "source": "CUSTOM",
+            "data_type": "float"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "instructional_case_02.json",
+        "label": "case_02",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "WaitSeconds",
+        "label": "wait_between_case_02_and_03",
+        "params": {
+          "duration_sec": {
+            "value": 2.0,
+            "source": "CUSTOM",
+            "data_type": "float"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "instructional_case_03.json",
+        "label": "case_03",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "WaitSeconds",
+        "label": "wait_between_case_03_and_04",
+        "params": {
+          "duration_sec": {
+            "value": 2.0,
+            "source": "CUSTOM",
+            "data_type": "float"
+          }
+        },
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "instructional_case_04.json",
+        "label": "case_04",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      }
+    ],
+    "childBoard": []
+  },
+  "interface": {
+    "inputs": [],
+    "outputs": [],
+    "custom": [],
+    "process": []
+  }
+}

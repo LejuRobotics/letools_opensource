@@ -6,9 +6,9 @@
 
 **难度**：⭐⭐⭐
 
-**适合读者**：跑通了 [08-头手躯干并行](08-头手躯干并行-instructional_case_03.md)，想把底盘运动编排进同一棵树、并在真机 JiBot 底盘上运行的人。
+**适合读者**：了解 [08-头手躯干串行](08-头手躯干串行-instructional_case_03.md)，想了解多 planner 同请求与 JiBot 底盘并行编排的人。本案例不是当前 case03 简单加一个底盘节点。
 
-**前置知识**：`Parallel` 的执行顺序、`MultiTimedCommandMove`（见 [08](08-头手躯干并行-instructional_case_03.md)）。
+**前置知识**：`Parallel` 的执行顺序（见 [07](07-手臂与头部并行-instructional_case_02.md)）、`MultiTimedCommandMove`（见 [08](08-头手躯干串行-instructional_case_03.md)）。
 
 **核心概念**：用一个持续 `RUNNING` 的守护节点管理底盘控制权；`success_on_one` 让主序列结束时自动终止守护节点；区分 JiBot 相对导航与 TimedCmd 底盘 planner。
 
@@ -16,9 +16,9 @@
 
 1. 看懂「控制权守护 + 动作序列」的外层结构；
 2. 理解底盘节点为什么要排在 `MultiTimedCommandMove` 前面；
-3. 知道「只提交不等待」的底盘节点依赖时间窗口，以及时间窗口不够时该怎么做。
+3. 知道「只提交不等待」的底盘节点不验收到达，时间估算不能代替真实任务状态。
 
-**由简到难进阶路线**：[08](08-头手躯干并行-instructional_case_03.md)（头部 + 双臂 + 躯干）→ **本篇**（加入底盘）→ [10](10-搬箱场景-grasp_mtbf.md)（导航、识别、抓取、放置的完整链路）。
+**由简到难进阶路线**：[08](08-头手躯干串行-instructional_case_03.md)（头部 + 双臂 + 躯干）→ **本篇**（加入底盘）→ [10](10-搬箱场景-grasp_mtbf.md)（导航、识别、抓取、放置的完整链路）。
 
 ---
 
@@ -29,7 +29,7 @@
 | 场景目录 | `orchestration/scenarios/instructional_case_04/` |
 | 主树 | `py_tree.json`，根 `Parallel(jibot_control_guard_and_motion)`，共 **18 个节点** |
 | 子树 | `py_tree_child.json` 为空集合，本案例不使用子树 |
-| 黑板 | `board.json`：沿用 [08](08-头手躯干并行-instructional_case_03.md) 的头部与 TimedCmd 参数，另加底盘参数 |
+| 黑板 | `board.json`：独立的头部角度、planner `3/8/9` 命令组和 JiBot 参数；不沿用 case03 的 planner `2` 位姿格式 |
 | 硬件配置 | 无 `hardware_config.json`；JiBot 由 `config/app_config.yaml` 中的 `navigation_chassis_backend: jibot` 选择 |
 | 运动部位 | 头部、双臂、下肢 / 躯干、JiBot 底盘 |
 | 运行环境 | 干跑、**真机（JiBot 底盘）**。MuJoCo 仿真中没有 JiBot 导航服务，底盘节点无法执行 |
@@ -50,9 +50,10 @@ Parallel(jibot_control_guard_and_motion)  policy=success_on_one
 
 ### 外层：控制权守护
 
-- `NodeEnableVelControl(enable=false)` 在动作期间把底盘速度控制权交给 JiBot 导航模块，并一直保持 `RUNNING`；
-- 外层 `Parallel` 使用 `success_on_one`：四阶段序列完成后根节点成功，同时终止守护节点；`restore_on_stop=true` 使守护节点在被终止时恢复运行前的控制权；
-- 如果守护节点执行失败，根节点也会失败，不会把序列成功误判为整个案例成功。
+- `NodeEnableVelControl(enable=false)` 初始化时尝试交权给 JiBot 导航，正常切换后保持 `RUNNING`；硬件无该方法时也会跳过并 `RUNNING`，并非交权成功的证明。
+- 外层 `success_on_one` 在四阶段序列成功时终止守护；`restore_on_stop=true` 只表示尝试恢复。未读到原权限且未配置 `restore_to` 时不恢复；恢复失败只告警，不改变已成功的根状态。
+- 切换接口返回失败时守护节点及根树会失败。但 `Parallel` 会先 tick 各分支，失败的同拍仍可能执行动作分支；它不是防止其他分支发令的安全门。
+- 必须人工核对运行前后的权限与在途任务；节点实际返回 `FAILURE` 后不进入后续阶段，不等于所有硬件异常都能可靠上报，也不保证已提交运动立即停止。
 
 ### 阶段内：子节点顺序
 
@@ -61,10 +62,10 @@ Parallel(jibot_control_guard_and_motion)  policy=success_on_one
 ```text
 HeadControlSdkMove           下发头部目标后立即返回
 BaseMoveRelativeJibotMove    调用 /move_base/base_move 提交底盘任务后立即返回
-MultiTimedCommandMove        提交手臂与躯干目标，并等待规划运动结束
+MultiTimedCommandMove        提交手臂与躯干目标，再按规划时长定时等待
 ```
 
-`Parallel` 依次 tick 子节点，所以底盘实际运动会与手臂、躯干运动重叠。如果把底盘节点放在 `MultiTimedCommandMove` 后面，TimedCmd 的等待会让底盘任务延后下发。
+`Parallel` 依次 tick 子节点，物理运动可以重叠，但头部不查到位、底盘不查任务完成、TimedCmd 技能只按 `actual_time + settle_time` 等待，不能据此证明同步到位。如果把底盘节点放在 `MultiTimedCommandMove` 后面，只会延后底盘任务提交，并不会增加到达检查。
 
 ---
 
@@ -72,14 +73,14 @@ MultiTimedCommandMove        提交手臂与躯干目标，并等待规划运动
 
 `BaseMoveRelativeJibotMove` 底层调用 `hardware.base_move_relative_jibot()`：`x`、`y` 是相对当前本体坐标系的位移（米），`theta` 是相对当前朝向的旋转量（**弧度**，不受 `angle_unit` 影响）。
 
-| 阶段 | 相对 `theta`（rad） | 约合角度 | 累计朝向 |
+| 阶段 | 相对 `theta`（rad） | 约合角度 | 理想累计朝向变化 |
 |---|---:|---:|---:|
 | 1：初始归零 | 不下发底盘任务 | 0° | 0° |
 | 2：向左 | `+0.349066` | +20° | +20° |
 | 3：向右 | `-0.698132` | -40° | -20° |
 | 4：回正 | `+0.349066` | +20° | 0° |
 
-三次旋转的增量之和为零，正常完成后底盘回到起始朝向。本案例只原地旋转（`x = y = 0`）。
+三次增量之和为零只是命令层的理想结果；本树不验证每段到达，不能保证实际回到起始朝向。本案例只请求原地旋转（`x = y = 0`）。
 
 底盘参数（`board.json`）：
 
@@ -92,9 +93,9 @@ MultiTimedCommandMove        提交手臂与躯干目标，并等待规划运动
 
 ### 时间窗口的限制
 
-`BaseMoveRelativeJibotMove` **只提交任务，不查询是否到达**。本案例把最大一段旋转（40°，约 0.7 rad）控制在约 2 秒内完成，依靠同一阶段 `MultiTimedCommandMove` 约 3.5 秒的等待（3 秒执行 + 0.5 秒 `settle_time`）让底盘转完。
+`BaseMoveRelativeJibotMove` **只提交任务，不查询是否到达**。最大一段按 `0.698132 / 0.35` 粗算约 2 秒，未含加减速和导航/调度开销，不是完成时间上限。同阶段 TimedCmd 的名义 3 秒加默认 0.5 秒额外等待也不是底盘到达条件；即使默认参数也不能排除下一段提交时上一段尚在途，或收尾恢复权限时底盘仍在运动。
 
-如果调大旋转量或调低角速度，底盘可能在下一阶段开始时还没转完。这种情况应改用带任务 ID 和到达检查的编排：提交后用 `CheckArrivedJibotMove` 等待到达，参数见 [`11-节点清单`](../03-接口详细文档/11-节点清单.md)。
+需要自动确认每段完成时，应另行编排保存提交结果的真实 `task_id`，再查询到达及超时。当前 `BaseMoveRelativeJibotMove` 不把 `task_id` 写入黑板，因此不能只加一个未绑定真实任务 ID 的 `CheckArrivedJibotMove` 就认为形成了闭环。相关参数见 [节点清单](../03-接口详细文档/11-节点清单.md)，本场景尚未实现该闭环。
 
 ### 不要和 TimedCmd 底盘 planner 混淆
 
@@ -110,7 +111,9 @@ MultiTimedCommandMove        提交手臂与躯干目标，并等待规划运动
 
 ## 四、头、手和躯干动作
 
-与 [08](08-头手躯干并行-instructional_case_03.md) 相同：`MultiTimedCommandMove` 在一次请求中同步提交 planner `3`（下肢 / 躯干）、`8`（左臂）、`9`（右臂）。
+本案例的 `MultiTimedCommandMove` 一次提交 planner `3`（4D 下肢/躯干关节角）、`8`（7D 左臂）、`9`（7D 右臂），与 case03 的 planner `2` 躯干位姿后接独立双臂节点不同。三组 board 键依次为 `home_commands`、`forward_and_left_commands`、`forward_and_right_commands`，阶段 4 复用 `home_commands`。
+
+`motion_duration_sec=3.0` 是期望规划时长，默认 `is_sync=true` 请求同组 planner 同步规划，并非实测同时到位保证；技能按返回 `actual_time + 0.5` 秒等待，无返回时回退到请求时长。默认 `prepare_arm_control=true` 会先切手臂模式 2，再设 `focus_ee=false` / `focus_z=false`，任一步失败则不下发该节点的 TimedCmd，但已产生的副作用不回滚。结束不会恢复手臂模式/原焦点或物理复位。以下角度按默认 Adapter `angle_unit=deg` 填写，不能与 JiBot 的弧度混用。
 
 | 阶段 | 头部 `[yaw, pitch]`（度） | 左 / 右臂 `[J0..J6]`（度） | 下肢 / 躯干 `[j0..j3]`（度） |
 |---|---|---|---|
@@ -138,9 +141,11 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 [apps][dry-run] tick 后根状态: Status.SUCCESS
 ```
 
+dry-run 只覆盖加载及无硬件分支；当前根失败时也可能退出 0，应看根状态而不是只看退出码。它不能验证到达、权限、可达性或碰撞。
+
 ### 5.2 真机
 
-1. 确认 `config/app_config.yaml` 中 `navigation_chassis_backend` 为 `jibot`，且 JiBot 导航服务可用：`rosservice list | grep move_base`；
+1. 确认 `config/app_config.yaml` 中 `navigation_chassis_backend` 为 `jibot`，JiBot `/move_base/base_move`、控制权读取/切换、TimedCmd 及模式/焦点服务可用；排除其他在途任务，并现场确认当前控制权限，不能只以服务名出现在列表中判定就绪；
 2. 下位机启动真机控制器，宿主机按 [02-执行命令 · 运行前环境准备](02-执行命令.md#运行前环境准备仿真与真机共用) 准备终端，并确认 TF 转发已启动；
 3. 运行：
 
@@ -159,7 +164,8 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 |------|------|
 | 加载 | 干跑打印 `根节点: jibot_control_guard_and_motion` |
 | 单拍 tick | `tick 后根状态: Status.SUCCESS` |
-| 真机 | 底盘依次左转、右转、回正并回到起始朝向；日志中出现 JiBot `/move_base/base_move` 的提交信息；进程退出码为 `0` |
+| 程序结果 | 三次 JiBot 提交日志与退出码 0 只说明节点路径成功，不能证明底盘到达或回正 |
+| 真机验收 | 另行记录每个任务的实际到达、头/臂/躯干反馈及最终朝向，并核对底盘权限、手臂模式与焦点；恢复告警或在途任务不能因根成功而忽略 |
 | 排查 | 只看到 TimedCmd 日志、看不到 `/move_base/base_move` 时，先确认实际加载的场景路径是 `instructional_case_04` |
 
 ---
@@ -168,13 +174,14 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 
 | 改什么 | 怎么改 | 注意 |
 |---|---|---|
-| 转得更慢 | `base_angular_velocity_rad_s` 改为 `0.25` | 40° 一段约需 2.8 秒，仍在约 3.5 秒的时间窗口内 |
-| 转得更大 | 三个 `theta` 同比例放大，保持总和为零 | 超出时间窗口时，需改用到达检查（见第三节） |
-| 加一点平移 | `base_relative_x_m` 改为非零 | 每阶段都会平移，累计位移不为零；务必确认场地空间 |
+| 转得更慢 | `base_angular_velocity_rad_s` 改为 `0.25` | 40° 按匀速粗算约 2.8 秒，不是到达时限；必须另验任务状态 |
+| 转得更大 | 三个 `theta` 同比例放大，保持总和为零 | 和为零也不保证回正；重新核对场地、时序与到达证据（见第三节） |
+| 加一点平移 | `base_relative_x_m` 改为非零 | 阶段 2–4 各提交一次平移，阶段 1 无底盘任务；相对坐标随朝向变化，务必核对累计路径 |
 
 ---
 
 ## 八、下一步
 
+- [case05：01→04 顺序联测](../../orchestration/scenarios/instructional_case_05/README.md)：复用现有动作及返回边界，相邻案例间用公共 `WaitSeconds` 等待 2 秒，不额外增加到达检查或模式恢复。
 - [10-搬箱场景-grasp_mtbf](10-搬箱场景-grasp_mtbf.md)：导航、识别、抓取、搬运、放置的完整链路
 - [`03-adapters-硬件适配层`](../03-接口详细文档/03-adapters-硬件适配层.md)：JiBot 接口与标准导航接口

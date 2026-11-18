@@ -14,7 +14,7 @@
 
 订阅（两路都要时间戳接近，用 `ApproximateTimeSynchronizer` 对齐）：
   * `~image_color`  sensor_msgs/Image          彩色图（默认 `/camera/color/image_raw`）
-  * `~image_depth`  sensor_msgs/Image          对齐后的深度图，16UC1 单位 mm；用于选箱打分与深度下沿修正（默认开）
+  * `~image_depth`  sensor_msgs/Image          对齐后的深度图，16UC1 单位 mm；用于选箱打分与深度下沿修正（默认关，需显式开启）
   * `~camera_info`  sensor_msgs/CameraInfo     内参。OBB 推理本身**不需要**内参，
     但下游 / 叠加图要用于反投影，且换相机时要能对上，所以照订。
 
@@ -49,7 +49,7 @@
   | `score_w_depth` | `0.3` | 中心深度项权重 |
   | `z_near_mm` / `z_far_mm` | `500.0` / `1500.0` | 深度项刻度 |
   | `depth_patch_px` | `15` | 中心深度采样方块的半边长 |
-  | `depth_refine_bottom` | `true` | 用**深度下沿**把手持箱被拉长的下边收回去；只在框内箱体与下方背景有明确深度跳变时生效，没有跳变保持模型框 |
+  | `depth_refine_bottom` | `false` | 用**深度下沿**把手持箱被拉长的下边收回去；只在框内箱体与下方背景有明确深度跳变时生效，没有跳变保持模型框 |
   | `depth_refine_step` | `2` | 深度剖面的行/列采样步长（越大越快、y 的量化越粗） |
   | `depth_refine_band_px` | `45` | 沿框中心左右各取多少像素做深度剖面 |
   | `depth_refine_jump_mm` | `150.0` | 箱体到下方背景的最小持续深度跳变 |
@@ -64,6 +64,8 @@
   | `infer_service` | `/carton_obb/infer` | 公共服务名（`box_detection_msgs/InferCartonObb`） |
   | `infer_probe_s` | `2.0` | 启动时等服务的秒数 |
   | `shared_fail_limit` | `3` | 共享服务连续失败几次后切回本地 ONNX（不自动切回） |
+  | `select_mode` | `score` | `held` = 直接取 `class_id==held_class` 的框（取置信度最高），码垛侧用；`score` = 原来的下方中心+面积+深度打分 |
+  | `held_class` | `0` | `select_mode=held` 时要选的类别（两类模型 0=held，1=neighbor） |
 
 **选箱判据**（2026-10-13 改，见 `obb_decoder.candidate_score`）：
 **到画面下方中心的距离**（权重 0.5）+ 面积（0.2）+ 中心深度（0.3）。
@@ -151,7 +153,7 @@ from skills.atomic.perception.carton_detect import (        # noqa: E402
     DEFAULT_SCORE_W_AREA, DEFAULT_SCORE_W_DCENTER, DEFAULT_SCORE_W_DEPTH,
     DEFAULT_Z_FAR_MM, DEFAULT_Z_NEAR_MM,
     angle_deg_from_corners, decode_obb, dets_from_rotated_rects,
-    nms_rotated, pick_best, score_candidates,
+    nms_rotated, pick_best, score_candidates, select_held,
     refine_bottom_by_depth, sample_depth_mm, to_input_tensor,
 )
 
@@ -319,6 +321,19 @@ class CartonObbNode:
         self.publish_empty = _as_bool(rospy.get_param('~publish_empty', False))
         self.max_rate = float(rospy.get_param('~max_rate_hz', 0.0))
 
+        # 选箱模式（2 类模型）：
+        #   held  = 直接取 class_id == ~held_class 的框，取置信度最高的一个；
+        #           码垛侧用这个，不再走下面的三项打分。
+        #   score = 原来的「下方中心距离 + 面积 + 深度」打分；代码保留，单类
+        #           模型或需要回退时用。
+        self.select_mode = str(
+            rospy.get_param('~select_mode', 'score')).strip().lower()
+        if self.select_mode not in ('held', 'score'):
+            rospy.logwarn('[carton_obb] ~select_mode=%r 不认识（只认 held/score），'
+                          '按 score 处理', self.select_mode)
+            self.select_mode = 'score'
+        self.held_class = int(rospy.get_param('~held_class', 0))
+
         # 选箱参数（见 obb_decoder.candidate_score）
         self.d_near = float(rospy.get_param('~d_near_px', DEFAULT_D_NEAR_PX))
         self.d_far = float(rospy.get_param('~d_far_px', DEFAULT_D_FAR_PX))
@@ -328,9 +343,9 @@ class CartonObbNode:
         self.z_near = float(rospy.get_param('~z_near_mm', DEFAULT_Z_NEAR_MM))
         self.z_far = float(rospy.get_param('~z_far_mm', DEFAULT_Z_FAR_MM))
         self.depth_patch = int(rospy.get_param('~depth_patch_px', DEFAULT_DEPTH_PATCH_PX))
-        # 深度下沿修正（默认开；见 obb_decoder.refine_bottom_by_depth）。
+        # 深度下沿修正（默认关；见 obb_decoder.refine_bottom_by_depth）。
         # 只在「框内箱体 → 下方远背景」有持续跳变时收缩下边，没有跳变保持模型框。
-        self.refine_bottom = _as_bool(rospy.get_param('~depth_refine_bottom', True))
+        self.refine_bottom = _as_bool(rospy.get_param('~depth_refine_bottom', False))
         self.refine_step = max(1, int(rospy.get_param('~depth_refine_step',
                                                      DEFAULT_REFINE_BOTTOM_STEP)))
         self.refine_band = max(5, int(rospy.get_param('~depth_refine_band_px',
@@ -432,6 +447,7 @@ class CartonObbNode:
             '~detect_mode_topic', '/pallet_servo/detect_mode')).strip()
         self._gated_active = not self.gated
         self._warmed = False
+        self._detect_mode = 0 if self.gated else 2
         if self.gated:
             from std_msgs.msg import Int32
             self._mode_sub = rospy.Subscriber(
@@ -546,7 +562,7 @@ class CartonObbNode:
             raise RuntimeError(f'service returned bad image size {w}x{h}')
         dets = dets_from_rotated_rects(
             resp.center_x, resp.center_y, resp.width, resp.height,
-            resp.angle_deg, resp.scores,
+            resp.angle_deg, resp.scores, classes=resp.classes,
             orig_shape=(h, w), conf_thr=self.conf)
         return dets, ms, resp.source_header.stamp, (h, w)
 
@@ -644,10 +660,11 @@ class CartonObbNode:
         except (TypeError, ValueError):
             return
         active = mode >= 1
-        if active != self._gated_active:
+        if active != self._gated_active or mode != self._detect_mode:
             rospy.loginfo('[carton_obb] 检测门控：%s（mode=%d）',
                           '开 —— 开始出数' if active else '关 —— 待命，不出数',
                           mode)
+        self._detect_mode = mode
         self._gated_active = active
 
     def _on_synced(self, color_msg, depth_msg):
@@ -731,36 +748,55 @@ class CartonObbNode:
                 self._heartbeat()
                 continue
 
-            dets = nms_rotated(dets, self.nms_iou, (h, w), iomin_thr=self.nms_iomin)
+            # 两类模型：held 与 neighbor 必须分别保留，不能被对方压掉。
+            dets = nms_rotated(dets, self.nms_iou, (h, w), iomin_thr=self.nms_iomin,
+                               class_aware=True)
 
-            # ---- 选箱：离画面下方中心最近的那个 --------------------------
-            ref_uv = (w / 2.0, float(h))
             depth = self._depth_for(src_header.stamp)
-            zs = [sample_depth_mm(depth, d['box_uv'], half=self.depth_patch,
-                                  z_near=self.z_near, z_far=self.z_far) for d in dets]
-            cand = score_candidates(dets, ref_uv, zs, w_dcenter=self.w_dcenter,
-                                    w_area=self.w_area, w_depth=self.w_depth,
-                                    d_near=self.d_near, d_far=self.d_far,
-                                    z_near=self.z_near, z_far=self.z_far)
-            best, best_score, best_parts = (max(cand, key=lambda t: t[1]) if cand
-                                            else (None, None, None))
+            best = None
+            best_score = None
+            best_parts = None
+            if self.select_mode == 'held':
+                # 码垛：模型已经分出 held，直接取 class 0 里置信度最高的那个，
+                # 不再用下方中心/面积/深度打分（那套代码保留在 score 分支）。
+                best = select_held(dets, self.held_class)
+            else:
+                # ---- 选箱：离画面下方中心最近的那个 ----------------------
+                ref_uv = (w / 2.0, float(h))
+                zs = [sample_depth_mm(depth, d['box_uv'], half=self.depth_patch,
+                                      z_near=self.z_near, z_far=self.z_far)
+                      for d in dets]
+                cand = score_candidates(dets, ref_uv, zs, w_dcenter=self.w_dcenter,
+                                        w_area=self.w_area, w_depth=self.w_depth,
+                                        d_near=self.d_near, d_far=self.d_far,
+                                        z_near=self.z_near, z_far=self.z_far)
+                best, best_score, best_parts = (max(cand, key=lambda t: t[1])
+                                                if cand else (None, None, None))
 
             if best is None:
                 self._n_empty += 1
                 # ⚠️ **候选数必须进日志**：只写"没检到箱子"排查不了 ——
                 # `n_after_nms=0` 是网络一个框都没出（模型/输入的问题），
-                # `>0` 则是出了框但被选箱/深度过滤掉了（参数或深度的问题），
+                # `>0` 则是出了框但没有 held 类 / 被选箱或深度过滤掉了，
                 # 两条完全不同的排查路线，而这个数本来就在手上。
-                self._last_reject = f'no_detection,n_after_nms={len(dets)}'
-                rospy.loginfo_throttle(
-                    5.0, '[carton_obb] 本帧没检到箱子（累计 %d 帧，NMS 后候选 %d 个）',
-                    self._n_empty, len(dets))
+                if self.select_mode == 'held':
+                    self._last_reject = (
+                        f'no_held_class,n_after_nms={len(dets)}')
+                    rospy.loginfo_throttle(
+                        5.0, '[carton_obb] 本帧没有 held 类（累计 %d 帧，'
+                             'NMS 后候选 %d 个，held_class=%d）',
+                        self._n_empty, len(dets), self.held_class)
+                else:
+                    self._last_reject = f'no_detection,n_after_nms={len(dets)}'
+                    rospy.loginfo_throttle(
+                        5.0, '[carton_obb] 本帧没检到箱子（累计 %d 帧，'
+                             'NMS 后候选 %d 个）', self._n_empty, len(dets))
                 if self.publish_empty:
                     self._publish_empty(src_header)
                 self._heartbeat()
                 continue
 
-            # ---- 深度下沿修正（默认开，可关）---------------------------
+            # ---- 深度下沿修正（默认关，需要时开）---------------------------
             # 现场问题：手持箱相对相机静止，但模型下边会跳到下方背景上。
             # 用框内箱体与下方背景的深度跳变把下边收回去；找不到跳变就不动。
             # 必须在时间窗 push 之前改，窗口才会用修正后的四角。
@@ -796,13 +832,22 @@ class CartonObbNode:
                 self._last_warn = time.time()
                 rospy.logwarn('[carton_obb] 本帧 %.0fms，超过 %.0fms（丢帧 %d）',
                               ms, self.queue_warn_ms, self._n_dropped)
-            rospy.loginfo_throttle(
-                2.0, '[carton_obb] %.1fms score=%.3f（距下中 %.2f（%.0fpx）面积归一 %.2f '
-                     '深度 %.2f）本帧 %d 个候选，发布 %d 次',
-                ms, best_score, best_parts['d_center'], best_parts['d_px'],
-                best_parts['area_norm'],
-                -1.0 if best_parts['depth'] is None else best_parts['depth'],
-                len(dets), self._n_pub)
+            # 逐帧成功摘要降到 DEBUG：默认 INFO 下每 2s 一条长行是现场主要噪声源；
+            # 存活/频率由下面的 `_heartbeat()` 负责，异常仍有 WARNING。
+            if best_parts is None:
+                rospy.logdebug_throttle(
+                    2.0, '[carton_obb] %.1fms held cls=%d conf=%.3f '
+                         '本帧 %d 个候选，发布 %d 次',
+                    ms, int(best.get('class_id', 0)), best['confidence'],
+                    len(dets), self._n_pub)
+            else:
+                rospy.logdebug_throttle(
+                    2.0, '[carton_obb] %.1fms score=%.3f（距下中 %.2f（%.0fpx）面积归一 %.2f '
+                         '深度 %.2f）本帧 %d 个候选，发布 %d 次',
+                    ms, best_score, best_parts['d_center'], best_parts['d_px'],
+                    best_parts['area_norm'],
+                    -1.0 if best_parts['depth'] is None else best_parts['depth'],
+                    len(dets), self._n_pub)
             self._heartbeat()
 
     def _heartbeat(self):

@@ -1,0 +1,1054 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""托盘伺服误差：投影、取边、垂距、角度差。
+
+被控量是**图像空间**的三个量：
+
+    e_bottom_px  箱子底边 → 托盘底边（图像投影）的带符号垂距
+    e_right_px   箱子右边 → 托盘右边（图像投影）的带符号垂距
+    theta_rad    箱子底边 − 托盘底边 的角度差，带符号，正常 ±45°
+                 （**屏幕顺时针为正**，定号与那两次翻转见 `servo_error` 里的注释）
+
+本模块**只做纯函数**：不 import 框架的任何东西，不碰 ROS、硬件、黑板，也不
+记日志。这样它可以脱离一切环境做逐位回归（与 `pallet_pose/algorithm.py` 同一
+套理由）。日志是副作用；拒绝原因、warn、诊断量一律作为**返回值**给出，由
+上层去记——这正是 `Reject` 存在的理由。
+
+除几何外这里还收着一个**纯参数解析**小函数 `parse_bool_param`：两个节点
+（`node_pallet_servo` / `node_inject_servo_input`）都要用它，而它是纯的、
+零依赖的，放这里两边共用一个实现，不会各自分叉（为什么不能用 `bool(...)`
+顶替，见那个函数的 docstring）。
+
+四个必须知道的点：
+
+1. **单位在这里是分裂的。** 托盘系内部的几何量一律**毫米**，而
+   `T_cam_pallet` 的平移是**米**（与 `PalletFrame.to_matrix()` 和框架 Pose6D
+   一致）。`project_pallet_points` 负责这一步换算，写错了会静默差 1000 倍。
+
+2. **图像坐标是 `u` 向右、`v` 向下。** 所有像素量都在这个约定下，所以
+   "底边"是 `v` 更大的那条边，`atan2(Δv, Δu)` 的正方向在屏幕上是**顺时针**。
+
+3. **直线无向。** 一条边是 p0→p1 还是 p1→p0 是同一条线，角度必须折进半圈
+   （`fold_line_angle`）。不折的话，两个视觉上重合的边会算出 178° 的"角度差"。
+
+4. **垂距取中点。** `e = (M_box − foot) · n`，`M_box` 是箱子边的**中点**。两条
+   线不平行时"线到线"是一个区间，取端点没有意义，取中点才和伺服的语义一致。
+
+运行与测试
+----------
+    # 算法层合成测试：不需要硬件、不需要 ROS、不读图
+    python3 apps/test_kuavo_5w_skills/test_pallet_servo.py
+
+    # 编排层节点单测：CI 会跑这条
+    #   （.gitlab-ci.yml 的 verify:opensource → pytest orchestration/nodes/tests/ -m unit）
+    pytest orchestration/nodes/tests/test_node_pallet_servo.py -m unit -v
+"""
+from __future__ import annotations
+
+import ast
+import math
+import re
+from dataclasses import dataclass, field, replace
+from typing import Dict, List, Optional, Tuple, Union
+
+import cv2
+import numpy as np
+
+# 参考边投影后短于这么多像素就判该帧退化。**这是拍出来的初值，没有数据支撑**：
+# 它兜的是"投影明显退化"，不是标定出来的阈值。
+MIN_EDGE_PX = 20.0
+# |theta| 超过这个值只置 warn，不拒绝输出
+THETA_WARN_RAD = math.radians(45.0)
+# 相机后方判据（米）
+_BEHIND_CAMERA_EPS_M = 1e-6
+
+REF_EDGE_SPECS = ("y=0", "y=H", "x=W", "x=0")
+
+# `y=<表达式>` / `x=<表达式>`。表达式里可以出现 W / H、数字、括号与 + - * /，
+# 也认 `0.3H` 这种隐式乘法（见 `_eval_edge_expression`）。
+_EDGE_RE = re.compile(r"^\s*([xy])\s*=\s*(.+?)\s*$")
+
+
+def _eval_edge_expression(expr: str, W: float, H: float) -> Optional[float]:
+    """把 `W-100` / `0.3H` / `0.5*(W+H)` 这种表达式算成毫米。
+
+    **只认** W、H、数字、括号和 `+ - * /`；不支持属性、函数调用、幂、下标等。
+    不用裸 `eval` —— 配置是操作员写的，但"少一个能执行任意表达式的入口"永远
+    比"多一个"好。非法/非有限返回 None（与其它解析函数同一条约定）。
+    """
+    text = str(expr).strip()
+    if not text:
+        return None
+    # 隐式乘法：`0.3H` -> `0.3*H`，`)H` -> `)*H`。
+    text = re.sub(r"(?<=\d)\s*(?=[WH])", "*", text)
+    text = re.sub(r"(?<=\))\s*(?=[WH])", "*", text)
+    try:
+        tree = ast.parse(text, mode="eval")
+    except SyntaxError:
+        return None
+
+    def ev(node):
+        if isinstance(node, ast.Expression):
+            return ev(node.body)
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool) or not isinstance(
+                    node.value, (int, float)):
+                raise ValueError("only numbers")
+            return float(node.value)
+        if isinstance(node, ast.Name):
+            if node.id == "W":
+                return float(W)
+            if node.id == "H":
+                return float(H)
+            raise ValueError(f"unknown name {node.id!r}")
+        if isinstance(node, ast.UnaryOp):
+            value = ev(node.operand)
+            if isinstance(node.op, ast.UAdd):
+                return value
+            if isinstance(node.op, ast.USub):
+                return -value
+            raise ValueError("unary op")
+        if isinstance(node, ast.BinOp):
+            left, right = ev(node.left), ev(node.right)
+            if isinstance(node.op, ast.Add):
+                return left + right
+            if isinstance(node.op, ast.Sub):
+                return left - right
+            if isinstance(node.op, ast.Mult):
+                return left * right
+            if isinstance(node.op, ast.Div):
+                return left / right
+            raise ValueError("bin op")
+        raise ValueError(f"unsupported node {type(node).__name__}")
+
+    try:
+        value = float(ev(tree))
+    except (ValueError, ZeroDivisionError, OverflowError, TypeError):
+        return None
+    if not math.isfinite(value):
+        return None
+    return value
+
+
+def parse_edge_spec(spec: str) -> Optional[Tuple[str, str, Union[float, str]]]:
+    """一条参考边写法 → `("symbol"|"abs"|"expr", 轴/原文, 值/表达式)`。
+
+    三种写法：
+
+      `y=0` / `y=H` / `x=W` / `x=0`  —— 台面矩形的四条边，跟着 `size_mm` 走
+      `y=800` / `x=1150`            —— 与 `y=0` / `x=0` 平行、落在该毫米位置上的线
+      `y=0.3H` / `x=W-100`          —— 相对台面尺寸的表达式；支持 W / H、数字、
+                                       括号与 `+ - * /`，`0.3H` 也认
+
+    非法写法返回 `None`（与 `ref_edge_points_mm` 同一个约定：纯函数不记日志、
+    不抛异常，失败作为返回值给出去）。
+
+    ⚠️ **符号写法先查表**，查不到才按表达式解析 —— 否则 `y=0` 会被当成绝对写法，
+    虽然结果一样，但 `H=0` 这种退化尺寸下两种写法的含义会分叉。
+
+    符号写法没有绝对位置，第三项给 `0.0` 而不是 `nan`：`nan != nan`，带 `nan`
+    的元组**不等于它自己**，调用方连"解析结果是不是这个"都断言不了。
+    """
+    raw = str(spec)
+    if raw in REF_EDGE_SPECS:
+        return ("symbol", raw, 0.0)
+    match = _EDGE_RE.match(raw)
+    if match is None:
+        return None
+    axis, expr = match.group(1), match.group(2).strip()
+    try:
+        value = float(expr)
+    except ValueError:
+        # 含 W/H/运算符：先按 W=H=1 做一次语法/值域校验，真正的值在
+        # `ref_edge_points_mm` 里按本帧尺寸算。
+        if _eval_edge_expression(expr, 1.0, 1.0) is None:
+            return None
+        return ("expr", axis, expr)
+    if not math.isfinite(value):
+        return None
+    return ("abs", axis, value)
+
+
+# --------------------------------------------------------------------------- #
+# 拒绝：纯函数不记日志，失败原因必须作为返回值给出去
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class Reject:
+    """一次拒绝：哪一项没过、实际值多少、阈值多少。
+
+    只返回 `None` 的话，到了上层就只剩一句"失败了"的日志，无从排查——所以
+    `detail` 里必须写**实际值和阈值**，不能只写"失败"。
+
+    用 frozen dataclass 而不是手写类：它是个**值对象**（拿它当"这一个原因"来
+    比较、往集合里放都说得通），`frozen=True` 顺带给出 `__hash__`——手写类一旦
+    定义了 `__eq__`，Python 会把 `__hash__` 置成 `None`，实例就不可哈希了。
+    这也与兄弟模块 `pallet_pose/algorithm.py` 里 `TagObs` / `CalibrationResult`
+    的约定一致。
+    """
+
+    code: str
+    detail: str
+
+    def __str__(self) -> str:
+        return f"{self.code}: {self.detail}"
+
+
+# --------------------------------------------------------------------------- #
+# 托盘参考边
+# --------------------------------------------------------------------------- #
+def ref_edge_points_mm(edge_spec: str, size_mm) -> Optional[
+        Tuple[Tuple[float, float, float], Tuple[float, float, float]]]:
+    """参考边在托盘台面系里的两个端点（**毫米**）。非法写法返回 None。
+
+    台面在该系里是矩形 `[0, W] × [0, H]`、`z = 0`（见 `PalletFrame`）。
+    写法见 `parse_edge_spec` —— 四条边界边、`y=<毫米>` / `x=<毫米>` 的绝对线，或 `y=0.3H` / `x=W-100` 这类相对表达式。
+
+    注意"非法"只指**写法**：绝对写法可以落在台面外（例如对齐托盘外的某个点），
+    照样返回对应的点。`parse_ref_edges` 也不再按台面尺寸限制范围 —— 参考边是
+    **操作员想对齐的位置**，不是物理托盘的约束。
+    """
+    try:
+        W, H = float(size_mm[0]), float(size_mm[1])
+    except (TypeError, IndexError, ValueError):
+        return None
+    table = {
+        "y=0": ((0.0, 0.0, 0.0), (W, 0.0, 0.0)),
+        "y=H": ((0.0, H, 0.0), (W, H, 0.0)),
+        "x=W": ((W, 0.0, 0.0), (W, H, 0.0)),
+        "x=0": ((0.0, 0.0, 0.0), (0.0, H, 0.0)),
+    }
+    hit = table.get(str(edge_spec))
+    if hit is not None:
+        return hit
+    parsed = parse_edge_spec(edge_spec)
+    if parsed is None:
+        return None
+    kind, axis, raw_value = parsed
+    if kind == "symbol":
+        return None                    # 符号写法已在上面 table 里处理
+    if kind == "expr":
+        value = _eval_edge_expression(str(raw_value), W, H)
+        if value is None or not math.isfinite(value):
+            return None
+    else:
+        value = float(raw_value)
+    # 绝对/表达式写法：`y=<毫米>` 是沿 x 展开、落在该 y 上的线；`x=<毫米>` 沿 y 展开。
+    # 表里那四条边同理由 `size_mm` 给出 —— 同一条几何线，两种写法给出同一对端点。
+    # **别去统一端点顺序**：这里两端点的顺序与表里对应的边一致；顺序本身不影响
+    # 垂距（`inward_normal` / `edge_offset` 只用端点与台面中心），但会改
+    # `foot_outside` 的判据。
+    if axis == "y":
+        return ((0.0, value, 0.0), (W, value, 0.0))
+    return ((value, 0.0, 0.0), (value, H, 0.0))
+
+
+def project_pallet_points(T_cam_pallet, points_mm, K,
+                          D=None) -> Union[np.ndarray, Reject]:
+    """托盘系（**毫米**）的点 → 图像像素，成功给 `(N, 2)` float64。
+
+    `T_cam_pallet` 的平移是**米**（与 `PalletFrame.to_matrix()`、框架 Pose6D
+    一致），而这里的点是毫米——所以进旋转之前先乘 0.001。漏掉这一步结果会
+    差 1000 倍，而且仍然是一对"看着像像素坐标"的数。
+
+    点落在相机后方（或光心上）时必须拒：那时 `projectPoints` 不会报错，
+    它给出的是**镜像的**像素，比没有值更糟。
+    """
+    T = np.asarray(T_cam_pallet, np.float64)
+    if T.shape != (4, 4):
+        return Reject("T_shape", f"T_cam_pallet 必须是 4x4，实际 {T.shape}")
+    P = np.asarray(points_mm, np.float64).reshape(-1, 3)
+    bad = np.argwhere(~np.isfinite(P))
+    if bad.size:
+        # 实际值必须写进 reason —— 这是"拒绝必须带原因"硬要求的一部分
+        return Reject("points_not_finite",
+                      f"待投影的点里有 NaN/inf：下标 "
+                      f"{sorted(set(int(i) for i in bad[:, 0]))}"
+                      f"（共 {len(P)} 个点）")
+    P_cam = (T[:3, :3] @ (P * 0.001).T).T + T[:3, 3]
+    if np.any(P_cam[:, 2] <= _BEHIND_CAMERA_EPS_M):
+        return Reject("behind_camera",
+                      f"点在相机后方或落在光心上：z = "
+                      f"{np.round(P_cam[:, 2], 4).tolist()} m")
+
+    K = np.asarray(K, np.float64).reshape(3, 3)
+    dist = None
+    if D is not None:
+        dist = np.asarray(D, np.float64).reshape(1, -1)
+        if dist.size == 0:
+            dist = None
+    px, _ = cv2.projectPoints(P_cam.reshape(-1, 1, 3), np.zeros(3), np.zeros(3),
+                              K, dist)
+    return px.reshape(-1, 2).astype(np.float64)
+
+
+def ref_edge_px(T_cam_pallet, size_mm, edge_spec, K, D=None, image_size=None,
+                min_edge_px: float = MIN_EDGE_PX) -> Union[np.ndarray, Reject]:
+    """托盘参考边 → 图像上的两个端点 `(2, 2)`。
+
+    `image_size=(w, h)` 给了就顺带查"整条边跑到图外"——**两个端点都出界**才算，
+    有一端在框里就还能用（那一端仍然提供有效的垂距基准）。
+    """
+    pts = ref_edge_points_mm(edge_spec, size_mm)
+    if pts is None:
+        return Reject("bad_edge_spec",
+                      f"参考边写法 {edge_spec!r} 既不是 {list(REF_EDGE_SPECS)} "
+                      f"之一，也不是 y=<毫米> / x=<毫米> / y=0.3H / x=W-100 "
+                      f"（size_mm={size_mm!r}）")
+    px = project_pallet_points(T_cam_pallet, pts, K, D)
+    if isinstance(px, Reject):
+        return px
+
+    length = float(np.linalg.norm(px[1] - px[0]))
+    if length < min_edge_px:
+        return Reject("edge_too_short",
+                      f"参考边 {edge_spec} 投影后只有 {length:.1f} px"
+                      f"（阈值 {min_edge_px:.0f} px）—— 托盘太远或太侧")
+    # ⚠️ **`edge_off_image` 判据 2026-09-30 删掉了**（原来这里："两个端点都在图外
+    # 就拒整帧"）。操作员在真机上问到的正是它："托盘底边在画面外也应该能有输出吧？"
+    # —— 该有，而且**下游的算法本来就支持**：
+    #   * `theta` 只用两端点的**方向**算，端点在哪不影响；
+    #   * `e_bottom` / `e_right` 的垂足按**无限直线**算（`edge_offset` 的 docstring
+    #     明写"落在段外时置 `foot_outside`，**但垂距本身仍然是有效信息，所以照样
+    #     输出**"）。
+    # 实测（托盘往近处挪、下边从画面底部溜出去）：`y=0` 一端在图外时照常给出
+    # `e_bottom=+63.7px e_right=+758.5px theta=-0.07°`，数值有效；两个端点都出去
+    # 之后才被这条判据拦住 —— 而那正是算法声明"照样输出"的那种情况。
+    # "这条边看不到"已经由 `foot_outside` 的 warn 覆盖（它说明箱子偏出了这条边的
+    # 范围），不需要再拒一帧。真正该守的是上面那条 `edge_too_short`。
+    #
+    # ⚠️ `image_size` 参数**保留**（调用方都在传），但现在它不再参与判断 ——
+    # 留着是为了不打断调用方签名，也因为它未来可能用于别的诊断。
+    return px
+
+
+def parse_ref_edges(ref_edges) -> Union[Tuple[str, str], Reject]:
+    """校验并规范化 `ref_edges`：两条**写法合法且互相不平行**的参考边。
+
+    合法性是**启动时**就该查出来的配置错误，不是每帧的几何退化——配错了每帧
+    都会失败，早失败一句好过每帧失败一句。位置的语义是固定的：**第 1 个是
+    「底边」**（参与垂距与角度差），**第 2 个是「右边」**（只参与垂距）。
+
+    ⚠️ **不再限制绝对写法落在台面内**（2026-10-26 操作员裁定）：参考边是
+    **"想对齐的位置"**，可以刻意落在托盘外（例如对托盘边外某一处）。这里只查
+    写法（能解析成 `y=` / `x=`）与两条线不平行 —— 几何上平行的两条边没有
+    "垂距"可言，那仍然是配置错误。
+    """
+    if not isinstance(ref_edges, (list, tuple)) or len(ref_edges) != 2:
+        return Reject("ref_edges_arity",
+                      f"ref_edges 必须是两条，实际 {ref_edges!r}")
+    first, second = parse_edge_spec(ref_edges[0]), parse_edge_spec(ref_edges[1])
+    for name, spec, parsed in (("底边（第 1 个）", ref_edges[0], first),
+                               ("右边（第 2 个）", ref_edges[1], second)):
+        if parsed is None:
+            return Reject("ref_edges_unknown",
+                          f"{name} {spec!r} 不是合法参考边（可选项 "
+                          f"{list(REF_EDGE_SPECS)}，或 y=<毫米> / x=<毫米>，"
+                          f"或相对表达式如 y=0.3H / x=W-100）")
+    # 平行判据比**轴**，不比首字符：`y=0` 与 `y=800` 都沿 x 展开，是平行线。
+    # `symbol` 的轴在原文首字符；`abs` / `expr` 的轴在第二项。
+    axis_first = first[1][0] if first[0] == "symbol" else first[1]
+    axis_second = second[1][0] if second[0] == "symbol" else second[1]
+    if axis_first == axis_second:
+        return Reject("ref_edges_parallel",
+                      f"{ref_edges[0]} 与 {ref_edges[1]} 平行——垂距在平行边上没有意义")
+
+    return str(ref_edges[0]), str(ref_edges[1])
+
+
+# --------------------------------------------------------------------------- #
+# 点击顺序：操作员只记一条，托盘那边由工具内部重排
+# --------------------------------------------------------------------------- #
+# 操作员**永远只点这一种顺序**（托盘与箱子同一个顺序）：
+OPERATOR_CLICK_ORDER = ("右下", "左下", "左上", "右上")
+
+# 托盘路径专用的**固定置换**：操作员点击的第 i 个点 → 托盘建系用的第
+# PALLET_CLICK_PERMUTATION[i] 个点。即
+#
+#     [右下, 左下, 左上, 右上]    --置换 (1, 0, 3, 2)-->    [左下, 右下, 右上, 左上]
+#
+# 这是**写死的下标重排**（把 0..3 换个位置），不是按图像几何猜的。
+#
+# 为什么托盘那边非重排不可：`PalletFrame.to_matrix()` 把 `[e1 | e2 | normal]` 当
+# **旋转矩阵**用，这就要求 `e1 × e2 = normal`。托盘从上方看时，操作员那条**顺时针**
+# 环序给出的 `e1 × e2` 恰好是 `−normal`，于是 `det = −1` —— 那是**镜面反射，不是
+# 旋转**；而 `matrix_to_pose6d()` 走 `Rotation.from_matrix`，会把镜面**静默投影掉**，
+# 还原回来就是另一个系，参考边跑到托盘外面去，一路上没有任何报错。逆时针环序才是
+# 右手系（`order` 里的下一条边换成 `e1`/`e2` 都没用，整个环一起反号）。
+#
+# 箱子四角**不重排**：那 4 个点只是一份"边的清单"（底边取前两点、右边取后两点），
+# 不建坐标系，没有手性要求。
+#
+# **不要用 `order_quad()`**：它按"图像上最靠右的点"起头——那取决于**相机视角**，
+# 相机一动最右的点就可能换角，托盘系跟着翻。伺服要的是按**物理角**定死的系，所以
+# 顺序必须由操作员按物理位置给；这里的重排是固定置换，不是几何启发式。
+#
+# **放在算法层（而不留在点点工具里）的理由**，与下面的 `handedness_problem` 相同，
+# 而且更硬：这个置换**存在的唯一理由就是让 det 落在 +1 一侧**，判据和它分开两个
+# 文件存等于把结论和原因拆开。更要紧的是它现在要在**三处**用（离线点点工具、
+# 标定工具 `pallet_calibrate.py`、以及钉住它的测试），任何一处各自抄一份都是下一个
+# bug 的温床 —— 曾经抄过第二份，而那份注释自称是拦网、实际从不检查工具里的值。
+PALLET_CLICK_PERMUTATION = (1, 0, 3, 2)
+
+
+def reorder_pallet_clicks(points) -> List[Tuple[float, float]]:
+    """操作员顺序 `[右下, 左下, 左上, 右上]` → 托盘建系用的逆时针环
+    `[左下, 右下, 右上, 左上]`。
+
+    按**固定置换** `PALLET_CLICK_PERMUTATION` 换位置，不按图像几何猜（理由见该常量）。
+
+    重排后（`pallet_frame_from_clicks` 的约定是 `origin=points[0]`、
+    `e1=points[1]−points[0]`、`e2=points[3]−points[0]`）：
+
+        origin = **左下**角；e1 沿**下边**向右；e2 沿**左边**向上
+
+    于是 `"y=0"` = 下边、`"x=W"` = 右边、`"y=H"` = 上边、`"x=0"` = 左边。
+    """
+    pts = [(float(u), float(v)) for u, v in points]
+    if len(pts) != len(OPERATOR_CLICK_ORDER):
+        raise ValueError(f"托盘要 {len(OPERATOR_CLICK_ORDER)} 个点击点，拿到 {len(pts)} 个")
+    return [pts[i] for i in PALLET_CLICK_PERMUTATION]
+
+
+# --------------------------------------------------------------------------- #
+# 托盘建系的手性自检（点点工具与算法层共用）
+# --------------------------------------------------------------------------- #
+# 手性自检的判据边界：det 落在**哪个假设**那一侧。
+#
+# 判的是**手性**（镜面 or 不是），**不是正交性**（点得准不准）——这两件事必须分开：
+# `pallet_frame_from_clicks` 只把 e1/e2 **归一化**、**不做正交化**，所以
+#
+#     det = e1 · (e2 × normal) = sin θ        （θ = 两条点击边的实际夹角）
+#
+# 点得准 → θ ≈ 90° → det ≈ +1；环序点反了 → θ ≈ −90° → det ≈ −1。两个假设相距
+# **2.0**，所以边界取 0（两个假设的正中间）就已经很宽；这里再往 +1 一侧收到 0.5，
+# 于是"误拒正常点击"要 det 从 +1 掉到 0.5 以下，即 θ 偏离 90° 超过 30° —— 正常点击
+# 偏不到那里（1 px 在 1.2 m 边上 ≈ 0.11°）；那条 5° 的正交性警告阈值
+# 定义在调用方 `pick_servo_inputs.py` 的 `ORTHO_TOLERANCE_DEG` 处，不在本层。
+# 用"det 离 +1 多近"当判据是错的：那是拿容差去要求正交性，一个像素的点击误差就能
+# 把正常点击拒掉（实测 1 px → |det−1| ≈ 1.8e-6，而点击噪声远大于此）。
+HANDEDNESS_MARGIN = 0.5
+
+
+def handedness_problem(T_cam_pallet,
+                       margin: float = HANDEDNESS_MARGIN) -> Optional[str]:
+    """`T_cam_pallet` 的旋转块是不是**右手系**（`det` 在 +1 一侧）。通过返回 None。
+
+    `[e1 | e2 | normal]` 只有在 `e1 × e2 = normal` 时才是旋转矩阵；环序点反了会得到
+    `det = −1`——镜面反射。镜面在下游是**静默的**（`matrix_to_pose6d()` 里的
+    `Rotation.from_matrix` 会把它投影成"最近的旋转"），所以只能在这里、在源头拦。
+
+    **判据是把 det 判给两个假设中更近的那个**（边界 `det < margin`，默认 0.5），
+    不是"det 离 +1 多近"——理由见 `HANDEDNESS_MARGIN`。返回的文本里带上**实际
+    行列式**；`det ≈ 0` 单独说清（那是 e1/e2 近乎共线，不是镜像，别再把人往
+    "顺序点错了"上引）。
+
+    放在算法层（而不是留在点点工具里）是因为**这段判据在同一个文件上已经回归过
+    两次**（容差误拒正常点击、`det≈0` 与镜面共用一句话），而它决定整条离线路径
+    的输入对不对 —— 纯函数放这儿，`apps/test_kuavo_5w_skills/test_pallet_servo.py`
+    的合成用例才能直接钉住它。
+    """
+    T = np.asarray(T_cam_pallet, np.float64)
+    if T.shape != (4, 4):
+        return f"T_cam_pallet 必须是 4x4，实际 {T.shape}"
+    det = float(np.linalg.det(T[:3, :3]))
+    if not np.isfinite(det):
+        return f"T_cam_pallet 的旋转块含 NaN/inf，行列式 = {det}"
+    if det < margin:
+        if abs(det) < margin:
+            # 两个假设（+1 / −1）都不是：det≈0 意味着 e1 ⊥ (e2 × normal)，而三者都
+            # 在同一个平面里 → e1 ∥ e2（两条点击边几乎共线），给不出一个坐标系。
+            return (f"行列式 = {det:+.6f}，几乎为 0 —— e1 与 e2 **近乎共线**"
+                    f"（四个点是不是落在同一条线上了？），这个坐标系定不出来"
+                    f"（判据：det 必须 ≥ {margin:g}）")
+        return (f"行列式 = {det:+.6f} —— 落在**镜面反射**那一侧"
+                f"（判据：det < {margin:g}；+1 = 右手系、−1 = 镜面，两个假设相距 2.0）"
+                f" —— 镜面不是旋转，参考边投影出来会跑到托盘外面去")
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# 箱子：四角与两条边
+# --------------------------------------------------------------------------- #
+@dataclass
+class BoxObservation:
+    """手里那个箱子的观测（YOLO 给，或者人工点点给）。
+
+    `u1/v1/u2/v2` 是轴对齐框，**永远有**；`quad` 是将来"框内边缘拟合"模块填
+    的四个角点（顺序见 `box_corners`）。取边优先用 `quad`，没有才退到 AABB——
+    加了拟合模块之后，伺服算法和输出格式一行都不用改。
+
+    `quad` 为 None 时走 AABB 合成，两条路径给出的是**同一个数据结构**，
+    所以后面取边没有任何分支。
+    """
+
+    u1: float = 0.0
+    v1: float = 0.0
+    u2: float = 0.0
+    v2: float = 0.0
+    quad: Optional[List[List[float]]] = None
+    label: str = ""
+    confidence: float = 1.0
+    stamp: float = 0.0
+
+
+def box_corners(obs: BoxObservation) -> Union[np.ndarray, Reject]:
+    """箱子的四个角，顺序固定 **`[右下, 左下, 左上, 右上]`**。
+
+    有 `quad` 就用 `quad`，否则由 AABB 合成。AABB 按同一顺序合成
+    （图像坐标 u 向右、v 向下）：
+
+        p0 = (u_max, v_max) 右下    p1 = (u_min, v_max) 左下
+        p2 = (u_min, v_min) 左上    p3 = (u_max, v_min) 右上
+
+    **不做"最平行配对"**：边的语义由顺序直接给出，不猜。
+
+    ⚠️ **但契约顺序没有被任何自动检查兜住。** 凸环判据只要求相邻边叉积**同号**，
+    所以「整个环反着走」和「循环移位」都会被放行——而它们的 `p0→p1` 会取到**别的
+    边**，静默出错。`theta` 的 ±45° 也兜不住（线角是**无向**的，换成对边角度不变）。
+    **责任在调用方**：操作员按契约点、或将来填 `quad` 的拟合模块按契约填。
+    本函数只拦"自交/凹"这类几何上根本不是四边形的输入。详见设计文档 §3.2 的更正段。
+    """
+    if obs.quad is not None:
+        quad = np.asarray(obs.quad, np.float64)
+        if quad.shape != (4, 2):
+            return Reject("quad_shape", f"quad 必须是 4x2，实际 {quad.shape}")
+        if not np.all(np.isfinite(quad)):
+            return Reject("quad_not_finite", "quad 里有 NaN/inf")
+        bad = _convex_ring_violation(quad)
+        if bad is not None:
+            return Reject("quad_not_convex_ring", bad)
+        return quad
+
+    u_lo, u_hi = sorted((float(obs.u1), float(obs.u2)))
+    v_lo, v_hi = sorted((float(obs.v1), float(obs.v2)))
+    if not (u_hi - u_lo > 0.0 and v_hi - v_lo > 0.0):
+        return Reject("box_degenerate",
+                      f"箱子框退化：宽 u_hi-u_lo = {u_hi - u_lo:.1f} px、"
+                      f"高 v_hi-v_lo = {v_hi - v_lo:.1f} px，要求两者都 > 0")
+    return np.array([[u_hi, v_hi], [u_lo, v_hi], [u_lo, v_lo], [u_hi, v_lo]],
+                    np.float64)
+
+
+def _convex_ring_violation(quad: np.ndarray) -> Optional[str]:
+    """四角按声明顺序应构成不自交的**凸环**。返回违规说明，合规返回 None。
+
+    相邻边叉积必须同号（全正或全负）。有一个反号就说明这个环自交或者凹了——
+    那多半是角点顺序给错了，而顺序错了会让"底边""右边"取到别的边上去，
+    算出来的误差看着像真的。
+    """
+    cross = []
+    for i in range(4):
+        a = quad[(i + 1) % 4] - quad[i]
+        b = quad[(i + 2) % 4] - quad[(i + 1) % 4]
+        cross.append(float(a[0] * b[1] - a[1] * b[0]))
+    cross_arr = np.asarray(cross, np.float64)
+    shown = np.round(cross_arr, 3).tolist()
+    if np.any(np.abs(cross_arr) < 1e-9):
+        return f"有相邻边共线（相邻边叉积 {shown}）"
+    if not (np.all(cross_arr > 0.0) or np.all(cross_arr < 0.0)):
+        return f"不是凸环（相邻边叉积 {shown}）—— 角点顺序可能给错了"
+    return None
+
+
+def box_edges(corners: np.ndarray) -> Dict[str, np.ndarray]:
+    """由四角取出参与伺服的两条边：底边 `p0→p1`、右边 `p3→p0`。
+
+    返回 `{"bottom": (2,2), "right": (2,2)}`。用 dict 而不是具名元组，是为了
+    和设计文档 §4.1 写的签名一致——这份契约在技能层、节点层、出图工具里都
+    要读，键名比位置更不容易看错。
+    """
+    corners = np.asarray(corners, np.float64)
+    return {"bottom": corners[0:2].copy(),
+            "right": np.array([corners[3], corners[0]], np.float64)}
+
+
+def _pixels_to_rays(px, K, D):
+    """像素 → 相机系射线（`z ≡ 1`）。有畸变时先 `undistortPoints`。
+
+    4 个点一次调用，成本 ~20µs。任何失败返回 `None` —— 调用方回退到原始观测，
+    **不把这一帧弄坏**。
+    """
+    px = np.asarray(px, np.float64).reshape(-1, 2)
+    if not np.all(np.isfinite(px)):
+        return None
+    dist = None
+    if D is not None:
+        dist = np.asarray(D, np.float64).reshape(-1)
+        if not dist.size:
+            dist = None
+    try:
+        # ⚠️ **没有畸变也要做归一化**：`undistortPoints` 在 `dist=None` 时
+        # 就是 `K⁻¹`。直接把像素坐标 `[u, v, 1]` 当射线用会差一个 fx/fy 的
+        # 量级 —— 后续与平面求交得到一个完全错误的落点，而四角照样凸、
+        # 上层照样往下算（静默错）。
+        px = cv2.undistortPoints(px.reshape(-1, 1, 2), K,
+                                 dist).reshape(-1, 2)
+    except cv2.error:
+        return None
+    return np.hstack([px, np.ones((len(px), 1), np.float64)])
+
+
+def correct_box_for_plane_height(obs: BoxObservation, T_cam_pallet, K,
+                                 D=None, height_mm: float = 0.0,
+                                 diag: dict | None = None
+                                 ) -> BoxObservation:
+    """把箱子四角按**箱子所在平面高度**反算到托盘台面，返回新的观测。
+
+    为什么要有这一步：参考边是托盘台面（pallet 系 `z=0`）上的线，而箱子是被
+    抬起来看的 —— 同一个箱子抬高 `h` 后，投影会因"近大远小"整体变大、并沿
+    视线方向偏移。直接拿像素四角去比台面参考边，误差里就混进了这份透视偏差。
+
+    做法（只有 4 个角，一次反投影 + 一次重投影，实测 < 0.1ms）：
+
+      1. 四角先 `undistort` 成射线；
+      2. 与**箱顶平面**求交 —— 托盘台面沿外法向 `n_up` 平移 `h` 的那个平面。
+         `T_cam_pallet` 的 `R[:,2]` 就是 `n_up`（台面朝上的外法向，相机系里
+         `z<0`，与 `frame_geometry` 的约定一致），所以该平面到相机的距离是
+         `D − h`（`D = t · (−n_up)` 是台面距离）；
+      3. 交点沿 `n_up` 落回台面：`X_foot = X_box − h·n_up`；
+      4. 把 `X_foot` 重新投影成像素 —— 这就是"箱子贴台面放时四角会落在哪"。
+
+    ⚠️ **这是给 `quad` 用的**，不是 AABB：AABB 的底边通常是箱体轮廓的最低点
+    （本来就贴近台面），按高度修正反而会把它推错。没有 `quad` 的观测原样返回。
+
+    任何退化（`height_mm<=0`、`T`/`K` 形状不对、平面在相机后、投影后自交）
+    都**原样返回旧观测**：宁可不修正，也不要交出一个坏四角 —— 上层照样能算，
+    只是回到修正前的口径。
+
+    `diag` 给一个 dict 时写 `applied` / `why` / `height_mm`：上层用它记日志、
+    画 HUD。不传 diag 时行为与之前逐位一致。
+    """
+    def _skip(reason: str) -> BoxObservation:
+        if diag is not None:
+            diag['applied'] = False
+            diag['why'] = reason
+            diag['height_mm'] = float(height_mm)
+        return obs
+
+    if height_mm <= 0.0:
+        return _skip('height<=0')
+    if obs.quad is None:
+        return _skip('no_quad')
+    T = np.asarray(T_cam_pallet, np.float64)
+    K = np.asarray(K, np.float64)
+    if T.shape != (4, 4) or K.shape != (3, 3) or not np.all(np.isfinite(T)):
+        return _skip('bad_T_or_K')
+
+    n_up = T[:3, 2]
+    n_norm = float(np.linalg.norm(n_up))
+    if n_norm < 1e-9:
+        return _skip('normal_degenerate')
+    n_up = n_up / n_norm
+    n_cam = -n_up                      # 相机 → 台面
+    plane_d = float(T[:3, 3] @ n_cam)  # 台面到相机的距离（米）
+    h_m = float(height_mm) * 0.001
+    box_d = plane_d - h_m              # 箱顶平面（更近）
+    if plane_d <= 0.0 or box_d <= _BEHIND_CAMERA_EPS_M:
+        return _skip('plane_behind_camera')
+
+    corners = box_corners(obs)
+    if isinstance(corners, Reject):
+        return _skip('bad_corners')
+    rays = _pixels_to_rays(corners, K, D)
+    if rays is None:
+        return _skip('rays_failed')
+    denom = rays @ n_cam
+    if np.any(denom <= _BEHIND_CAMERA_EPS_M):
+        return _skip('ray_behind_camera')
+    X_box = rays * (box_d / denom)[:, None]
+    X_foot = X_box - h_m * n_up
+
+    if np.any(X_foot[:, 2] <= _BEHIND_CAMERA_EPS_M):
+        return _skip('foot_behind_camera')
+    try:
+        if D is not None and np.asarray(D).size:
+            px, _ = cv2.projectPoints(X_foot.reshape(-1, 1, 3),
+                                      np.zeros(3), np.zeros(3), K,
+                                      np.asarray(D, np.float64).reshape(-1))
+            px = px.reshape(-1, 2).astype(np.float64)
+        else:
+            px = X_foot[:, :2] / X_foot[:, 2:3]
+            px = (K @ np.hstack([px, np.ones((len(px), 1))]).T).T[:, :2]
+    except cv2.error:
+        return _skip('project_failed')
+    if not np.all(np.isfinite(px)):
+        return _skip('project_nonfinite')
+    if _convex_ring_violation(px) is not None:
+        return _skip('self_intersecting')
+
+    if diag is not None:
+        diag['applied'] = True
+        diag['why'] = 'ok'
+        diag['height_mm'] = float(height_mm)
+    return BoxObservation(
+        u1=float(px[:, 0].min()), v1=float(px[:, 1].min()),
+        u2=float(px[:, 0].max()), v2=float(px[:, 1].max()),
+        quad=px.tolist(), label=obs.label, confidence=obs.confidence,
+        stamp=obs.stamp)
+
+
+# --------------------------------------------------------------------------- #
+# 角度：直线无向
+# --------------------------------------------------------------------------- #
+def fold_line_angle(a: float) -> float:
+    """把一个**无向直线**的角度（或两个这样的角之差）折进 `(-pi/2, pi/2]`。
+
+    一条边是 p0→p1 还是 p1→p0 是同一条线，不折的话两个视觉上重合的边会算出
+    178° 的"角度差"。折完还有一个好处：用户说的"角度差不会超过 ±45°"就成
+    了一条真正的合理性检查。
+    """
+    a = a % math.pi                       # [0, pi)
+    if a > math.pi / 2.0:
+        a -= math.pi                      # (-pi/2, pi/2]
+    return a
+
+
+def line_angle(p0, p1) -> float:
+    """两点连线的方向角，归一到 `(-pi/2, pi/2]`。
+
+    图像坐标 u 向右、v 向下，所以 `atan2(dv, du)` 的正方向在屏幕上是**顺时针**。
+    """
+    a = math.atan2(float(p1[1]) - float(p0[1]), float(p1[0]) - float(p0[0]))
+    return fold_line_angle(a)
+
+
+# --------------------------------------------------------------------------- #
+# 垂距：中点、内法向、垂足
+# --------------------------------------------------------------------------- #
+def inward_normal(ref_px, center_px) -> np.ndarray:
+    """参考边的单位**内法向**：候选是 `±(-d_v, d_u)`，取指向托盘内部的那个。
+
+    "内部"由托盘自己的几何定死——拿**台面中心的投影**去点乘，而不是看图像
+    方位。这样托盘在画面里怎么转，取到的都是同一条边的同一侧。
+    """
+    ref_px = np.asarray(ref_px, np.float64)
+    d = ref_px[1] - ref_px[0]
+    d = d / float(np.linalg.norm(d))
+    cand = np.array([-d[1], d[0]], np.float64)
+    m_ref = ref_px.mean(axis=0)
+    if float((np.asarray(center_px, np.float64) - m_ref) @ cand) < 0.0:
+        cand = -cand
+    return cand
+
+
+@dataclass
+class EdgeOffset:
+    """一条托盘参考边对一个箱子边的带符号垂距，含画图要用的诊断量。
+
+    ⚠️ **`e_px` 与 `inward_px` 的符号约定不一样，这是有意的**（2026-09-30）：
+      * `e_px` —— **箱子在托盘内侧时为负**（操作员的约定）。`servo_error` 里
+        算完把它取负，就是在这一句上翻的。
+      * `inward_px` —— **恒为"从参考边指向托盘内部"**，不跟着翻。它给
+        `render.py` 画蓝箭头用（手工闸门之一是"蓝箭头指向托盘内部"），
+        以及判 `foot_outside`。
+    """
+
+    e_px: float
+    ref_px: np.ndarray          # (2, 2) 参考边端点
+    box_px: np.ndarray          # (2, 2) 箱子边端点
+    foot_px: np.ndarray         # (2,) 箱子边中点在参考边**所在直线**上的垂足
+    inward_px: np.ndarray       # (2,) 单位内法向
+    foot_outside: bool          # 垂足落在线段外（仍输出，只是置 warn）
+
+
+def edge_offset(ref_px, box_px, inward_px) -> EdgeOffset:
+    """`e = (M_box − foot) · n`，`M_box` 是箱子这条边的**中点**。
+
+    取中点而不是"线到线"：两条线不平行时"线到线"是一个区间，取端点没有意义，
+    而伺服推的就是这个点——取中点才和伺服的语义一致。
+
+    垂足按**无限直线**算（不截断到线段），落在段外时置 `foot_outside`：那时
+    箱子已经偏出这条边的范围，但垂距本身仍然是有效信息，所以照样输出。
+    """
+    ref_px = np.asarray(ref_px, np.float64)
+    box_px = np.asarray(box_px, np.float64)
+    n = np.asarray(inward_px, np.float64)
+    p0, p1 = ref_px[0], ref_px[1]
+    d = p1 - p0
+    seg_len = float(np.linalg.norm(d))
+    u = d / seg_len
+    m_box = box_px.mean(axis=0)
+    t = float((m_box - p0) @ u)
+    foot = p0 + t * u
+    return EdgeOffset(e_px=float((m_box - foot) @ n),
+                      ref_px=ref_px, box_px=box_px, foot_px=foot,
+                      inward_px=n, foot_outside=bool(t < 0.0 or t > seg_len))
+
+
+# --------------------------------------------------------------------------- #
+# 三个量
+# --------------------------------------------------------------------------- #
+@dataclass
+class ServoError:
+    """一次伺服误差的完整结果。
+
+    前三个是被控量，其余是**诊断量**：没有它们就出不了对比图（`render_overlay`
+    直接吃它们），真机上也排查不了。最后四个是**出处**——算法层不填，由节点
+    盖上去，用来把一帧和黑板对上。
+    """
+
+    # —— 三个被控量 ——
+    e_bottom_px: float
+    e_right_px: float
+    theta_rad: float
+    # —— 诊断量 ——
+    ref_bottom_px: np.ndarray
+    ref_right_px: np.ndarray
+    box_bottom_px: np.ndarray
+    box_right_px: np.ndarray
+    pallet_center_px: np.ndarray
+    bottom_foot_px: np.ndarray
+    right_foot_px: np.ndarray
+    bottom_inward_px: np.ndarray
+    right_inward_px: np.ndarray
+    box_source: str = "aabb"
+    warn: List[str] = field(default_factory=list)
+    # —— 邻居路线专有的诊断量（2026-10-17）——
+    # `(上邻居四角, 侧邻居四角)`，各 `(4, 2)`；没有侧邻居时第二项是 `None`。
+    # **托盘路线永远是 `None`**（那一路没有"邻居"这个概念），所以出图那边用
+    # `getattr(error, "neighbor_quads", None)` 取、取不到就不画那一层。
+    #
+    # 挂在这个对象上而不是另开一条传递路径：它要跟着 `error` 一起流到出图那一段
+    # （`render_servo_overlay` 的 `neighbor_quads`），挂在已有的载体上**零新接口**。
+    #
+    # ⚠️ **`compare=False` 是必须的**：`ServoError` 是 dataclass，默认 `eq=True`
+    # 会把新字段算进相等性 —— 而两帧的邻居框差一个像素就算"不相等"，那些"同一对
+    # 观测不重复处理"的判据会全部失效。它是**纯诊断量**，不参与任何相等性判断
+    # （`warn` 用 `default_factory` 同属这一类）。
+    neighbor_quads: Optional[Tuple[Optional[np.ndarray], Optional[np.ndarray]]] = \
+        field(default=None, compare=False)
+    # 邻居路线出图要"手里箱现在在哪"（灰框）—— 托盘路线的四角是调用方传进
+    # `servo_error` 的，这一路没有那个入口，所以由节点从 `NeighborError` 塞进来。
+    # 同样是**纯诊断量**，`compare=False`（理由见上一段）。
+    held_quad_px: Optional[np.ndarray] = field(default=None, compare=False)
+    # 手里箱**参与计算的那两条边**（出图用绿线画它、黄线画它平移后的位置）。
+    # 由 `neighbor.py` 交出来，节点不自己推 —— 同一条边只能有一个定义。
+    held_bottom_px: Optional[np.ndarray] = field(default=None, compare=False)
+    held_side_px: Optional[np.ndarray] = field(default=None, compare=False)
+    # 出图平移用的方向（邻居路线）：
+    #   `u_bottom` = **参考边法向的加权平均**（指向"往里走"）—— 底边黄线沿它平移；
+    #   `u_far`    = 手里箱中心 -> 上邻居中心，**只作诊断**（带横向/透视偏移，
+    #                实测与竖直差 27.5°，沿它平移会把黄线斜着推出去）；
+    #   `u_side`   = 画面 +u（右）—— 横向黄线沿 `−u_side` 平移。
+    # 画法是"手里箱的边沿这个方向平移 e_* 像素" —— 红线长度因此**恒等于**
+    # HUD 上那个数（画参照边的话对不上，见 `render_neighbor_overlay`）。
+    u_bottom: Optional[np.ndarray] = field(default=None, compare=False)
+    u_side_shift: Optional[np.ndarray] = field(default=None, compare=False)
+    u_far: Optional[np.ndarray] = field(default=None, compare=False)
+    u_side: Optional[np.ndarray] = field(default=None, compare=False)
+    # —— 出处：算法层不填，由节点盖上去 ——
+    pallet_version: int = -1
+    box_version: int = -1
+    t_cam_base_src: str = ""
+    stamp: float = 0.0
+
+    def to_log_line(self) -> str:
+        """一行给人读的摘要，供节点节流打印（设计文档 §6.2「正常帧」）。
+
+        ⚠️ **theta 用弧度**（2026-10-08 操作员裁定）：与话题 `/pallet_servo/dis`
+        的 `theta_rad` **同单位**。从前这里换算成度，而这行字会进
+        `feedback_message`（行为树 HUD）与日志 —— 拿话题读数来核对时，两个数
+        差 57.3 倍。**人看得到的每一处都必须与对外接口同单位**，否则"图上/日志
+        上是对的"就成了一句空话。`e_*` 本来就是像素，不存在这个问题。
+        """
+        line = (f"e_bottom={self.e_bottom_px:+.1f}px "
+                f"e_right={self.e_right_px:+.1f}px "
+                f"theta={self.theta_rad:+.6f}rad "
+                f"box={self.box_source} pallet_v={self.pallet_version} "
+                f"box_v={self.box_version} t_cam_base={self.t_cam_base_src}")
+        if self.warn:
+            line += " warn=" + "; ".join(self.warn)
+        return line
+
+
+def servo_error(T_cam_pallet, size_mm, ref_edges, obs: BoxObservation, K,
+                D=None, image_size=None, min_edge_px: float = MIN_EDGE_PX,
+                theta_warn_rad: float = THETA_WARN_RAD
+                ) -> Union[ServoError, Reject]:
+    """一帧的全部伺服误差。任何一项退化都返回 `Reject`（带实际值与阈值）。
+
+    顺序是刻意的：先判配置（`ref_edges`），再判箱子，最后判托盘参考边——
+    配置错误每帧都会犯，先说它，免得每帧都刷一条几何退化的假象。
+    """
+    parsed = parse_ref_edges(ref_edges)
+    if isinstance(parsed, Reject):
+        return parsed
+    edge_bottom, edge_right = parsed
+
+    corners = box_corners(obs)
+    if isinstance(corners, Reject):
+        return corners
+    edges = box_edges(corners)
+
+    ref_bottom = ref_edge_px(T_cam_pallet, size_mm, edge_bottom, K, D,
+                             image_size, min_edge_px)
+    if isinstance(ref_bottom, Reject):
+        return ref_bottom
+    ref_right = ref_edge_px(T_cam_pallet, size_mm, edge_right, K, D,
+                            image_size, min_edge_px)
+    if isinstance(ref_right, Reject):
+        return ref_right
+
+    W, H = float(size_mm[0]), float(size_mm[1])
+    center = project_pallet_points(
+        T_cam_pallet, [(W / 2.0, H / 2.0, 0.0)], K, D)
+    if isinstance(center, Reject):
+        return center
+    center = center[0]
+
+    n_bottom = inward_normal(ref_bottom, center)
+    n_right = inward_normal(ref_right, center)
+    off_bottom = edge_offset(ref_bottom, edges["bottom"], n_bottom)
+    off_right = edge_offset(ref_right, edges["right"], n_right)
+    # ⚠️ **符号约定 2026-09-30 翻过一次**（操作员裁决："箱子在里面输出负数"）。
+    # `edge_offset` 里 `e = (M_box − foot) · n`、`n` 是**内法向**，所以箱子落在
+    # 托盘内侧时算出来是**正**的 —— 现在把**误差取负**，内侧变负。
+    #
+    # ⚠️ **只翻 `e_px`，`inward_px` 保持"真·内法向"不翻。** 它有两个别的用处，
+    # 都与误差符号无关：
+    #   * `render.py` 拿它画那个**蓝箭头**（README 的手工闸门之一是"蓝箭头指向
+    #     托盘内部"）—— 翻了箭头就指向外面了；
+    #   * `foot_px` / `foot_outside` 判"箱子有没有偏出这条边的线段范围"。
+    # 所以这里用 `dataclasses.replace` 只换那一个字段，语义一眼可见。
+    off_bottom = replace(off_bottom, e_px=-off_bottom.e_px)
+    off_right = replace(off_right, e_px=-off_right.e_px)
+
+    # ★ `e_right` 的“正方向”必须是**台面 +x（画面右）**，不是“参考边的内法向”。
+    # 对 x=580/950/W 这些在右半边的参考边，两者恰好相反/相同，旧公式已经等价；
+    # 但当参考边落在**左半边**（现场 slot 4 是 `x=380 < W/2`）时，内法向指向
+    # +x，旧公式会把“箱子在参考线左侧”算成正值。控制器里 `vy = gain * e_right`
+    # （+y 向画面左），正值会继续往左走，而箱子明明要往右对齐 —— 这就是
+    # 2026-11-11 现场 slot 4 的符号翻转。这里按参考线的 x 坐标做一次几何翻符号：
+    # 参考线在左半边时，把 e_right 翻到“箱子在参考线右侧为正”的口径。
+    try:
+        pts = ref_edge_points_mm(edge_right, size_mm)
+        if pts is not None:
+            x0, x1 = float(pts[0][0]), float(pts[1][0])
+            if abs(x1 - x0) < 1e-9:                 # 这是一条 x=常数 的竖线
+                x_ref = 0.5 * (x0 + x1)
+                if x_ref < 0.5 * float(size_mm[0]):
+                    off_right = replace(off_right, e_px=-off_right.e_px)
+    except (TypeError, ValueError, IndexError, KeyError):
+        pass
+
+    # ⚠️ **极性 2026-10-20 又翻了一次**（真机实测"theta 是反的"）。现在的定义是
+    #    `theta = 箱子底边角 − 托盘底边角` —— 与 `e_*` 一样是「手里箱 − 参照」。
+    #    2026-09-29 那次翻成「托盘 − 箱子」在控制器 `dtheta = gain * theta_rad`
+    #    （正反馈口径）下方向是反的，真机越转越偏。
+    #    改这里而不是在控制器里取负：这是**符号约定**，视觉层与 README 一起改才一致。
+    #    ⚠️ **没有任何测试钉住这个符号** —— `test_render_servo_overlay` 只扫 theta=0，
+    #    这里改反了测试照样全绿，所以验收只能靠叠加图上眼看。
+    theta = fold_line_angle(line_angle(edges["bottom"][0], edges["bottom"][1])
+                            - line_angle(ref_bottom[0], ref_bottom[1]))
+
+    warn: List[str] = []
+    if abs(theta) > theta_warn_rad:
+        # ⚠️ **弧度**（2026-10-08）：与 `theta_rad` 同单位。这条 warn 会经
+        # `NodePalletServo` 拼进叠加图的 HUD 与 dump 的 `reason`，紧挨着那行
+        # `theta=+0.872665rad` —— 两行用两个单位，看的人得自己做一次换算，
+        # 而现场判读本来就只有这一张图。阈值本身仍是 `THETA_WARN_RAD`
+        # （= `radians(45)`，README 里按 45° 记载）。
+        warn.append(f"theta {theta:+.3f}rad 超出 "
+                    f"±{theta_warn_rad:.3f}rad")
+    if off_bottom.foot_outside:
+        warn.append(f"底边垂足落在参考边 {edge_bottom} 的线段外"
+                    f"（箱子已偏出这条边的范围）")
+    if off_right.foot_outside:
+        warn.append(f"右边垂足落在参考边 {edge_right} 的线段外"
+                    f"（箱子已偏出这条边的范围）")
+
+    return ServoError(
+        e_bottom_px=off_bottom.e_px,
+        e_right_px=off_right.e_px,
+        theta_rad=theta,
+        ref_bottom_px=ref_bottom,
+        ref_right_px=ref_right,
+        box_bottom_px=edges["bottom"],
+        box_right_px=edges["right"],
+        pallet_center_px=center,
+        bottom_foot_px=off_bottom.foot_px,
+        right_foot_px=off_right.foot_px,
+        bottom_inward_px=n_bottom,
+        right_inward_px=n_right,
+        box_source="quad" if obs.quad is not None else "aabb",
+        warn=warn)
+
+
+# --------------------------------------------------------------------------- #
+# 参数解析：两个节点共用一份实现
+# --------------------------------------------------------------------------- #
+def parse_bool_param(raw, name: str) -> bool:
+    """布尔参数：兼容 JSON 布尔值，以及行为树编辑器/黑板传下来的布尔字符串。
+
+    **两个节点共用这一份实现**（`node_inject_servo_input` 的 `enabled`、
+    `node_pallet_servo` 的 `use_distortion`）：口径分叉过一次就够呛了，而这两处
+    各写一遍正是分叉的入口。
+
+    **不能用 `bool(...)` 顶替**：`bool("false") is True`，而场景 JSON 里
+    `{"source": "READ_BOARD", ...}` 走的正是字符串这条路（工厂的 `READ_BOARD`
+    分支不像 `RESOLVED` 那样转类型）。于是 `use_distortion: "false"` 会**照开不误**
+    （实测两边差 135.918 / 137.000 px，看着都像模像样），`enabled: "false"` 则让
+    "真机上必须能关掉"这条硬约束失效。
+
+    口径与 `leju_claw_control.LejuClawControl._as_bool` 一致（判断分支逐条相同，
+    只有报错文案更具体）。
+
+    **比一般的字符串转布尔故意更严**，不是笔误：
+    那个还认 `"on"`、非字符串一律 `bool(value)` 兜底、而且**永不抛**；这里三条都
+    不做，既不认识又解释不了的值**抛 `ValueError`**，由调用方决定怎么处置
+    （注入类节点当成"关掉 + 报错"，伺服节点用默认值 + WARNING —— 处置不同，
+    但"'false' 不许变成真"这条底线是同一套）。
+    """
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in ("true", "1", "yes"):
+            return True
+        if value in ("false", "0", "no"):
+            return False
+    if isinstance(raw, (int, float)) and raw in (0, 1):
+        return bool(raw)
+    raise ValueError(f"{name} 必须是布尔值（true/false、1/0、yes/no 都认），"
+                     f"实际是 {raw!r}")
+
+
+def parse_pair_param(value, name: str = "参数"):
+    """`[w, h]` 这类**两个正数**的参数 → `(pair, 说明)`，两者必有一个为空。
+
+    `None` / 空序列 → `(None, None)`："没给"不是错误，要不要默认值由调用方定。
+    其余情况要么给 `((w, h), None)`，要么给 `(None, "说明")`。
+
+    为什么要专门查一遍（而不是 `float(value[0]), float(value[1])`）：**给字符串
+    不会报错，而是静默算错** —— `"12"` 索引出 `'1'`、`'2'` 两个字符，得到
+    `(1.0, 2.0)`，还正好通过"都为正"的检查；长度不对的列表同理（少一个数才是
+    显式的 IndexError，多一个数被无声忽略）。这类"看着像配了、其实配错了"在
+    运行期表现为"每帧被拒"或"整条边跑到图外"，与配置错误毫无相似之处 ——
+    所以必须在启动时、在原地说清。
+
+    与 `parse_bool_param` 抛 `ValueError` 的分工：这里返回说明文字，因为两个
+    调用方（节点启动校验、技能层启动校验）都要把它拼进**自己的**反馈文案里。
+    """
+    if value is None:
+        return None, None
+    if isinstance(value, (str, bytes)):
+        return None, (f"{name} 必须是两个数（如 [640, 480]），"
+                      f"实际是字符串 {value!r}")
+    try:
+        items = list(value)
+    except TypeError:
+        return None, (f"{name} 必须是两个数（如 [640, 480]），"
+                      f"实际是 {type(value).__name__} {value!r}")
+    if not items:
+        return None, None
+    if len(items) != 2:
+        return None, f"{name} 必须是两个数，实际 {len(items)} 个：{value!r}"
+    try:
+        pair = (float(items[0]), float(items[1]))
+    except (TypeError, ValueError):
+        return None, f"{name} 里不是数：{value!r}"
+    if not (np.isfinite(pair[0]) and np.isfinite(pair[1])):
+        return None, f"{name} 里有 NaN/inf：{value!r}"
+    if not (pair[0] > 0.0 and pair[1] > 0.0):
+        return None, f"{name} 必须都为正，实际 {pair}"
+    return pair, None

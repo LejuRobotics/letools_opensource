@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 LeTools 行为树主入口（节点名 behavior_tree_main）。
-默认加载 orchestration/scenarios/studio_smoke_v1/。
+默认加载 orchestration/scenarios/instructional_case_01/。
 """
 
 import argparse
@@ -10,7 +10,7 @@ import sys
 
 _STUDIO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ORCH_ROOT = os.path.join(_STUDIO_ROOT, "orchestration")
-_DEFAULT_SCENARIO = os.path.join(_ORCH_ROOT, "scenarios", "studio_smoke_v1")
+_DEFAULT_SCENARIO = os.path.join(_ORCH_ROOT, "scenarios", "instructional_case_01")
 
 for _p in (_STUDIO_ROOT, _ORCH_ROOT):
     if _p not in sys.path:
@@ -87,7 +87,7 @@ def main():
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="无 ROS/实机：仅验证 import 与加载 studio_smoke_v1",
+        help="无 ROS/实机：仅验证 import 与加载 instructional_case_01",
     )
     parser.add_argument(
         "--tick-once",

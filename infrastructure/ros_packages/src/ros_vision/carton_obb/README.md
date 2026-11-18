@@ -36,7 +36,7 @@ bag / 相机 ──/camera/color/image_raw──→  carton_obb  ──/box/dete
 **权重与导出脚本也跟着算法走**（2026-10-19）：`carton_detect/models/carton_obb.onnx`
 与 `carton_detect/scripts/export_onnx.py`。默认权重路径由算法包给出
 （`carton_detect.DEFAULT_MODEL_PATH`），本节点只取用 —— 与托盘那条链一致
-（那边是 `pallet_detect.detect.DEFAULT_MODEL_PATH`）。
+（那边是 `pallet_detect.detect_pose.DEFAULT_POSE_MODEL_PATH`）。
 
 ## TensorRT 共享推理服务
 
@@ -54,10 +54,12 @@ roslaunch carton_obb carton_obb_trt_service.launch \
 服务类型是 `box_detection_msgs/InferCartonObb`。请求只包含置信度和 NMS 阈值；
 服务端强制使用 `/camera/color/image_raw` 中接收的最新帧，并拒绝陈旧帧。响应返回
 实际推理帧的 `source_header`、图像尺寸、原图坐标下的旋转框数组
-`center_x/center_y/width/height/angle_deg/scores`，以及纯 TensorRT 推理耗时。
-服务端只负责模型前处理、推理、NMS，不负责深度采样或选箱，因此不同业务可以使用
-自己的目标选择策略。调用方应使用 `source_header.stamp` 匹配同一时刻的彩色图和
-配准深度图，不能假定请求发起时本地看到的帧就是服务端推理帧。
+`center_x/center_y/width/height/angle_deg/scores/classes`，以及纯 TensorRT 推理
+耗时。`classes` 与 `scores` 等长：单类模型恒为 0，两类模型为 `0=held / 1=neighbor`；
+拆垛侧丢掉类别做合并，码垛侧用它选 held。服务端只负责模型前处理、推理、NMS，
+不负责深度采样或选箱，因此不同业务可以使用自己的目标选择策略。调用方应使用
+`source_header.stamp` 匹配同一时刻的彩色图和配准深度图，不能假定请求发起时本地
+看到的帧就是服务端推理帧。
 
 服务端收到头部相机首帧后才加载并预热模型，退出时显式注销相机订阅并释放 CUDA
 buffer。调用由 backend 内部锁串行化，因为同一个 TensorRT execution context 和
@@ -101,7 +103,7 @@ CUDA buffer 不能并发复用。
 ### `~image_depth`（`sensor_msgs/Image`，默认 `/camera/depth/image_raw`）
 
 深度图，认 `16UC1`（**已经是毫米**）与 `32FC1`（**米**，节点自动 ×1000）。
-用于**选箱打分**（见 §3 ⑥）与**深度下沿修正**（`depth_refine_bottom`，默认开，
+用于**选箱打分**（见 §3 ⑥）与**深度下沿修正**（`depth_refine_bottom`，默认关，需显式开启，
 只在明确跳变时收缩下边）。取不到深度**不影响四角的正确性** —— 打分退回无深度
 口径，下沿修正也不执行。
 
@@ -163,15 +165,15 @@ CUDA buffer 不能并发复用。
 `d_near_px` `100.0`、`d_far_px` `450.0`、`z_near_mm` `500.0`、`z_far_mm` `1500.0`、
 `depth_patch_px` `15`。
 
-**深度下沿修正**（2026-11-06，默认开）：`depth_refine_bottom` `true` →
+**深度下沿修正**（2026-11-06，默认关）：`depth_refine_bottom` `false` →
 `depth_refine_step` `2`、`depth_refine_band_px` `45`、`depth_refine_jump_mm` `150.0`、
 `depth_refine_min_shrink_px` `3.0`。只在「框内箱体 → 下方远背景」有持续深度跳变时
 把下边收回去；没有跳变（箱子放在料垛上、下沿出画）保持模型框，只收缩不放大。
 用于修手持箱被拉长到下方背景的情况，见 `obb_decoder.refine_bottom_by_depth`。
 
-⚠️ **关闭方式**：`config/carton_obb.yaml` 里的同名键会被 `carton_obb.launch`
-的 `<param>`（arg 默认 `true`）覆盖。在启动命令或场景脚本里传
-`depth_refine_bottom:=false`，或把 launch 里的 arg 默认值改成 `false`。
+⚠️ **开启方式**：`config/carton_obb.yaml` 里的同名键会被 `carton_obb.launch`
+的 `<param>`（arg 默认 `false`）覆盖。在启动命令或场景脚本里传
+`depth_refine_bottom:=true`，或把 launch 里的 arg 默认值改成 `true`。
 
 ⚠️ **所有参数都是私有参数**（`~name`，即 `/carton_obb_detect/<name>`）。
 launch 里 `<param>` / `<rosparam>` **必须写在 `<node>` 标签内部** —— 写在
@@ -377,4 +379,4 @@ OBB 直接给出角度，没有那个歧义 —— 上游的朝向先验服务�
 - 再下游：`orchestration/nodes/node_pallet_servo.py`（算 `e_bottom_px` / `e_right_px` / `theta`）
 - 消息定义：`infrastructure/ros_packages/src/ros_vision/box_detection_msgs/`
 - 训练数据格式：`data_obb.yaml`，单类 `carton`，四点格式
-- 链路总览：`orchestration/scenarios/pallet_servo_real_v1/README.md`
+- 链路总览：`orchestration/scenarios/scenarios_internal/pallet_servo_real_v1/README.md`

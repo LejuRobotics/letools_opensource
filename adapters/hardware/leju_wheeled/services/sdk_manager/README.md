@@ -50,7 +50,7 @@ BaseSDKManager (基类)
 
 ```bash
 cd ~/LeTools
-./scripts/install_sdk.sh
+./scripts/sdk_tools/install.sh
 ```
 
 ### 2. 导入管理器

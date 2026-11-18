@@ -90,4 +90,4 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 | 硬件工厂 | `adapters/hardware/factory.py` |
 | 共享硬件单例 | `orchestration/shared_hardware.py` |
 | 编排节点（薄封装） | `orchestration/nodes/` |
-| 行为树场景 | `orchestration/scenarios/refactored_sdk_arm_v1/` |
+| 行为树场景 | `orchestration/scenarios/scenarios_internal/refactored_sdk_arm_v1/` |

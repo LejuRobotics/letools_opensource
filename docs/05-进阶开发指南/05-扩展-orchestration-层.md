@@ -101,15 +101,15 @@ class BaseAction(Behaviour):
 }
 ```
 
-黑板初始值来自各场景的 `board.json`（顶层 key 即黑板键名）。下表为各场景的**核心/示例键，非穷尽列表**，完整键请直接读对应 `board.json`：
+黑板初始值来自各场景的 `board.json`。该文件有两种格式：扁平 Dict 时顶层 key 即黑板键名；按组划分的三段式（组名如 `inputs` / `custom` / `process`）时，键名取自各组列表项的 `key`（如 `process[].key`）。下表为各场景的**核心/示例键，非穷尽列表**，完整键请直接读对应 `board.json`：
 
-| 场景 | board.json 顶层键（示例） |
+| 场景 | board.json 中的键（示例） |
 |---|---|
 | `studio_smoke_v1` / `refactored_sdk_atomic_v1` | `ArmJointTrajectories` |
 | `refactored_sdk_arm_v1` | `EETrajLocalForward`、`EETrajWorldForward`、`EETrajWorldUp`、`ArmJointTrajectories` |
 | `refactored_sdk_single_tag_pick_v0` | `pick_tag_id`、`tag_ids`、`stand_in_tag_pos`、`stand_in_tag_euler`、`box_width`、`box_behind_tag`、`box_beneath_tag`、`box_left_tag`、`head_search_yaws`、`head_search_pitchs`、`tag_scan_timeout`、`chassis_walk_mode` |
 | `wheel_arm_single_tag_pick_v1` | `pick_tag_id`、`tag_ids`、`box_width`、`box_behind_tag`、`box_beneath_tag`、`box_left_tag`、`hand_pitch_degree`、`arm_control_type`、`use_virtual_tag`、`virtual_tag_pose_in_odom` |
-| `grasp_mtbf` | `repeat_count`、`mtbf_stop_requested`、`navigation_config`、`pick_tag_id`、`place_tag_id`、`tag_ids`、`use_virtual_tag`、`fallback_to_virtual`、`require_fresh_tag`、`real_tag_timeout_sec`、`box_size`、`pick_position_offset` |
+| `grasp_mtbf` | 三段式，键在 `process[].key`：`repeat_count`、`mtbf_stop_requested`、`navigation_config`、`pick_tag_id`、`place_tag_id`、`tag_ids`、`use_virtual_tag`、`fallback_to_virtual`、`require_fresh_tag`、`real_tag_timeout_sec`、`box_size`、`pick_position_offset` |
 | `dismantle_box` / `dismantle_box_demo` / `dismantle_box_demo_action` / `jibot_nav_v1` | 顶层为空对象 `{}`（参数在节点内或运行时注入） |
 
 ## 四、场景目录与四类配置文件
@@ -133,7 +133,7 @@ class BaseAction(Behaviour):
 |---|---|---|
 | `py_tree.json` | **任务顺序**（主树） | 顶层 `tree`（必填）、`interface`（建议） |
 | `py_tree_child.json` | **可复用段落的仓库**（子树库） | 顶层为 KV 字典：`文件名 -> 子树定义`；主树用 `.json` 结尾的 `name` 引用；工厂加载时 deepcopy |
-| `board.json` | **运行时数据与物理参数/标定常量** | 扁平 Dict，**顶层 key 即黑板键名** |
+| `board.json` | **运行时数据与物理参数/标定常量** | 两种格式并存：扁平 Dict，**顶层 key 即黑板键名**；或按组划分的三段式（组名如 `inputs` / `custom` / `process`），键名取自各组列表项的 `key`，如 `process[].key` |
 | `hardware_config.json` | **场景级硬件参数覆盖**（**不是**行为树字段） | 真机路径下、创建 `IHardware` 前 merge 进硬件工厂配置 |
 
 设计原则：**物理参数与标定常量写 `board.json`，控制逻辑流写 `py_tree.json`。**
@@ -192,6 +192,16 @@ class BaseAction(Behaviour):
   "pick_tag_id": 4,
   "use_virtual_tag": true,
   "box_length": 0.4
+}
+```
+
+按组划分的三段式同样受支持：顶层是组名（如 `inputs` / `custom` / `process`），每组的值为列表，列表项写成 `key` / `type` / `value` / `remark`。加载时取 `key` 作为黑板键名，`value` 按 `type` 转换后写入。
+
+```json
+{
+  "process": [
+    { "key": "pick_tag_id", "type": "int", "value": 4, "remark": "抓取目标 Tag ID" }
+  ]
 }
 ```
 
@@ -299,12 +309,12 @@ Adapter → SDK / ROS 话题 → 驱动头部物理关节
 ```bash
 # 【Dry-Run 语法检查】只校验 JSON 与节点加载，只 tick 一拍
 python3 apps/test_upper_init/run_behavior_tree_json.py \
-  --scenario orchestration/scenarios/studio_smoke_v1 \
+  --scenario orchestration/scenarios/scenarios_internal/studio_smoke_v1 \
   --dry-run --tick-once
 
 # 【仿真或真机实跑】（需预先启动 ROS 及运控站立链）
 python3 apps/test_upper_init/run_behavior_tree_json.py \
-  --scenario orchestration/scenarios/refactored_sdk_single_tag_pick_v0
+  --scenario orchestration/scenarios/scenarios_internal/refactored_sdk_single_tag_pick_v0
 ```
 
 行为树依赖 Python 包 `py_trees`（注意是复数），Ubuntu 20.04 / ROS Noetic / Python 3.8 下请锁定 `py_trees==2.2.3`。
@@ -344,9 +354,9 @@ orchestration/nodes/<feature>_move.py       →  <Feature>Move
 
 推荐按以下顺序依次阅读仓库内置场景，**切勿直接修改产线复杂行为树**：
 
-1. `scenarios/studio_smoke_v1/`（冒烟测试）：最小主树结构（Enter 确认 → 底盘移动 → 蹲下 → 抬臂）。
-2. `scenarios/refactored_sdk_atomic_v1/`（原子技能演示）：学习子树引用、`Parallel` 与 `Async` 并发使用。
-3. `scenarios/refactored_sdk_single_tag_pick_v0/`（单 Tag 取放）：包含子树拆分、`${宏}` 替换、虚拟 Tag 注入。
+1. `scenarios/scenarios_internal/studio_smoke_v1/`（冒烟测试）：最小主树结构（Enter 确认 → 底盘移动 → 蹲下 → 抬臂）。
+2. `scenarios/scenarios_internal/refactored_sdk_atomic_v1/`（原子技能演示）：学习子树引用、`Parallel` 与 `Async` 并发使用。
+3. `scenarios/scenarios_internal/refactored_sdk_single_tag_pick_v0/`（单 Tag 取放）：包含子树拆分、`${宏}` 替换、虚拟 Tag 注入。
 4. `scenarios/grasp_mtbf/`（循环搬箱）：用公共节点编排地图导航、Tag 识别、关键点计算与八阶段抓放，可配置轮数。
 
 ## 十一、研发设计原则与易错点
@@ -382,7 +392,7 @@ orchestration/nodes/<feature>_move.py       →  <Feature>Move
 | `leg_short_move.py` | `LegShortMove` | `leg_control` | `studio_smoke_v1` |
 | `move_arm_base_joint_trajectories.py` | `MoveArmBaseJointTrajectories` | 旧版 `arm_control` | `studio_smoke_v1` |
 | `head_control_sdk_move.py` | `HeadControlSdkMove` | `head_control_sdk` | `refactored_sdk_atomic_v1` |
-| `arm_joint_traj_sdk_move.py` | `ArmJointTrajSdkMove` | `arm_joint_traj_sdk` | `refactored_sdk_atomic_v1`、`refactored_sdk_arm_v1` |
+| `arm_joint_traj_sdk_move.py` | `ArmJointTrajSdkMove` | `arm_joint_traj_sdk` | `refactored_sdk_atomic_v1`、`refactored_sdk_arm_v1`、`instructional_case_02` |
 | `arm_reset_sdk_move.py` | `ArmResetSdkMove` | `arm_reset_sdk` | `refactored_sdk_arm_v1` |
 | `leg_joint_sdk_move.py` | `LegJointSdkMove` | `leg_joint_sdk` | `refactored_sdk_atomic_v1` |
 | `base_pose_local_move.py` | `BasePoseLocalMove` | `base_pose_local` | `refactored_sdk_atomic_v1` |
