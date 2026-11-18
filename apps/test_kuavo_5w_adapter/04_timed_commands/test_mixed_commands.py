@@ -121,7 +121,7 @@ class TestMixedCommands(unittest.TestCase):
                 success_count += 1
             else:
                 logger.error(f"❌ 底盘前进失败: {result.message}")
-                return
+                self.fail(f"第 {success_count + 1} 步失败，见上方 ❌ 日志")
             
             # 步骤2: 躯干向前倾斜
             print("\n--- 步骤2: 躯干向前倾斜 ---")
@@ -138,7 +138,7 @@ class TestMixedCommands(unittest.TestCase):
                 success_count += 1
             else:
                 logger.error(f"❌ 躯干倾斜失败: {result.message}")
-                return
+                self.fail(f"第 {success_count + 1} 步失败，见上方 ❌ 日志")
             
             # 步骤3: 腿部微蹲
             print("\n--- 步骤3: 腿部微蹲 ---")
@@ -156,7 +156,7 @@ class TestMixedCommands(unittest.TestCase):
                 success_count += 1
             else:
                 logger.error(f"❌ 腿部微蹲失败: {result.message}")
-                return
+                self.fail(f"第 {success_count + 1} 步失败，见上方 ❌ 日志")
             
             # 步骤4: 底盘后退
             print("\n--- 步骤4: 底盘后退 0.2m ---")
@@ -174,7 +174,7 @@ class TestMixedCommands(unittest.TestCase):
                 success_count += 1
             else:
                 logger.error(f"❌ 底盘后退失败: {result.message}")
-                return
+                self.fail(f"第 {success_count + 1} 步失败，见上方 ❌ 日志")
             
             # 步骤5: 躯干恢复
             print("\n--- 步骤5: 躯干恢复直立 ---")
@@ -191,7 +191,7 @@ class TestMixedCommands(unittest.TestCase):
                 success_count += 1
             else:
                 logger.error(f"❌ 躯干恢复失败: {result.message}")
-                return
+                self.fail(f"第 {success_count + 1} 步失败，见上方 ❌ 日志")
             
             # 步骤6: 腿部恢复站立
             print("\n--- 步骤6: 腿部恢复站立 ---")
@@ -209,8 +209,10 @@ class TestMixedCommands(unittest.TestCase):
                 success_count += 1
             else:
                 logger.error(f"❌ 腿部恢复失败: {result.message}")
-                return
+                self.fail(f"第 {success_count + 1} 步失败，见上方 ❌ 日志")
             
+        except AssertionError:
+            raise  # 步骤失败的 self.fail 直接上抛，不当作异常吞掉
         except Exception as e:
             logger.error(f"❌ 混合指令序列异常: {e}")
             import traceback
@@ -246,7 +248,7 @@ class TestMixedCommands(unittest.TestCase):
                 success_count += 1
             else:
                 logger.error(f"❌ 底盘左转失败: {result.message}")
-                return
+                self.fail(f"第 {success_count + 1} 步失败，见上方 ❌ 日志")
             
             # 步骤2: 躯干向右偏转（补偿）
             print("\n--- 步骤2: 躯干向右偏转 ---")
@@ -263,7 +265,7 @@ class TestMixedCommands(unittest.TestCase):
                 success_count += 1
             else:
                 logger.error(f"❌ 躯干偏转失败: {result.message}")
-                return
+                self.fail(f"第 {success_count + 1} 步失败，见上方 ❌ 日志")
             
             # 步骤3: 躯干恢复
             print("\n--- 步骤3: 躯干恢复 ---")
@@ -280,7 +282,7 @@ class TestMixedCommands(unittest.TestCase):
                 success_count += 1
             else:
                 logger.error(f"❌ 躯干恢复失败: {result.message}")
-                return
+                self.fail(f"第 {success_count + 1} 步失败，见上方 ❌ 日志")
             
             # 步骤4: 底盘右转回正
             print("\n--- 步骤4: 底盘右转回正 ---")
@@ -298,8 +300,10 @@ class TestMixedCommands(unittest.TestCase):
                 success_count += 1
             else:
                 logger.error(f"❌ 底盘右转失败: {result.message}")
-                return
+                self.fail(f"第 {success_count + 1} 步失败，见上方 ❌ 日志")
             
+        except AssertionError:
+            raise  # 步骤失败的 self.fail 直接上抛，不当作异常吞掉
         except Exception as e:
             logger.error(f"❌ 协调运动序列异常: {e}")
             import traceback

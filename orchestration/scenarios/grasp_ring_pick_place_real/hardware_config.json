@@ -1,0 +1,7 @@
+{
+  "skip_force_publishers": true,
+  "skip_camera": true,
+  "skip_end_effector": true,
+  "skip_state_manager": true,
+  "skip_sdk_managers": true
+}

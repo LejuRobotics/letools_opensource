@@ -34,8 +34,8 @@ standalone_tags:
   [
     {id: 1, size: 0.06, name: 'tag_1'},
     {id: 2, size: 0.06, name: 'tag_2'},
-    {id: 3, size: 0.06, name: 'tag_1'},
-    {id: 4, size: 0.06, name: 'tag_2'},
+    {id: 3, size: 0.06, name: 'tag_3'},
+    {id: 4, size: 0.06, name: 'tag_4'},
   ]
 
 # 标签束（多个标签共同定义一个刚体）；无需要时保持空列表。

@@ -2945,15 +2945,81 @@ class NodePalletServo(BaseAction):
                            "伺服结果不受影响", type(exc).__name__, exc)
 
     def terminate(self, new_status):
-        """收订阅。**可视化那一路也要收** —— 不收就是换树之后还在占着图像话题。"""
-        for sub in (self._color_sub,):
-            if sub is not None:
-                try:
-                    sub.unregister()
-                except Exception:                        # noqa: BLE001
-                    pass
-        self._color_sub = None
-        self._overlay_pub = None
+        """换树前把 ROS 句柄全部交回，并停检测门控。
+
+        ⚠️ 旧版只收了彩色订阅、把 overlay 发布器置空 —— **没有**注销
+        `/pallet_servo/slot` 与检测门控/误差发布器。同进程换树后会出现：
+          * 旧服务闭包仍绑着**已不再 tick**的实例；
+          * 新实例注册同名服务失败（`_slot_srv` 仍是 None）；
+          * `rosservice call /pallet_servo/slot` 返回成功，却激活不了新节点；
+          * 新节点 `_active_slot` 一直是 0，检测门控打不开，放置观测一直空。
+        这里必须先把门控 latched 打回 0，再拆服务与发布器；`initialise()`
+        里本来就是"句柄为 None 才重建"，清理干净后重新进入即可重新注册。
+        """
+        # 先复位槽位再强制发门控 0：检测器订阅的是 latched 话题，不发就
+        # 会一直按旧值跑。之后才拆发布器。
+        if self._active_slot != 0:
+            self._active_slot = 0
+            self._slot_version += 1
+        self._force_detect_mode_off()
+        self._cleanup_slot_service()
+        self._cleanup_ros_publisher("_detect_mode_pub")
+        self._detect_mode_msg = None
+        self._last_detect_mode = None
+        self._last_detect_mode_t = 0.0
+        self._cleanup_ros_publisher("_servo_error_pub")
+        self._cleanup_ros_publisher("_overlay_pub")
+        self._cleanup_color_subscriber()
+
+    def _force_detect_mode_off(self) -> None:
+        """退出时强制把门控打到 0（全停）。**纯设施，绝不抛。**"""
+        publisher = self._detect_mode_pub
+        message_type = self._detect_mode_msg
+        if publisher is None or message_type is None:
+            return
+        try:
+            publisher.publish(message_type(data=0))
+            self._last_detect_mode = 0
+            self._last_detect_mode_t = time.monotonic()
+            logger.info("检测门控 → 0（全停；节点退出）")
+        except Exception as exc:                         # noqa: BLE001
+            logger.debug("NodePalletServo 退出时发检测门控 0 失败：%s", exc)
+
+    def _cleanup_slot_service(self) -> None:
+        """换出句柄再 shutdown：抛异常也不留野服务占着同名。"""
+        service, self._slot_srv = self._slot_srv, None
+        if service is None:
+            return
+        try:
+            service.shutdown()
+            logger.info("NodePalletServo 已注销箱位服务 /pallet_servo/slot")
+        except Exception as exc:                         # noqa: BLE001
+            logger.warning(
+                "NodePalletServo 注销 /pallet_servo/slot 失败（%s）——"
+                "换树后新实例可能抢不到同名服务",
+                exc,
+            )
+
+    def _cleanup_ros_publisher(self, attr_name: str) -> None:
+        """换出句柄再 unregister：抛异常也不留野发布器。"""
+        publisher = getattr(self, attr_name, None)
+        setattr(self, attr_name, None)
+        if publisher is None:
+            return
+        try:
+            publisher.unregister()
+        except Exception:                                # noqa: BLE001
+            pass
+
+    def _cleanup_color_subscriber(self) -> None:
+        """换出句柄再 unregister：抛异常也不留野订阅。"""
+        subscriber, self._color_sub = self._color_sub, None
+        if subscriber is None:
+            return
+        try:
+            subscriber.unregister()
+        except Exception:                                # noqa: BLE001
+            pass
 
 
 def _int_at_least(value, minimum, default, name):

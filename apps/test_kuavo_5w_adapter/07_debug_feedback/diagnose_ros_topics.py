@@ -73,13 +73,13 @@ def check_specific_topics():
             '/lb_arm_ee_reach_time/left',
         ],
         'MPC相关': [
-            '/mobile_manipulator_mpc_control_mode',
+            '/mobile_manipulator/lb_mpc_control_mode',
             '/mobile_manipulator_mpc_observation',
         ],
         '传感器数据': [
-            '/body_acc',
-            '/joint_acc',
-            '/torque',
+            '/humanoid_wheel/bodyAcc',
+            '/humanoid_wheel/jointAcc',
+            '/humanoid_wheel/torque',
         ],
         '位姿数据': [
             '/humanoid_wheel/eePoses',
@@ -158,8 +158,8 @@ def main():
         print("   3. 订阅者初始化时机问题")
         print("\n建议:")
         print("   运行以下命令检查话题是否有数据:")
-        print("   rostopic echo /body_acc    # 查看本体加速度")
-        print("   rostopic hz /body_acc      # 查看发布频率")
+        print("   rostopic echo /humanoid_wheel/bodyAcc # 查看本体加速度")
+        print("   rostopic hz /humanoid_wheel/bodyAcc # 查看发布频率")
     else:
         print("\n⚠️  部分话题不存在")
         print("\n可能原因:")

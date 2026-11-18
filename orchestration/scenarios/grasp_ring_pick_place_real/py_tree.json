@@ -1,0 +1,50 @@
+{
+  "tree": {
+    "name": "Sequence",
+    "label": "real_ring_pick_place",
+    "params": {
+      "memory": {
+        "value": "True",
+        "source": "CUSTOM",
+        "data_type": "string"
+      }
+    },
+    "childs": [
+      {
+        "name": "prepare.json",
+        "label": "prepare",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "grasp.json",
+        "label": "grasp",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "carry.json",
+        "label": "carry",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      },
+      {
+        "name": "place.json",
+        "label": "place",
+        "params": {},
+        "childs": [],
+        "childBoard": []
+      }
+    ],
+    "childBoard": []
+  },
+  "interface": {
+    "inputs": [],
+    "outputs": [],
+    "custom": [],
+    "process": []
+  }
+}

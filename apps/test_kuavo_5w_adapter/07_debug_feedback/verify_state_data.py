@@ -243,9 +243,9 @@ def check_ros_topics():
         '/lb_arm_joint_reach_time/left',
         '/lb_leg_joint_reach_time',
         '/lb_arm_ee_reach_time/left',
-        '/mobile_manipulator_mpc_control_mode',
-        '/body_acc',
-        '/torque',
+        '/mobile_manipulator/lb_mpc_control_mode',
+        '/humanoid_wheel/bodyAcc',
+        '/humanoid_wheel/torque',
         '/humanoid_wheel/eePoses',
     ]
     

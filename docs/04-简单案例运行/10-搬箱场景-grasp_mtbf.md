@@ -8,7 +8,7 @@
 
 **适合读者**：已经跑通 [09](09-头手躯干与底盘并行-instructional_case_04.md)，想看一条可循环的「导航 → 识别 → 抓取 → 搬运 → 放置」整链的人。
 
-**前置知识**：组合节点、黑板（[03](03-行为树最小示例.md)）；`MultiTimedCommandMove` 多 planner 下发（[08](08-头手躯干并行-instructional_case_03.md)）；AprilTag 的基本概念（[机器人基础通识](../01-介绍/01-机器人基础通识.md)）。
+**前置知识**：组合节点、黑板（[03](03-行为树最小示例.md)）；`MultiTimedCommandMove` 多 planner 下发（[09](09-头手躯干与底盘并行-instructional_case_04.md#四头手和躯干动作)；[08](08-头手躯干串行-instructional_case_03.md) 当前只用单个躯干 planner，手臂另行串行下发）；AprilTag 的基本概念（[机器人基础通识](../01-介绍/01-机器人基础通识.md)）。
 
 **核心概念**：`grasp_mtbf` 是 MTBF（Mean Time Between Failures，平均故障间隔时间）搬箱测试场景。除一个计算关键点的场景节点外，全部使用公共节点：底盘用 `ChassisNavigationMove`，躯干与双臂统一用 `MultiTimedCommandMove`，外层用 `RepeatUntil` 控制轮数。
 

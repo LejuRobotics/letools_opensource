@@ -33,11 +33,11 @@ if has python3; then
     python3 -c 'import numpy; v=tuple(int(x) for x in numpy.__version__.split(".")[:2]); assert (1, 19) <= v < (1, 27)' >/dev/null 2>&1 && ok "NumPy版本范围正确" || warn W003 "NumPy应满足>=1.19.5,<1.27.0"
     python3 -c 'import em' >/dev/null 2>&1 && ok "empy可导入" || warn W004 "缺少empy；Ubuntu可安装python3-empy"
     python3 -c 'import kuavo_msgs, ocs2_msgs' >/dev/null 2>&1 && ok "ROS消息包可导入" || warn W005 "kuavo_msgs/ocs2_msgs不可导入；请source devel/setup.bash"
-    python3 -c 'from kuavo_humanoid_sdk import KuavoRobot' >/dev/null 2>&1 && ok "Kuavo SDK可导入" || warn W006 "Kuavo SDK不可导入；请运行scripts/install_sdk.sh"
+    python3 -c 'from kuavo_humanoid_sdk import KuavoRobot' >/dev/null 2>&1 && ok "Kuavo SDK可导入" || warn W006 "Kuavo SDK不可导入；请先source devel/setup.bash，仍失败则运行scripts/sdk_tools/install.sh"
 fi
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION_FILE="$PROJECT_ROOT/scripts/kuavo_humanoid_sdk_tools/sdk_version.env"
+VERSION_FILE="$PROJECT_ROOT/scripts/sdk_tools/sdk_version.env"
 if [[ -f "$VERSION_FILE" ]]; then
     ok "找到SDK版本锁定文件"
     grep -E '^SDK_REPO_(BRANCH|TAG)=' "$VERSION_FILE" || fail E005 "SDK版本字段缺失"

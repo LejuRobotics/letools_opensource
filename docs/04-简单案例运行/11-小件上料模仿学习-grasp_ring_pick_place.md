@@ -8,7 +8,7 @@
 
 **前置知识**：行为树的基本结构（[03-行为树最小示例](03-行为树最小示例.md)）；已运行过前序案例（[07-手臂与头部并行](07-手臂与头部并行-instructional_case_02.md)–[10-搬箱场景](10-搬箱场景-grasp_mtbf.md)）；仿真容器的启动与编译（[安装步骤 1.1](../02-环境安装/03-安装步骤.md#11-环境部署)）；Conda 的基本用法。
 
-**核心概念**：行为树主程序运行在宿主机系统 Python 3.8（ROS Noetic）中，ACT 推理运行在独立的 Conda Python 3.12 环境（`LeTools-Learning`）中；行为树运行到推理节点时，由 `InferenceControlSkill` 启动推理子进程。仿真、行为树配置和推理所需代码分别位于下位机、上位机和 `LeTools-Learning` 三个仓库。
+**核心概念**：行为树主程序运行在宿主机系统 Python 3.8（ROS Noetic）中，ACT 推理运行在独立的 Conda Python 3.12 环境（`LeTools-Learning`）中。
 
 **学习目标**：
 
@@ -22,7 +22,7 @@
 
 
 
-上位机和 LeTools\-Learning 直接使用完整源码，不需要打补丁；只有 kuavo\-ros\-opensource 需要应用下位机补丁。补丁必须打在对应发布基线的同一提交上。
+上位机使用配套源码；LeTools\-Learning 需要安装圆环仿真工具附件；kuavo\-ros\-opensource 需要应用下位机补丁。
 
 # **场景定位**
 
@@ -34,7 +34,7 @@
 |抓取方式|ACT 模仿学习模型|
 |参与的仓库|`letools-opensource`（行为树、场景配置、统一入口）、`kuavo-ros-opensource`（MuJoCo、模型、场景、ROS 接口）、`LeTools-Learning`（数据转换、训练与推理，作为上位机子模块）|
 |行为树入口|`apps/test_upper_init/run_behavior_tree_json.py`|
-|运行配置|行为树入口与黑板使用 `board.json`，动作参数使用 `py_tree_child.json`，推理参数使用 `LeTools-Learning/configs/deploy/deploy.yaml`|
+|运行配置|行为树入口与黑板使用 `board.json`，动作参数使用 `py_tree_child.json`，推理参数使用 `LeTools-Learning/tools/ring_sim/config/ring_deploy.yaml`|
 
 ## **行为树流程**
 
@@ -47,7 +47,7 @@ grasp_ring_pick_place（Sequence）
 └── place_ring：前伸放置、张开夹爪、后撤并归位
 ```
 
-行为树主程序运行在宿主机系统 Python 3.8 中，运行到推理节点时使用 `paths.learning_python` 启动 ACT 推理子进程；仿真机器人运行在 Docker 容器中。`board.json` 保存行为树黑板值、跨仓库路径、模型入口、放置目标和夹爪反馈判据；`py_tree_child.json` 保存导航与动作参数；`deploy.yaml` 保存推理频率和预抓取参数。三份配置分别负责行为树、动作参数和推理参数。
+行为树主程序运行在宿主机系统 Python 3.8 中，运行到推理节点时使用 `paths.learning_python` 启动 ACT 推理子进程；仿真机器人运行在 Docker 容器中。
 
 # **一、基础环境准备**
 
@@ -62,7 +62,6 @@ grasp_ring_pick_place（Sequence）
 |PyTorch|2\.9\.1|
 |LeRobot|0\.5\.2|
 |kuavo\_humanoid\_sdk|1\.4\.5；基础环境已预装，使用配套源码。|
-|flash\-attn|本 ACT 流程不要求单独安装；其他模型按需安装|
 |Docker 镜像|kuavo\_opensource\_mpc\_wbc\_img\_v1\.3\.0\.tar\.gz（官方预编译）|
 |NVIDIA 驱动|570（LeTools\-Learning 文档测试通过版本）|
 |NVIDIA Container Toolkit|1\.19\.1\-1（官方文档）|
@@ -80,39 +79,43 @@ grasp_ring_pick_place（Sequence）
 
 ```Bash
 cd ~/example/letools-opensource
-git submodule update --init --recursive
+git submodule update --init --recursive LeTools-Learning
 ```
 
 
 
-## **1\.3 应用下位机补丁和资源**
+## **1\.3 应用一键安装包**
 
-下载附件 `ring-sim-upload.zip`，解压到 `~/example/`，确认得到 `~/example/ring-sim-upload/`。压缩包内已包含补丁、模型资源、安装脚本、依赖清单和说明文档。
+先下载文末附件 `圆环仿真一键安装包.zip`，解压到 `~/example/`：
 
-|**补丁**|**应用目录**|**用途**|
-|---|---|---|
-|kuavo\_sim\_runtime\.patch|kuavo\-ros\-opensource|MuJoCo 场景、模型、夹爪反馈和仿真接口|
-|ring\_sim\_assets\.tar\.gz|kuavo\-ros\-opensource 根目录|2F85、D405、ring4 和三张纹理，共 13 个文件|
-|data\_challenge\_simulator\.patch|kuavo\-ros\-opensource|Task 1～4 和圆环采集|
+脚本会依次应用 `kuavo_sim_runtime.patch` 和 `data_challenge_simulator.patch`，解压 `ring_sim_assets.tar.gz`（13 个模型资源），安装 `LeTools-Learning/tools/ring_sim/`，最后安装两套 Python 依赖。
+
+先在 `~/example/` 下做检查，检查不通过不会修改任何文件：
 
 ```Bash
-cd ~/example/kuavo-ros-opensource
-git apply --check ../ring-sim-upload/patches/kuavo_sim_runtime.patch
-git apply ../ring-sim-upload/patches/kuavo_sim_runtime.patch
-
-git apply --check ../ring-sim-upload/patches/data_challenge_simulator.patch
-git apply ../ring-sim-upload/patches/data_challenge_simulator.patch
-
-tar -xzf ../ring-sim-upload/patches/ring_sim_assets.tar.gz -C .
+cd ~/example
+bash install_all.sh --check
 ```
 
-git apply 失败通常表示仓库或提交基线不一致；不要用 \-3 或手工跳过失败文件。
+检查通过后执行安装：
 
+```Bash
+bash install_all.sh --install   #--install 会按顺序应用下位机补丁、解压模型资源、安装 Learning 圆环代码并安装两套依赖。
+```
 
+默认仓库为 `~/example/letools-opensource`、`~/example/kuavo-ros-opensource`，默认 Conda 为 `~/miniforge3/bin/conda`。仓库或 Conda 装在别处时，在两条命令前分别设置：
 
-## **1\.4 安装 Python 依赖**
+```Bash
+export LETOOLS_ROOT=/你的上位机仓库路径
+export KUAVO_ROOT=/你的下位机仓库路径
+export CONDA_BIN=/你的conda可执行文件路径
+```
 
-系统 Python 3\.8 供行为树和采集使用，Learning Python 3\.12 供转换、训练和推理使用。两套依赖清单和安装脚本统一放在 `~/example/ring-sim-upload/` 目录。脚本会创建或复用 `letools` 环境并安装两套依赖，但不会自动修改场景 `board.json`。
+安装不会覆盖上位机代码。脚本不会自动回滚已完成的步骤，失败后请保留输出并检查仓库状态，不要直接重复运行。
+
+`install_all.sh --install` 已包含两套 Python 依赖安装。成功后，把脚本输出的 Python 路径填入 `board.json` 的 `paths.learning_python`。
+
+仅当依赖安装失败时，再单独执行：
 
 ```Bash
 bash ~/example/ring-sim-upload/install_ring_sim_dependencies.sh \
@@ -120,8 +123,6 @@ bash ~/example/ring-sim-upload/install_ring_sim_dependencies.sh \
   --kuavo-root ~/example/kuavo-ros-opensource \
   --conda-bin ~/miniforge3/bin/conda
 ```
-
-系统依赖：requirements/system\-python38\.txt（numpy、scipy、colorlog、py\_trees 等）。Learning 依赖：torch、LeRobot 等。 脚本只安装依赖并打印 Learning Python 路径，不会自动改配置；把输出路径填入场景 `board.json` 的 `paths.learning_python`。必须显式指定 Miniforge 的 conda；不要让脚本误用 PATH 里的其他 conda。
 
 
 
@@ -135,20 +136,28 @@ bash ~/example/ring-sim-upload/install_ring_sim_dependencies.sh \
 
 ```Bash
 letools-opensource/
-├── apps/test_upper_init/run_behavior_tree_json.py  # 通用行为树入口
+├── apps/test_upper_init/run_behavior_tree_json.py
 ├── orchestration/
 │   ├── nodes/
+│   │   └── inference_runner.py  # 推理子进程入口
 │   └── scenarios/grasp_ring_pick_place/
-│       ├── board.json          # 行为树黑板、路径与夹爪反馈
+│       ├── board.json          # 行为树黑板、跨仓库路径、推理配置与夹爪反馈
 │       ├── hardware_config.json
 │       ├── py_tree.json
 │       └── py_tree_child.json  # 导航、预抓取和放置动作参数
 └── LeTools-Learning/
-    ├── tools/ring_sim/            # 采集、bag 检查、独立评测
-    ├── configs/{data,deploy,train}/
-    ├── kuavo_data/                # 数据转换
-    ├── kuavo_model/               # 训练
-    └── kuavo_deploy/              # 推理
+    ├── tools/ring_sim/         # 圆环全部工具，由 1.3 附件安装
+    │   ├── helperfunc.py       # collect：仿真采集与 rosbag 录制
+    │   ├── data/convert.py     # convert：rosbag → LeRobot 数据集
+    │   ├── train.py            # train：ACT 训练
+    │   ├── infer.py            # infer：ACT 独立推理
+    │   ├── deploy.py           # evaluate：批量评测
+    │   ├── runtime/            # 圆环 Gym 环境与配置加载
+    │   ├── runtime_config.py   # 读取 board.json 的 paths 与容器名
+    │   └── config/             # ring_deploy.yaml、ring_data.yaml、train/
+    ├── kuavo_data/             # convert 依赖（关节切片、平台配置）
+    ├── kuavo_model/            # train 依赖（训练框架）
+    └── kuavo_deploy/           # infer 依赖（策略加载、ArmMove）；通用推理入口
 ```
 
 
@@ -157,10 +166,10 @@ letools-opensource/
 
 |**文件**|**作用**|
 |---|---|
-|board\.json|行为树黑板、跨仓库 `paths`、`container`、模型入口、放置目标、`grasp_feedback`；相对路径以该文件所在目录为基准|
-|py\_tree\_child\.json|预抓取、搬运、放置、后撤、归位和导航动作参数；WheelNavMove 的 mode 为 base，导航坐标直接在此修改|
-|configs/deploy/deploy\.yaml|ACT 推理参数，包括 `ros_rate`、`control_rate` 和 `env.sim_pre_grasp` 预抓取初始姿态|
-|configs/train/lerobot/act\.yaml|ACT 训练超参数|
+|board\.json|行为树配置，包括跨仓库路径、模型路径、夹爪反馈和放置目标。填写模型路径时建议使用绝对路径。|
+|py\_tree\_child\.json|预抓取、搬运、放置、后撤、归位和导航动作参数；WheelNavMove 的 mode 为 base（底盘自身坐标系）|
+|tools/ring\_sim/config/ring\_deploy\.yaml|圆环仿真推理配置，包括模型路径、推理频率和预抓取姿态|
+|tools/ring\_sim/config/train/lerobot/act\.yaml|圆环数据集路径和 ACT 训练配置|
 |hardware\_config\.json|仿真模式跳过相机、末端和力控发布器，仅启用 timed、arm、low 管理器|
 
 
@@ -216,11 +225,10 @@ roslaunch humanoid_controllers load_kuavo_mujoco_sim_wheel.launch \
 
 采集使用宿主机系统 Python。请先启动配套 Docker 容器，并关闭当前已经运行的 ROS Master。
 
-
-
 采集脚本会修改场景中的圆环位置，并在每轮结束时停止仿真相关 ROS 进程。采集前请关闭本机其他 ROS 任务，并在独立的仿真环境中运行。
 
 ```Bash
+source /opt/ros/noetic/setup.bash
 cd ~/example/letools-opensource/LeTools-Learning
 /usr/bin/python3 -m tools.ring_sim collect
 ```
@@ -231,47 +239,56 @@ cd ~/example/letools-opensource/LeTools-Learning
 
 ## **4\.2 ****数据转换**
 
+转换会读取 ROS 的 rosbag，先 source 一次 ROS 环境：
+
 ```Plain Text
+source /opt/ros/noetic/setup.bash
 conda activate letools
 cd ~/example/letools-opensource/LeTools-Learning
 
-python3 -m kuavo_data.CvtRosbag2Lerobot \
+python3 -m tools.ring_sim convert \
   rosbag.mode=normal \
-  rosbag.rosbag_dir=<bag目录> \
-  rosbag.target_dir=<数据集父目录>
+  rosbag.rosbag_dir=<4.1 采集得到的 run_... 目录> \
+  rosbag.target_dir=outputs/ring_dataset
 ```
 
-转换后的数据集保存在 `<rosbag.target_dir>/lerobot`。当 `rosbag.target_dir` 填 paths\.dataset\_parent 时，就是 `paths.dataset_parent/lerobot`；命令里以实际传入的 `rosbag.target_dir` 为准。
+把第一处 `<...>` 替换成 4.1 实际输出的目录，尖括号本身不要留下。
 
-输出目录已存在时会停止。
+`outputs/ring_dataset` 是相对 `LeTools-Learning` 的路径，转换后的数据集保存在 `outputs/ring_dataset/lerobot`。如果该目录已存在，转换会先删除再重建；转换前请确认没有需要保留的数据。
+
+转换完成后检查 `outputs/ring_dataset/lerobot/meta/info.json`，确认 `total_frames` 大于 0；如果为 0，不要继续训练。
 
 
 
 ## **4\.3 模型训练与权重保存**
 
-先改 `configs/train/lerobot/act.yaml`：
+先改 `tools/ring_sim/config/train/lerobot/act.yaml`：
 
 ```Bash
 dataset:
-  root: <数据集父目录>/lerobot
+  root: outputs/ring_dataset/lerobot
 
 training:
-  output_dir: <训练输出目录>
+  output_dir: outputs/train/ring_act
 ```
+
+如果 4.2 使用默认输出目录，这两项保持默认即可；训练轮数、batch size 等也在这个文件里修改。改到别处时同步修改。
 
 再执行：
 
 ```Bash
 conda activate letools
 cd ~/example/letools-opensource/LeTools-Learning
-python3 kuavo_model/train.py --policy act --config-root configs/train/lerobot
+python3 -m tools.ring_sim train
 ```
 
 
 
 # **五、仿真推理与行为树验证**
 
-A 组在宿主机每个新终端执行一次；B 组在进入容器后的每个新终端执行一次。本章 5\.1、5\.2 的启动代码块默认终端环境已准备好，不再重复 source，也不再重复进入容器。
+> 💡 **本章开始前请先关闭前面启动的仿真。**
+>
+> A 组在宿主机每个新终端执行一次；B 组在进入容器后的每个新终端执行一次。本章 5\.1、5\.2 的启动代码块默认终端环境已准备好，不再重复 source，也不再重复进入容器。
 
 A：宿主机新终端：
 
@@ -280,7 +297,10 @@ source /opt/ros/noetic/setup.bash
 source ~/example/kuavo-ros-opensource/installed/setup.bash
 source ~/example/letools-opensource/infrastructure/ros_packages/devel/setup.bash
 export ROS_MASTER_URI=http://localhost:11311
+export PYTHONPATH=~/example/letools-opensource/drivers/leju/kuavo_humanoid_sdk/src/kuavo_humanoid_sdk:~/example/letools-opensource/infrastructure/ros_packages/src/kuavo_common/python:$PYTHONPATH
 ```
+
+最后一行把上位机子模块里的 `kuavo_humanoid_sdk` 1\.4\.5 和 `kuavo_common/python`（提供 `robot_version`）加到 `PYTHONPATH`。如果上位机子模块没有初始化（`drivers/leju/kuavo_humanoid_sdk/` 为空），改用：`export PYTHONPATH=~/example/kuavo-ros-opensource/src/kuavo_humanoid_sdk:~/example/letools-opensource/infrastructure/ros_packages/src/kuavo_common/python:$PYTHONPATH`。每开一个宿主机新终端都要重设一遍，不要写进 `~/.bashrc`。
 
 B：容器内终端：
 
@@ -296,15 +316,16 @@ export LD_LIBRARY_PATH=/root/kuavo_ws/devel/lib:/opt/drake/lib:/root/.mujoco/muj
 
 ## **5\.1 独立模型推理**
 
-先关闭 3\.2 中仍在运行的仿真。本节只验证训练好的 ACT 权重能否在仿真中从预抓取位开始推理，需要两个终端。
+本节只验证训练好的 ACT 权重能否在仿真中从预抓取位开始推理，需要两个终端。
 
-在 configs/deploy/deploy\.yaml 中确认：
+打开 `LeTools-Learning/tools/ring_sim/config/ring_deploy.yaml`，把 `inference.pretrained_path` 改成训练生成的模型检查点目录：
 
 ```YAML
 inference:
   pretrained_path: <模型检查点目录>
-  # eval_episodes 仅 auto_test 使用，独立推理不读取
 ```
+
+把 `<模型检查点目录>` 替换成 4.3 训练输出目录下的 `checkpoints/<步数>` 目录，写绝对路径。
 
 
 
@@ -325,10 +346,10 @@ roslaunch humanoid_controllers load_kuavo_mujoco_sim_wheel.launch \
 ```Bash
 conda activate letools
 cd ~/example/letools-opensource/LeTools-Learning
-python3 kuavo_deploy/eval.py configs/deploy/deploy.yaml
+python3 -m tools.ring_sim infer --task run --config tools/ring_sim/config/ring_deploy.yaml
 ```
 
-启动后选择 2\. run；程序会先初始化仿真环境、移动到预抓取位，再开始 ACT 推理。
+启动后程序会先初始化仿真环境、移动到预抓取位，再开始 ACT 推理。
 
 [simplescreenrecorder-2026-10-16_19.14.40.mkv](../../orchestration/scenarios/grasp_ring_pick_place/配套源码/图片和附件/simplescreenrecorder-2026-10-16_19.14.40.mkv)
 
@@ -346,7 +367,7 @@ python3 kuavo_deploy/eval.py configs/deploy/deploy.yaml
 
 **启动并验证行为树：**
 
-若刚完成第 5\.1 节，请先退出终端 2 的推理程序，并在终端 1 关闭仿真，再启动本节场景。启动前，请按 2\.1 的 board\.json 说明填写模型检查点路径；首次运行可先使用默认运动参数。
+若刚完成第 5\.1 节，请先退出终端 2 的推理程序，并在终端 1 关闭仿真，再启动本节场景。启动前，请在 `board.json` 中确认 `paths.learning_python`，并把 `pretrained_path` 指向本次训练生成的检查点目录；`board.json` 的值会覆盖 `ring_deploy.yaml` 的同名项。首次运行可先使用默认运动参数。
 
 
 
@@ -401,10 +422,10 @@ cd ~/example/letools-opensource
 
 |阶段|判据|
 |---|---|
-|环境与补丁|`git apply --check` 无报错；依赖安装脚本执行完成，并输出 Learning 环境的 Python 路径|
+|环境与补丁|`install_all.sh --check` 通过；`--install` 执行完成并输出 Learning Python 路径；`LeTools-Learning/tools/ring_sim/` 存在|
 |仿真部署|编译无失败包；仿真窗口正常打开，可见机器人、料箱、工作台和圆环|
-|数据|采集得到 `paths.collection_bags_root/run_<时间>/`；转换后存在 `rosbag.target_dir/lerobot`|
-|模型|训练输出目录中存在 checkpoint；5.1 独立推理能够完成圆环抓取|
+|数据|采集得到 `paths.collection_bags_root/run_<时间>/`；转换后 `rosbag.target_dir/lerobot/meta/info.json` 中 `total_frames` 大于 0|
+|模型|训练输出目录中存在 checkpoint；5\.1 独立推理能够完成圆环抓取|
 |行为树|依次完成预抓取、模型抓取、搬运、放置与归位，且无节点长时间等待或报错|
 
 
@@ -418,21 +439,31 @@ cd ~/example/letools-opensource
 
 # **附件：**
 
-下载：[ring-sim-upload.zip](../../orchestration/scenarios/grasp_ring_pick_place/配套源码/ring-sim-upload.zip)
+下载：[圆环仿真一键安装包.zip](../../orchestration/scenarios/grasp_ring_pick_place/配套源码/圆环仿真一键安装包.zip)
 
-两套 Python 依赖清单和安装脚本均在 `ring-sim-upload.zip` 内，按 1\.3、1\.4 的步骤解压并安装即可。
+两套 Python 依赖清单、下位机补丁和 Learning 的圆环代码都在这个压缩包里，按 1\.3 的步骤解压并安装即可；上位机代码使用本案例对应的 LeTools 版本。本安装包不包含训练好的 ACT 权重，权重需按第四章自行采集、转换、训练得到。
 
-|文件或目录|类型|说明|
+|文件或目录|说明|
+|---|---|
+|`install_all.sh`|`--check` 只检查不修改；`--install` 执行安装|
+|`使用说明.md`|脚本行为、默认路径、环境变量、执行顺序|
+|`ring-sim-upload/`|下位机补丁、模型资源、两套依赖清单、依赖安装脚本、补丁说明|
+|`圆环案例/letools-learning-ring-tools.zip`|LeTools\-Learning 圆环代码，新增 `tools/ring_sim/`|
+
+解压后 `~/example/` 下共四项：`ring-sim-upload/`、`圆环案例/`、`install_all.sh`、`使用说明.md`。表中其余路径均相对于解压后的 `~/example/` 目录。
+
+## **附件覆盖范围**
+
+本附件覆盖圆环案例所需的仿真、模型、Learning 代码和依赖；上位机代码由 LeTools 仓库提供。逐项核对如下：
+
+|**位置**|**改动**|**是否在附件中**|
 |---|---|---|
-|`ring-sim-upload.zip`|完整附件包|解压到 `~/example/`，得到 `~/example/ring-sim-upload/`；包含下位机补丁、模型资源、依赖清单、安装脚本和说明文档|
-|`patches/kuavo_sim_runtime.patch`|下位机补丁|在 `kuavo-ros-opensource` 中应用；包含 MuJoCo 场景、模型、夹爪反馈和仿真接口|
-|`patches/data_challenge_simulator.patch`|下位机补丁|在 `kuavo-ros-opensource` 中应用；Task 1～4 和圆环采集使用，约 328 MB|
-|`patches/ring_sim_assets.tar.gz`|模型资源包|解压到 `kuavo-ros-opensource` 根目录；包含 2F85、D405、ring4 和三张纹理，共 13 个文件|
-|`requirements/system-python38.txt`|系统依赖清单|由安装脚本读取；供系统 Python 3\.8 使用|
-|`requirements/learning-python312.txt`|Learning 依赖清单|由安装脚本读取；供 `letools` 环境使用，不安装 SDK|
-|`install_ring_sim_dependencies.sh`|安装脚本|放在 `~/example/ring-sim-upload/`；创建或复用 `letools` 环境并安装两套依赖|
-|`说明/圆环仿真补丁改动说明/`|说明附件|逐文件说明下位机补丁的改动位置和内容|
-|`说明/圆环仿真话题与服务一览/`|附录附件|话题、服务和自查命令，作为附录 A 使用|
-|`图片和附件/`|图文附件|文档中的 1 张场景截图和 3 个演示视频，仅用于阅读，不参与程序运行|
+|kuavo\-ros\-opensource|`kuavo_sim_runtime.patch` 的 15 个文件（场景、模型、夹爪反馈、仿真接口、`SetObjectPosition.srv`）|是|
+|kuavo\-ros\-opensource|`data_challenge_simulator.patch` 的 `src/data_challenge_simulator/` 整包（580 个文件）|是|
+|kuavo\-ros\-opensource|`ring_sim_assets.tar.gz` 的 13 个模型与纹理文件|是|
+|letools\-opensource|`board.json` 与 `inference_runner.py` 的圆环支持|否，由对应 LeTools 版本提供|
+|LeTools\-Learning|`tools/ring_sim/` 全部代码与配置|是|
+|两套 Python 依赖|两份 requirements 和安装脚本|是|
+|训练好的 ACT 权重|`outputs/train/.../checkpoints/`|**否**，需按第四章自行训练|
 
-除 `ring-sim-upload.zip` 和“图片和附件/”外，其余路径均相对于解压后的 `ring-sim-upload/` 目录。
+按 1\.3 执行 `install_all.sh --install` 后无需再手工修改其他文件。只有当导入 SDK 报 `ModuleNotFoundError: No module named 'robot_version'` 时，才需要核对 `src/kuavo_humanoid_sdk/kuavo_humanoid_sdk/kuavo/robot_blockly.py` 中 `kuavo_common/python` 的相对路径层数是否为三层 `../`。

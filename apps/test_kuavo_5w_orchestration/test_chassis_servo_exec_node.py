@@ -826,6 +826,7 @@ def main() -> int:
         ("同一指令去重", test_dedup_same_command),
         ("velocity 单帧 + idle 恒 True", test_velocity_dispatch_idle_true),
         ("velocity 观测看门狗零速", test_velocity_obs_watchdog_zero),
+        ("velocity 看门狗闩锁不重发", test_velocity_watchdog_latch_no_republish),
         ("velocity 时长超限零速", test_velocity_duration_limit_zero),
         ("velocity 下发失败零速", test_velocity_tick_failure_zero),
         ("velocity terminate 零速", test_velocity_terminate_sends_zero),

@@ -65,6 +65,24 @@ camera:
   # RGB 校准叠加（默认关闭）
   use_wrist_rgb_caminfo_overlay: false
 
+  # ---------- ROS 2 适配（ROS 1 路径忽略以下键） ----------
+  # 由 adapters/hardware_ros2/{camera,perception}_adapter.py 读取。
+  # 注意：ROS 2 用 enable_perception，不受上面 launch_apriltag（ROS 1 默认 false）影响。
+  enable_perception: true
+  head_color_image_topic: /sensor/head_camera/color_image_raw
+  head_color_info_topic: /sensor/head_camera/color_info
+  head_depth_image_topic: /sensor/head_camera/depth_image_raw
+  apriltag_topic_ros2: /perception/tags
+  apriltag_tag_ids: [1, 2]
+  apriltag_tag_size: 0.10              # 黑框外沿边长，单位米
+  apriltag_source_frame_ros2: head_camera_optical_link
+  apriltag_target_frame: base_link
+  apriltag_process_rate_hz: 10.0
+  publish_camera_static_tf: true       # 相机光学系缺失时由检测节点补一条静态 TF
+  camera_base_frame: head_camera_base
+  camera_optical_xyz: [0.0, 0.0, 0.0]
+  camera_optical_rpy: [-1.5707963, 0.0, -1.5707963]
+
   # ---------- AprilTag / RViz ----------
   # 允许公用感知模块启动 AprilTag；不会在初始化或读取结果时自动启动。
   # 业务需要检测时调用 perception.start()，完成后调用 perception.stop()。

@@ -34,7 +34,10 @@
 
 `HeadControlSdkMove` 负责下发目标角，调用成功后就会返回；它不等待头部实际到达目标。
 因此，本案例使用 `WaitSeconds` 留出运动和观察时间。头部速度由底层控制器决定，
-该节点目前没有单独的速度参数。
+该节点目前没有单独的速度参数。等待从节点启动时计时，不从实测到位时计时。
+全树共 11 个节点（根 `Sequence`、6 次头部目标、4 次等待）；左右动作后的回正与抬头
+之间没有专门等待，最后回正后也没有等待。不能据此保证会观察到一次完整的中间回正，
+也不能把根 `SUCCESS` 当作最终头部到位。
 
 ## 角度约定
 
@@ -46,7 +49,8 @@
 | 低头 | `0°` | `+20°` |
 | 回正 | `0°` | `0°` |
 
-Adapter 默认使用角度制。本案例的参数名也以 `_deg` 结尾，便于直接辨认单位。
+本案例按 Adapter 默认 `angle_unit=deg` 填值。参数名虽以 `_deg` 结尾，实际仍由
+Adapter 的单位配置解释；若修改该配置，必须同步核对数值。
 本案例使用 `config/app_config.yaml` 的全局硬件配置，不需要单独的
 `hardware_config.json`。
 
@@ -85,14 +89,21 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
   --dry-run --tick-once
 ```
 
-确认输出中加载的是 `instructional_case_01/py_tree.json` 后，再进行真机运行：
+核对加载路径和 `tick 后根状态: Status.SUCCESS`，不能只看退出码（当前 dry-run
+即使根为 `FAILURE` 也可能退出 0）。dry-run 不验证实际到位或运动安全。
+完成 [运行环境与安全检查](../../../docs/04-简单案例运行/02-执行命令.md)，确认控制器、
+ROS/TF 与 LowLevel SDK 就绪后，再由测试人员进行真机运行：
 
 ```bash
 python3 apps/test_upper_init/run_behavior_tree_json.py \
   --scenario orchestration/scenarios/instructional_case_01
 ```
 
-实机运行前确认头部转动范围内没有障碍物。
+实机运行前确认头部转动范围内没有人员、线缆或障碍物，并安排急停监护。
+当前头部 Adapter 将底层 `Result` 按对象真值判断，底层失败也可能被报告为成功；
+出现 `SDK 未初始化` 等错误时不能判为通过，需核对实际反馈/动作。
+
+全部单项检查完成后，可使用 [case05：01→04 顺序联测](../instructional_case_05/README.md)。
 
 ## 文件
 

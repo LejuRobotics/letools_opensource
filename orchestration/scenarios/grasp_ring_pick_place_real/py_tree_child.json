@@ -1,0 +1,210 @@
+{
+  "prepare.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "prepare_sequence",
+      "params": {
+        "memory": {
+          "value": "True",
+          "source": "CUSTOM",
+          "data_type": "string"
+        }
+      },
+      "childs": [
+        {
+          "name": "RealRingStage",
+          "label": "prepare_torso",
+          "params": {
+            "stage": {
+              "value": "prepare",
+              "source": "CUSTOM",
+              "data_type": "string"
+            },
+            "real_backend": {
+              "value": "integrated",
+              "source": "CUSTOM",
+              "data_type": "string"
+            },
+            "action": {
+              "value": "torso",
+              "source": "CUSTOM",
+              "data_type": "string"
+            }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "RealRingStage",
+          "label": "prepare_claws",
+          "params": {
+            "stage": {
+              "value": "prepare",
+              "source": "CUSTOM",
+              "data_type": "string"
+            },
+            "real_backend": {
+              "value": "integrated",
+              "source": "CUSTOM",
+              "data_type": "string"
+            },
+            "action": {
+              "value": "claws",
+              "source": "CUSTOM",
+              "data_type": "string"
+            }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "RealRingStage",
+          "label": "prepare_arms",
+          "params": {
+            "stage": {
+              "value": "prepare",
+              "source": "CUSTOM",
+              "data_type": "string"
+            },
+            "real_backend": {
+              "value": "integrated",
+              "source": "CUSTOM",
+              "data_type": "string"
+            },
+            "action": {
+              "value": "arms",
+              "source": "CUSTOM",
+              "data_type": "string"
+            }
+          },
+          "childs": [],
+          "childBoard": []
+        }
+      ],
+      "childBoard": []
+    }
+  },
+  "grasp.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "grasp_sequence",
+      "params": {
+        "memory": {
+          "value": "True",
+          "source": "CUSTOM",
+          "data_type": "string"
+        }
+      },
+      "childs": [
+        {
+          "name": "InferenceControl",
+          "label": "grasp",
+          "params": {
+            "inference_backend": {
+              "source": "READ_BOARD",
+              "board_key": "inference_backend"
+            },
+            "execution_mode": {
+              "value": "real",
+              "source": "CUSTOM",
+              "data_type": "string"
+            }
+          },
+          "childs": [],
+          "childBoard": []
+        }
+      ],
+      "childBoard": []
+    }
+  },
+  "carry.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "carry_sequence",
+      "params": {
+        "memory": {
+          "value": "True",
+          "source": "CUSTOM",
+          "data_type": "string"
+        }
+      },
+      "childs": [
+        {
+          "name": "RealRingStage",
+          "label": "carry_arms",
+          "params": {
+            "stage": {
+              "value": "carry",
+              "source": "CUSTOM",
+              "data_type": "string"
+            },
+            "real_backend": {
+              "value": "integrated",
+              "source": "CUSTOM",
+              "data_type": "string"
+            },
+            "action": {
+              "value": "arms",
+              "source": "CUSTOM",
+              "data_type": "string"
+            }
+          },
+          "childs": [],
+          "childBoard": []
+        },
+        {
+          "name": "RealRingStage",
+          "label": "carry_base",
+          "params": {
+            "stage": {
+              "value": "carry",
+              "source": "CUSTOM",
+              "data_type": "string"
+            },
+            "real_backend": {
+              "value": "integrated",
+              "source": "CUSTOM",
+              "data_type": "string"
+            },
+            "action": {
+              "value": "base",
+              "source": "CUSTOM",
+              "data_type": "string"
+            }
+          },
+          "childs": [],
+          "childBoard": []
+        }
+      ],
+      "childBoard": []
+    }
+  },
+  "place.json": {
+    "tree": {
+      "name": "Sequence",
+      "label": "place_sequence",
+      "params": {
+        "memory": {
+          "value": "True",
+          "source": "CUSTOM",
+          "data_type": "string"
+        }
+      },
+      "childs": [
+        {
+          "name": "PlaceRingMove",
+          "label": "place",
+          "params": {
+            "place_backend": {
+              "source": "READ_BOARD",
+              "board_key": "place_backend"
+            }
+          },
+          "childs": [],
+          "childBoard": []
+        }
+      ],
+      "childBoard": []
+    }
+  }
+}

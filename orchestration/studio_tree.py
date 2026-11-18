@@ -787,7 +787,7 @@ def write_json(filename, data):
 _ORCH_DIR = os.path.dirname(os.path.abspath(__file__))
 _STUDIO_ROOT = os.path.dirname(_ORCH_DIR)
 OUTPUT_DIR = os.path.join(_ORCH_DIR, "web_ui")
-INPUT_DIR = os.path.join(_ORCH_DIR, "scenarios", "studio_smoke_v1")
+INPUT_DIR = os.path.join(_ORCH_DIR, "scenarios", "scenarios_internal", "studio_smoke_v1")
 
 
 if __name__ == "__main__":

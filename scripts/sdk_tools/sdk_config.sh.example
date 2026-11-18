@@ -1,0 +1,23 @@
+# sdk_config.sh.example - sdk_tools 本地配置示例
+#
+# 不需要配置文件也能直接安装，以下都是默认值。
+# 需要改动时：复制为同目录下的 sdk_config.sh（已被 .gitignore 忽略），只保留要改的项。
+
+# 临时使用非配套的 SDK 版本。两项必须同时设置，且 tag 必须属于该分支。
+# 一般不手写，用 version.sh use <tag> / version.sh reset 管理。
+SDK_REPO_BRANCH=""
+SDK_REPO_TAG=""
+
+# ROS 工作空间的 devel 目录：相对项目根目录，或写绝对路径。
+# 安装时从这里取 SDK_MSG_PACKAGES 列出的消息包。
+SDK_ROS_DEVEL_PATH="infrastructure/ros_packages/devel"
+SDK_MSG_PACKAGES="kuavo_msgs ocs2_msgs"
+
+# pip 镜像源；设为空则使用 pip 自身的配置。
+SDK_PIP_MIRROR="https://pypi.tuna.tsinghua.edu.cn/simple/"
+
+# 把 SDK 装进哪个 Python（如虚拟环境里的 python）。
+SDK_PYTHON="python3"
+
+# 可选依赖: ""（无）| audio | vision | full
+SDK_EXTRAS=""

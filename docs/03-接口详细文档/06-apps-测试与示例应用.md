@@ -1,6 +1,6 @@
 # 06 apps 测试与示例应用
 
-本文中的相对路径（如 `apps/`、`orchestration/scenarios/`）
+本文中的相对路径（如 `apps/`、`orchestration/scenarios/scenarios_internal/`）
 一律相对 **LeTools 仓库根目录**；各命令需在仓库根目录下执行。
 
 > `apps/` 是**真机 / 仿真环境下的验证脚本目录**，不是 pytest 单测目录。它按「测试层级」组织，每层用一个脚手架模块统一前置/后置，便于逐层定位问题到底出在 ROS、适配器、SDK 还是封装。
@@ -30,16 +30,21 @@
 
 ### 脚本量（不含 `__init__.py` 与 `_scaffold.py`）
 
+计数命令（仓库根目录执行）：`find apps/<目录> -name '*.py' ! -name '__init__.py' ! -name '_scaffold.py' | wc -l`
+
+上表只列 `apps/` 下的对外脚本目录；`jibot_internal`、`test_camera_internal`、`test_kuavo_5w_internal`、`test_kuavo_5w_sdk_internal`、`test_upper_init_internal` 这 5 个 `*_internal` 目录不计入。
+
 | 目录 | 脚本数 |
 |---|---:|
 | `test_kuavo_5w_sdk_adapter` | 39 |
 | `test_kuavo_5w_adapter` | 28 |
-| `test_kuavo_5w_skills` | 26 |
-| `test_kuavo_5w_orchestration` | 24 |
-| `test_camera_adapter` | 15 |
+| `test_kuavo_5w_skills` | 33 |
+| `test_kuavo_5w_orchestration` | 30 |
+| `test_camera_adapter` | 16 |
 | `test_demo` | 13 |
+| `jibot_adapter` | 6 |
 | `jiateng_adapter` | 3 |
-| `test_upper_init` | 4 |
+| `test_upper_init` | 1 |
 
 ## 06.02 类与方法详表
 
@@ -72,7 +77,7 @@
 | `test_kuavo_5w_skills` | 硬件技能 / 定时指令类 / SDK 轨迹类 / 末端位姿类 | `test_arm_reset.py`、`test_head_control.py`、`test_base_pose_local.py`、`test_leg_joint.py`、`test_leg_joint_timed.py`、`test_wait_seconds.py`、`test_arm_ee_*.py`、`test_palletizing_line_mpc.py`、`test_palletizing_line_mpc_restore.py` |
 | `test_kuavo_5w_orchestration` | 与 skills 目录一一对应的 `*_move.py` | `test_arm_reset_sdk_move.py`、`test_head_control_sdk_move.py`、`test_wait_seconds.py` 等 |
 | `test_camera_adapter` | 按功能拆分 | `test_camera_init/frame/depth/pointcloud/status/shutdown/tf/rviz.py`、`test_camera_carton.py`、`test_perception_*.py`、`e2e_camera_perception.py` |
-| `jibot_adapter` | — | `test_base_move.py`、`test_move_to_target.py`、`test_check_arrived.py`、`test_enable_vel_control.py` |
+| `jibot_adapter` | — | `test_base_move.py`、`test_move_to_target.py`、`test_check_arrived.py`、`test_enable_vel_control.py`、`test_cmd_vel_shutdown.py`、`test_send_base_cmd_vel.py` |
 | `jiateng_adapter` | — | 嘉腾同名四项 |
 | `test_upper_init` | — | `run_behavior_tree_json.py`（行为树通用启动器） |
 
@@ -135,7 +140,7 @@ python3 apps/test_camera_adapter/test_camera_frame.py --reuse
 python3 apps/test_camera_adapter/test_camera_depth.py --reuse
 ```
 
-这 15 个脚本逐个测什么、前置条件、配置字段与踩过的坑，见 [`API参考/03-相机适配器测试脚本.md`](./API参考/03-相机适配器测试脚本.md)。
+这 16 个脚本逐个测什么、前置条件、配置字段与踩过的坑，见 [`API参考/03-相机适配器测试脚本.md`](./API参考/03-相机适配器测试脚本.md)。
 
 ### 推荐的新手验证顺序（标准接口层）
 
@@ -231,11 +236,11 @@ print("成功" if run_node(node) else "失败")
 ```bash
 # 干跑：只校验加载
 python3 apps/test_upper_init/run_behavior_tree_json.py \
-  --scenario orchestration/scenarios/studio_smoke_v1 --dry-run --tick-once
+  --scenario orchestration/scenarios/scenarios_internal/studio_smoke_v1 --dry-run --tick-once
 
 # 真机 / 仿真
 python3 apps/test_upper_init/run_behavior_tree_json.py \
-  --scenario orchestration/scenarios/refactored_sdk_single_tag_pick_v0
+  --scenario orchestration/scenarios/scenarios_internal/refactored_sdk_single_tag_pick_v0
 ```
 
 > 相关：被验证的适配器方法见 [`03-adapters-硬件适配层.md`](./03-adapters-硬件适配层.md)；技能生命周期见 [`04-skills-原子技能.md`](./04-skills-原子技能.md)；行为树与场景见 [`05-orchestration-行为树编排.md`](./05-orchestration-行为树编排.md)。

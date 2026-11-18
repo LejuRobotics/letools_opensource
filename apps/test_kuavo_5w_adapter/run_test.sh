@@ -24,16 +24,16 @@ echo -e "${BLUE}Kuavo 5-W 应用层测试 - 快速启动${NC}"
 echo -e "${BLUE}============================================================${NC}"
 echo ""
 
-# 检查 ROS 环境
-if ! roscore > /dev/null 2>&1 &; then
-    echo -e "${YELLOW}⚠️  roscore 未运行，正在启动...${NC}"
-    roscore &
-    sleep 2
-fi
-
-# Source ROS 环境
+# Source ROS 环境（需在检查 roscore 之前，否则 rostopic/roscore 不在 PATH 中）
 if [ -f "/opt/ros/noetic/setup.bash" ]; then
     source /opt/ros/noetic/setup.bash
+fi
+
+# 检查 ROS Master：连不上时后台启动 roscore
+if ! rostopic list > /dev/null 2>&1; then
+    echo -e "${YELLOW}⚠️  roscore 未运行，正在启动...${NC}"
+    roscore > /dev/null 2>&1 &
+    sleep 2
 fi
 
 # 检查参数
@@ -111,9 +111,8 @@ elif [ -f "$1" ]; then
     echo -e "${GREEN}📋 运行单个测试: $TEST_FILE${NC}"
     echo ""
     
-    python3 "$TEST_FILE"
-    
-    if [ $? -eq 0 ]; then
+    # set -e 下直接调用失败会立即退出、跳过下面的结果提示，故放进 if 判断
+    if python3 "$TEST_FILE"; then
         echo ""
         echo -e "${BLUE}============================================================${NC}"
         echo -e "${GREEN}✅ 测试通过！${NC}"

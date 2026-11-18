@@ -73,7 +73,7 @@ drivers/leju/kuavo_humanoid_sdk/        ← Git Submodule
 
 ### Kuavo Humanoid SDK
 
-路径：`drivers/leju/kuavo_humanoid_sdk/` （Git Submodule，仓库 `kuavo-ros-opensource`；安装版本以 `scripts/kuavo_humanoid_sdk_tools/sdk_version.env` 锁定的分支与 tag 为准，当前 `master` / `1.4.5`，对应 commit `d824a7b877b41d0b9e6a9ffe947e050d89ea9681`。`.gitmodules` 里的 `branch = dev` **不是版本权威源**，它只在执行 `git submodule update --remote` 时决定子模块的更新目标，不决定当前安装哪个版本；注意 `--remote` 会把子模块前移到 `dev` 分支的**末端**，末端并不等于上面 tag 指向的 commit —— 需要版本对齐时一律以 `sdk_version.env` 为准）
+路径：`drivers/leju/kuavo_humanoid_sdk/` （Git Submodule，仓库 `kuavo-ros-opensource`；安装版本以 `scripts/sdk_tools/sdk_version.env` 锁定的分支与 tag 为准，当前 `master` / `1.4.5`，对应 commit `d824a7b877b41d0b9e6a9ffe947e050d89ea9681`。`.gitmodules` 里的 `branch = dev` **不是版本权威源**，它只在执行 `git submodule update --remote` 时决定子模块的更新目标，不决定当前安装哪个版本；注意 `--remote` 会把子模块前移到 `dev` 分支的**末端**，末端并不等于上面 tag 指向的 commit —— 需要版本对齐时一律以 `sdk_version.env` 为准）
 
 安装后实际 import 名是 `kuavo_humanoid_sdk`，源码位于：
 
@@ -204,20 +204,20 @@ print("夹爪控制成功" if result.success else f"失败: {result.message}")
 
 ```bash
 # 安装：从远端按版本锁定清单拉取 submodule（推荐，版本受控）
-./scripts/install_sdk.sh
+./scripts/sdk_tools/install.sh
 
 # 卸载
-./scripts/remove_local_sdk.sh --yes
+./scripts/sdk_tools/remove.sh --yes
 ```
 
-三个脚本的参数与退出码见 [`08-工具层-脚本与配置.md`](./08-工具层-脚本与配置.md) 的 `08.01`。
+SDK 脚本的参数与退出码见 [`08-工具层-脚本与配置.md`](./08-工具层-脚本与配置.md) 的 `08.01`。
 
 ## 07.07 为什么不需要读本篇就能开发
 
 三条理由：
 
 1. **drivers 的唯一公共能力（末端执行器）已经被适配器封装**，`hw.control_end_effector(...)` 是稳定接口，直接调 `LejuEndEffector` 反而绕过了适配器的状态管理与日志。
-2. **SDK 的版本由 `scripts/install_sdk.sh` 的 pin 清单锁定**，不由业务代码决定；业务代码只通过 SDKManager 间接访问 `TimedCmdAPI` / `robot_sdk.control.*`。
+2. **SDK 的版本由 `scripts/sdk_tools/sdk_version.env` 这份 pin 清单锁定**，不由业务代码决定；业务代码只通过 SDKManager 间接访问 `TimedCmdAPI` / `robot_sdk.control.*`。
 3. **drivers 层不做业务抽象**，它只做「协议透明转发」—— 任何业务语义（安全默认值、姿态单位换算、双臂补齐）都在 adapters 层。
 
 需要**改** drivers 的场景只有两类：
