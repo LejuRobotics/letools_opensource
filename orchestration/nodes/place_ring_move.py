@@ -8,6 +8,7 @@
 """
 
 import os
+import sys
 
 from py_trees.common import Status
 
@@ -28,13 +29,44 @@ class PlaceRingMove(BaseAction):
         super().__init__(name, label, namespace, params)
         self._skill = None
         self._init_result = None
+        self._real_stage = None
+        self._backend_error = None
 
     def initialise(self):
+        self._real_stage = None
+        self._backend_error = None
+        backend = str(self.params.get("place_backend", "standard")).strip().lower()
+        if backend not in ("standard", "real_ring"):
+            self._backend_error = "Unsupported place_backend: " + backend
+            self.feedback_message = self._backend_error
+            return
         if _DRY_RUN:
             self.feedback_message = "dry-run place_ring_move"
             self._skill = None
             self._init_result = None
             return
+
+        if backend == "real_ring":
+            try:
+                from orchestration.nodes.real_ring_runtime import RealStage
+                self._real_stage = RealStage("place")
+                self._real_stage.start()
+            except Exception as exc:
+                self._backend_error = str(exc)
+                self.feedback_message = self._backend_error
+            return
+
+        # A standard place following real-ring carry must release that
+        # explicit session after its carry result has been verified.
+        runtime = sys.modules.get("orchestration.nodes.real_ring_runtime")
+        if runtime is not None:
+            try:
+                runtime.handoff_to_standard_place()
+            except Exception as exc:
+                self._backend_error = str(exc)
+                self.feedback_message = self._backend_error
+                runtime.reset_session()
+                return
 
         try:
             hw = get_shared_hardware()
@@ -65,8 +97,17 @@ class PlaceRingMove(BaseAction):
             self.feedback_message = self._init_result.message or "init failed"
 
     def update(self):
+        if self._backend_error:
+            return Status.FAILURE
         if _DRY_RUN:
             return Status.SUCCESS
+
+        if self._real_stage is not None:
+            state = self._real_stage.update()
+            if state == "failure":
+                self.feedback_message = self._real_stage.error or "real place failed"
+            return {"running": Status.RUNNING, "success": Status.SUCCESS,
+                    "failure": Status.FAILURE}[state]
 
         if self._skill is None:
             return Status.FAILURE
@@ -88,6 +129,13 @@ class PlaceRingMove(BaseAction):
         return Status.RUNNING
 
     def terminate(self, new_status):
+        if self._real_stage is not None:
+            self._real_stage.terminate(new_status == Status.SUCCESS)
+            self._real_stage = None
+        elif new_status != Status.SUCCESS:
+            runtime = sys.modules.get("orchestration.nodes.real_ring_runtime")
+            if runtime is not None:
+                runtime.reset_session()
         if self._skill is not None:
             try:
                 self._skill.cancel()

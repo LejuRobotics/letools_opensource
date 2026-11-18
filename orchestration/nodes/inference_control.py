@@ -8,6 +8,7 @@
 """
 
 import os
+import sys
 
 from py_trees.common import Status
 
@@ -28,12 +29,44 @@ class InferenceControl(BaseAction):
         super().__init__(name, label, namespace, params)
         self._skill = None
         self._init_result = None
+        self._real_stage = None
+        self._backend_error = None
 
     def initialise(self):
+        self._real_stage = None
+        self._backend_error = None
+        backend = str(self.params.get("inference_backend", "act")).strip().lower()
+        if backend not in ("act", "pi05", "skip"):
+            self._backend_error = "Unsupported inference_backend: " + backend
+            self.feedback_message = self._backend_error
+            return
         if _DRY_RUN:
             self.feedback_message = "dry-run inference_control"
             self._skill = None
             self._init_result = None
+            return
+
+        mode = str(self.params.get("execution_mode", "sim")).strip().lower()
+        if mode not in ("sim", "real"):
+            self._backend_error = "Unsupported inference execution_mode: " + mode
+            self.feedback_message = self._backend_error
+            return
+        real_act = backend == "act" and mode == "real"
+        if mode == "sim" and backend != "act":
+            self._backend_error = "PI05 and skip require execution_mode=real"
+            self.feedback_message = self._backend_error
+            return
+        if backend in ("pi05", "skip") or real_act:
+            try:
+                from orchestration.nodes.real_ring_runtime import RealStage
+                if real_act:
+                    self._real_stage = RealStage("grasp", backend="act")
+                else:
+                    self._real_stage = RealStage("grasp", model=(backend == "pi05"))
+                self._real_stage.start()
+            except Exception as exc:
+                self._backend_error = str(exc)
+                self.feedback_message = self._backend_error
             return
 
         try:
@@ -59,8 +92,17 @@ class InferenceControl(BaseAction):
             self.feedback_message = self._init_result.message or "init failed"
 
     def update(self):
+        if self._backend_error:
+            return Status.FAILURE
         if _DRY_RUN:
             return Status.SUCCESS
+
+        if self._real_stage is not None:
+            state = self._real_stage.update()
+            if state == "failure":
+                self.feedback_message = self._real_stage.error or "real grasp failed"
+            return {"running": Status.RUNNING, "success": Status.SUCCESS,
+                    "failure": Status.FAILURE}[state]
 
         if self._skill is None:
             return Status.FAILURE
@@ -82,6 +124,13 @@ class InferenceControl(BaseAction):
         return Status.RUNNING
 
     def terminate(self, new_status):
+        if self._real_stage is not None:
+            self._real_stage.terminate(new_status == Status.SUCCESS)
+            self._real_stage = None
+        elif new_status != Status.SUCCESS:
+            runtime = sys.modules.get("orchestration.nodes.real_ring_runtime")
+            if runtime is not None:
+                runtime.reset_session()
         if self._skill is not None:
             try:
                 self._skill.cancel()
