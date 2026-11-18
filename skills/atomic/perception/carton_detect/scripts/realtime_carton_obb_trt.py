@@ -508,6 +508,38 @@ def classify_carton_orientation(rect, aspect_threshold=1.10):
     return "horizontal" if abs(long_axis_angle) <= 45.0 else "vertical"
 
 
+class CartonOrientationVoteFilter:
+    """Stabilize per-frame carton orientation with a sliding majority vote."""
+
+    def __init__(self, window_size=5, min_votes=3):
+        if window_size <= 0:
+            raise ValueError("window_size must be positive")
+        if min_votes <= 0 or min_votes > window_size:
+            raise ValueError("min_votes must be in [1, window_size]")
+        self.votes = deque(maxlen=int(window_size))
+        self.min_votes = int(min_votes)
+
+    def update(self, rect, aspect_threshold=1.10):
+        orientation = classify_carton_orientation(rect, aspect_threshold)
+        self.votes.append(orientation)
+        valid_votes = [
+            vote for vote in self.votes if vote in ("horizontal", "vertical")
+        ]
+        horizontal_count = valid_votes.count("horizontal")
+        vertical_count = len(valid_votes) - horizontal_count
+        winner = max(horizontal_count, vertical_count)
+        if (
+            winner < self.min_votes
+            or winner * 2 <= len(valid_votes)
+        ):
+            return "unknown"
+        return (
+            "horizontal"
+            if horizontal_count > vertical_count
+            else "vertical"
+        )
+
+
 def compute_servo_yaw_deg_s(
     angle_error_deg,
     gain,
@@ -1087,10 +1119,18 @@ class CartonObbServoService:
             self._handle_request,
         )
 
-    def _response(self, success, message, carton_pose=None):
+    def _response(
+        self,
+        success,
+        message,
+        carton_pose=None,
+        orientation="unknown",
+    ):
         response = self.response_type()
         response.success = success
         response.message = message
+        if hasattr(response, "orientation"):
+            response.orientation = orientation
         if carton_pose is not None:
             response.carton_pose = carton_pose
         return response
@@ -1125,11 +1165,8 @@ class CartonObbServoService:
                 )
         return None
 
-    def _auto_target_x_for_selection(self, request, selected):
-        orientation = classify_carton_orientation(
-            selected[0],
-            self.args.servo_orientation_aspect_threshold,
-        )
+    @staticmethod
+    def _auto_target_x_for_orientation(request, orientation):
         if orientation == "horizontal":
             target_x = float(request.horizontal_target_x_m)
         elif orientation == "vertical":
@@ -1240,7 +1277,7 @@ class CartonObbServoService:
         debug_previous_position = None
         debug_frame_count = 0
         debug_selected_count = 0
-        auto_target_orientation = "fixed"
+        detected_orientation = "pending"
         active_target_x_m = float(request.target_x_m)
         auto_target_reported = False
 
@@ -1294,12 +1331,22 @@ class CartonObbServoService:
                     "position_deadband_m": args.servo_position_deadband,
                     "angle_deadband_deg": args.servo_deadband,
                     "required_aligned_frames": args.servo_aligned_frames,
+                    "orientation_vote_window": (
+                        args.servo_orientation_vote_window
+                    ),
+                    "orientation_min_votes": (
+                        args.servo_orientation_min_votes
+                    ),
                 },
             )
             # #endregion
             tracker = LockedObbTracker(
                 args.servo_max_center_jump,
                 args.servo_max_depth_jump,
+            )
+            orientation_filter = CartonOrientationVoteFilter(
+                args.servo_orientation_vote_window,
+                args.servo_orientation_min_votes,
             )
             last_source_stamp_ns = 0
             while not rospy.is_shutdown():
@@ -1364,23 +1411,31 @@ class CartonObbServoService:
                 position = None
                 if selected is not None:
                     angle_error_deg = horizontal_rotation_deg(selected[0])
-                    if (
-                        auto_target_x_enabled
-                        and servo.reference_position is None
-                    ):
-                        (
-                            auto_target_orientation,
-                            active_target_x_m,
-                        ) = self._auto_target_x_for_selection(
-                            request,
-                            selected,
+                    if detected_orientation == "pending":
+                        voted_orientation = orientation_filter.update(
+                            selected[0],
+                            args.servo_orientation_aspect_threshold,
                         )
-                        servo.set_target_x_m(active_target_x_m)
-                        if not auto_target_reported:
+                        if voted_orientation != "unknown":
+                            detected_orientation = voted_orientation
+                            if auto_target_x_enabled:
+                                (
+                                    _,
+                                    active_target_x_m,
+                                ) = self._auto_target_x_for_orientation(
+                                    request,
+                                    detected_orientation,
+                                )
+                                servo.set_target_x_m(active_target_x_m)
+                        if (
+                            detected_orientation != "pending"
+                            and not auto_target_reported
+                        ):
                             print(
-                                "Servo auto target: "
-                                f"orientation={auto_target_orientation}, "
-                                f"target_x={active_target_x_m:.3f}m",
+                                "Servo orientation: "
+                                f"orientation={detected_orientation}, "
+                                f"target_x={active_target_x_m:.3f}m, "
+                                f"votes={list(orientation_filter.votes)}",
                                 flush=True,
                             )
                             auto_target_reported = True
@@ -1448,7 +1503,7 @@ class CartonObbServoService:
                             "selected_ratio": (
                                 debug_selected_count / debug_frame_count
                             ),
-                            "auto_target_orientation": auto_target_orientation,
+                            "detected_orientation": detected_orientation,
                             "active_target_x_m": active_target_x_m,
                             "depth_age_s": (
                                 None
@@ -1502,6 +1557,11 @@ class CartonObbServoService:
                         debug_previous_position = state_position.copy()
                 # #endregion
                 if state["status"] == "aligned" and selected is not None:
+                    response_orientation = (
+                        detected_orientation
+                        if detected_orientation in ("horizontal", "vertical")
+                        else "unknown"
+                    )
                     if frame is not None:
                         capture_last_rendered = draw_servo_capture(
                             frame=frame,
@@ -1523,7 +1583,7 @@ class CartonObbServoService:
                     self.result_publisher.publish(result)
                     message = (
                         "Servo aligned; "
-                        f"orientation={auto_target_orientation}, "
+                        f"orientation={response_orientation}, "
                         f"target_x={active_target_x_m:.3f}m, "
                         f"{result.header.frame_id} xyz=("
                         f"{result.point.x:.4f}, "
@@ -1533,7 +1593,12 @@ class CartonObbServoService:
                     if final_path is not None:
                         message += f"; capture={final_path}"
                     print(message, flush=True)
-                    return self._response(True, message, result)
+                    return self._response(
+                        True,
+                        message,
+                        result,
+                        orientation=response_orientation,
+                    )
                 if state["status"] == "timeout":
                     self._save_capture(
                         capture_session,
@@ -2353,6 +2418,18 @@ def parse_args():
         ),
     )
     parser.add_argument(
+        "--servo-orientation-vote-window",
+        type=int,
+        default=5,
+        help="Sliding frame window used for carton orientation voting",
+    )
+    parser.add_argument(
+        "--servo-orientation-min-votes",
+        type=int,
+        default=3,
+        help="Minimum agreeing frame votes required to lock carton orientation",
+    )
+    parser.add_argument(
         "--servo-capture-dir",
         default="",
         help=(
@@ -2458,6 +2535,16 @@ def parse_args():
         )
     if args.servo_orientation_aspect_threshold < 1.0:
         parser.error("--servo-orientation-aspect-threshold must be >= 1.0")
+    if (
+        args.servo_orientation_vote_window <= 0
+        or args.servo_orientation_min_votes <= 0
+        or args.servo_orientation_min_votes
+        > args.servo_orientation_vote_window
+    ):
+        parser.error(
+            "--servo-orientation-min-votes must be in [1, "
+            "--servo-orientation-vote-window]"
+        )
     if args.servo_capture_interval <= 0.0:
         parser.error("--servo-capture-interval must be positive")
     return args
