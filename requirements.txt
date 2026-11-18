@@ -9,7 +9,8 @@
 #       pyright 属 CI 工具（非运行时依赖），也留在 CI 中。
 
 colorlog
-py_trees
+# Ubuntu 20.04 / Python 3.8：2.3+ 使用 list[...] 注解，import 即 TypeError。
+py_trees==2.2.3
 
 # scipy：core/common/transform.py 等调用 scipy.spatial.transform.Rotation.from_matrix，
 # 该名字在 scipy 1.4 起才有（1.3.x 只有 from_dcm）。Ubuntu 20.04 自带的 python3-scipy
