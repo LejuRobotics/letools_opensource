@@ -185,8 +185,9 @@ class TestArmJointSequence(unittest.TestCase):
                 logger.error(f"❌ {name} 异常: {e}")
                 break
         
-        # 验证至少有一条指令成功
-        self.assertGreater(success_count, 0, "至少应该有一条指令成功执行")
+        # 验证全部指令成功（任一失败即 break，只要求 >0 会把部分失败判为通过）
+        self.assertEqual(success_count, len(test_cases),
+                         f"应全部 {len(test_cases)} 条指令成功，实际 {success_count} 条")
         logger.info(f"📊 测试结果: {success_count}/{len(test_cases)} 条指令成功")
 
 

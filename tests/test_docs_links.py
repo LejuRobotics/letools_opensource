@@ -372,3 +372,16 @@ def test_total_article_count():
     )
     assert total == TOTAL_ARTICLES, f"篇目合计 {total}，期望 {TOTAL_ARTICLES}"
     assert (REPO_ROOT / "docs" / "README.md").is_file(), "缺少首页 docs/README.md"
+
+
+@pytest.mark.unit
+def test_readme_nav_covers_every_chapter():
+    """首页导航必须链到全部 8 章。
+
+    8f4255a8 把首页的 08 章导航整段删掉，上面几条用例依然全绿：篇数按目录扫、
+    死链按链接扫，没人看「首页还链不链得到这一章」。这里补上这一面。
+    只查链接目标，不查标题措辞，正文怎么改写都不会误报。
+    """
+    text = (REPO_ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    missing = [name for name in CHAPTER_ARTICLE_COUNTS if f"(./{name}/" not in text]
+    assert not missing, f"docs/README.md 导航缺少：{missing}"

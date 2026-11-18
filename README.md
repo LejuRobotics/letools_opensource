@@ -115,11 +115,11 @@ source devel/setup.bash
 
 ```bash
 cd ~/letools_opensource
-chmod +x scripts/install_sdk.sh
-./scripts/install_sdk.sh
+chmod +x scripts/sdk_tools/install.sh
+./scripts/sdk_tools/install.sh
 ```
 
-> 📌 SDK 版本由仓库自带的 `scripts/kuavo_humanoid_sdk_tools/sdk_version.env` 锁定，
+> 📌 SDK 版本由仓库自带的 `scripts/sdk_tools/sdk_version.env` 锁定，
 > 记录当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 `master` / `1.4.5`），
 > 每次 LeTools 发版时同步更新，确保用户安装到与当前版本匹配的 SDK。
 
@@ -168,7 +168,7 @@ ROS 中常见概念：
 
 ```bash
 python3 apps/test_upper_init/run_behavior_tree_json.py \
-  --scenario orchestration/scenarios/refactored_sdk_atomic_v1 \
+  --scenario orchestration/scenarios/scenarios_internal/refactored_sdk_atomic_v1 \
   --dry-run --tick-once
 ```
 
@@ -221,9 +221,9 @@ adapters/hardware/leju_wheeled/services/sdk_manager/low_level_sdk_manager.py
 ```text
 apps/test_upper_init/run_behavior_tree_json.py
     ↓ 加载 scenario
-orchestration/scenarios/refactored_sdk_atomic_v1/py_tree.json
+orchestration/scenarios/scenarios_internal/refactored_sdk_atomic_v1/py_tree.json
     ↓ 主树引用子树
-orchestration/scenarios/refactored_sdk_atomic_v1/py_tree_child.json
+orchestration/scenarios/scenarios_internal/refactored_sdk_atomic_v1/py_tree_child.json
     ↓ BehaviorTreeFactory 动态导入节点类
 orchestration/nodes/*.py
     ↓ 节点创建并调用 Skill
@@ -257,7 +257,7 @@ adapters/hardware/leju_wheeled/*.py
 > 4. `adapters/hardware/leju_wheeled/hardware.py`，理解 mixin 组合方式
 > 5. `skills/base/skill_base.py` 和 `skills/atomic/refactored_sdk/`
 > 6. `orchestration/nodes/`，理解行为树节点如何调用技能
-> 7. `orchestration/scenarios/refactored_sdk_atomic_v1/readme.md`
+> 7. `orchestration/scenarios/scenarios_internal/refactored_sdk_atomic_v1/readme.md`
 > 8. `apps/test_upper_init/run_behavior_tree_json.py`，学习 JSON 行为树启动
 
 ***
@@ -465,18 +465,18 @@ LeTools
 | `config/camera_config.yaml`         | 相机配置              |
 | `config/camera_orbbec.launch`       | Orbbec 相机启动配置     |
 | `config/apriltag_continuous.launch` | AprilTag 连续检测启动配置 |
-| `config/apriltag_settings.yaml`     | AprilTag 检测参数     |
-| `config/apriltag_tags.yaml`         | Tag 尺寸、ID 等配置     |
+| `config/apriltag_config.yaml.template` | AprilTag 检测器参数与待检测标签（合并在一个文件）；实文件 `apriltag_config.yaml` 由模板复制、被 `config/.gitignore` 忽略 |
 | `config/log_config.yaml`            | 日志配置              |
 
 ### `scripts/` 安装与运行脚本
 
 | 文件                                                        | 作用                            |
 | --------------------------------------------------------- | ----------------------------- |
-| `scripts/install_sdk.sh`                                  | 一键初始化并安装 `kuavo_humanoid_sdk` |
-| `scripts/kuavo_humanoid_sdk_tools/setup_sdk.sh`           | SDK 安装主流程                     |
-| `scripts/kuavo_humanoid_sdk_tools/init_config.sh`         | SDK 配置初始化                     |
-| `scripts/kuavo_humanoid_sdk_tools/sdk_config.sh.template` | SDK 配置模板                      |
+| `scripts/sdk_tools/install.sh`                            | 在线安装配套版本的 `kuavo_humanoid_sdk` |
+| `scripts/sdk_tools/install_local.sh`                      | 安装本地已有的 SDK 源码（不访问远程仓库） |
+| `scripts/sdk_tools/remove.sh`                             | 卸载 SDK                        |
+| `scripts/sdk_tools/version.sh`                            | 查看、切换 SDK 版本                 |
+| `scripts/sdk_tools/sdk_version.env`                       | 配套 SDK 版本锁定清单               |
 | `scripts/run_arm_trajectory.sh`                           | 手臂轨迹运行脚本                      |
 | `scripts/run_camera_demo.sh`                              | 相机 demo 启动脚本                  |
 | `scripts/run_smt_tray.sh`                                 | SMT tray 场景启动脚本               |
@@ -682,9 +682,9 @@ adapters/hardware/leju_wheeled/services/sdk_manager/low_level_sdk_manager.py
 
 ```bash
 mkdir -p orchestration/scenarios/my_scene
-cp orchestration/scenarios/refactored_sdk_atomic_v1/py_tree.json orchestration/scenarios/my_scene/
-cp orchestration/scenarios/refactored_sdk_atomic_v1/py_tree_child.json orchestration/scenarios/my_scene/
-cp orchestration/scenarios/refactored_sdk_atomic_v1/board.json orchestration/scenarios/my_scene/
+cp orchestration/scenarios/scenarios_internal/refactored_sdk_atomic_v1/py_tree.json orchestration/scenarios/my_scene/
+cp orchestration/scenarios/scenarios_internal/refactored_sdk_atomic_v1/py_tree_child.json orchestration/scenarios/my_scene/
+cp orchestration/scenarios/scenarios_internal/refactored_sdk_atomic_v1/board.json orchestration/scenarios/my_scene/
 ```
 
 修改 JSON 后先 dry-run：
@@ -776,14 +776,14 @@ catkin build
 </details>
 
 <details>
-<summary>❓ scripts/install_sdk.sh 找不到</summary>
+<summary>❓ scripts/sdk_tools/install.sh 找不到</summary>
 
-`install_sdk.sh` 在项目根目录，不在 ROS 工作空间里。
+`scripts/sdk_tools/install.sh` 在项目根目录下，不在 ROS 工作空间里。
 
 ```bash
 cd ~/LeTools
-chmod +x scripts/install_sdk.sh
-./scripts/install_sdk.sh
+chmod +x scripts/sdk_tools/install.sh
+./scripts/sdk_tools/install.sh
 ```
 
 </details>
@@ -804,14 +804,13 @@ SDK 目录不存在: drivers/leju/kuavo_humanoid_sdk/src/kuavo_humanoid_sdk
 git ls-remote https://gitcode.com/OpenLET/kuavo-ros-opensource.git
 ```
 
-如果也超时，需要换网络、配置代理，或使用团队提供的可访问镜像/压缩包。脚本失败后建议恢复主仓库状态：
+如果也超时，需要换网络、配置代理，或使用团队提供的可访问镜像/压缩包。网络恢复后直接重跑安装脚本即可；
+如果仍因上次中断的残留而失败，先彻底清除再重装：
 
 ```bash
 cd ~/LeTools
-git sparse-checkout disable 2>/dev/null || true
-git submodule deinit -f drivers/leju/kuavo_humanoid_sdk 2>/dev/null || true
-rm -rf drivers/leju/kuavo_humanoid_sdk
-rm -rf .git/modules/drivers/leju/kuavo_humanoid_sdk
+./scripts/sdk_tools/remove.sh --purge
+./scripts/sdk_tools/install.sh
 ```
 
 </details>

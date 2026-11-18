@@ -85,7 +85,6 @@ src/Livox-SDK2
 
 # Claude
 .claude/
-CLAUDE.md
 
 # 构建配置
 compile_commands.json

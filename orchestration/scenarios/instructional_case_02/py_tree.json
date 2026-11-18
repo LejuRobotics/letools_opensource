@@ -84,12 +84,17 @@
             "childBoard": []
           },
           {
-            "name": "ArmJointTimedMove",
+            "name": "ArmJointTrajSdkMove",
             "label": "arms_forward",
             "params": {
-              "joint_angles": {
+              "use_board_trajectory": {
+                "value": "false",
+                "source": "CUSTOM",
+                "data_type": "string"
+              },
+              "joint_traj": {
                 "source": "READ_BOARD",
-                "board_key": "arm_forward_joint_angles"
+                "board_key": "arm_zero_to_forward_traj"
               },
               "total_time": {
                 "source": "READ_BOARD",
@@ -130,12 +135,17 @@
             "childBoard": []
           },
           {
-            "name": "ArmJointTimedMove",
+            "name": "ArmJointTrajSdkMove",
             "label": "arms_up",
             "params": {
-              "joint_angles": {
+              "use_board_trajectory": {
+                "value": "false",
+                "source": "CUSTOM",
+                "data_type": "string"
+              },
+              "joint_traj": {
                 "source": "READ_BOARD",
-                "board_key": "arm_up_joint_angles"
+                "board_key": "arm_forward_to_up_traj"
               },
               "total_time": {
                 "source": "READ_BOARD",
@@ -176,12 +186,17 @@
             "childBoard": []
           },
           {
-            "name": "ArmJointTimedMove",
+            "name": "ArmJointTrajSdkMove",
             "label": "arms_spread",
             "params": {
-              "joint_angles": {
+              "use_board_trajectory": {
+                "value": "false",
+                "source": "CUSTOM",
+                "data_type": "string"
+              },
+              "joint_traj": {
                 "source": "READ_BOARD",
-                "board_key": "arm_spread_joint_angles"
+                "board_key": "arm_up_to_spread_traj"
               },
               "total_time": {
                 "source": "READ_BOARD",
@@ -222,12 +237,17 @@
             "childBoard": []
           },
           {
-            "name": "ArmJointTimedMove",
+            "name": "ArmJointTrajSdkMove",
             "label": "arm_return_zero",
             "params": {
-              "joint_angles": {
+              "use_board_trajectory": {
+                "value": "false",
+                "source": "CUSTOM",
+                "data_type": "string"
+              },
+              "joint_traj": {
                 "source": "READ_BOARD",
-                "board_key": "arm_zero_joint_angles"
+                "board_key": "arm_spread_to_zero_traj"
               },
               "total_time": {
                 "source": "READ_BOARD",

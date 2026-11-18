@@ -29,8 +29,11 @@ import pytest
 pytestmark = pytest.mark.unit
 
 ROOT = Path(__file__).resolve().parents[3]
-SCENARIO = ROOT / "orchestration" / "scenarios" / "pallet_servo_real_v1"
+SCENARIO = ROOT / "orchestration" / "scenarios" / "scenarios_internal" / "pallet_servo_real_v1"
 SCRIPT = SCENARIO / "start_all.sh"
+
+if not SCRIPT.exists():
+    pytest.skip("pallet_servo_real_v1 是内部场景，开源制成品不包含该启动脚本", allow_module_level=True)
 
 
 @pytest.fixture()

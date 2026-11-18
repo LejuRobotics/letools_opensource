@@ -20,9 +20,9 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # SDK 版本锁定文件：安装版本的唯一权威源（.gitmodules 与 sdk_version.env 自身注释均指向它）
-SDK_VERSION_ENV = Path("scripts/kuavo_humanoid_sdk_tools/sdk_version.env")
+SDK_VERSION_ENV = Path("scripts/sdk_tools/sdk_version.env")
 
-# SDK 子模块路径，与 scripts/install_sdk.sh 的 SUBMODULE_PATH 同值
+# SDK 子模块路径，与 scripts/sdk_tools/common.sh 的 SUBMODULE_PATH 同值
 SDK_SUBMODULE_PATH = "drivers/leju/kuavo_humanoid_sdk"
 
 # 03 章 SDK 篇（stage 3 摘掉「(占位)」后缀后仍匹配）

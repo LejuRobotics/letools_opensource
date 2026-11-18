@@ -1,0 +1,126 @@
+<launch>
+    <!-- 木托盘台面坐标系：彩色 + 深度 + camera_info → /pallet_v2/detection -->
+    <!-- 算法在 LeTools 的 skills/atomic/perception/pallet_detect/ 里 -->
+
+    <arg name="image_color"   default="/camera/color/image_raw"/>
+    <arg name="image_depth"   default="/camera/depth/image_raw"/>
+    <arg name="camera_info"   default="/camera/color/camera_info"/>
+    <arg name="detection_out" default="/pallet_v2/detection"/>
+    <!-- 非空时覆盖 Catkin 包装脚本的 /usr/bin/python3 shebang。 -->
+    <arg name="python"        default=""/>
+    <arg name="target_mm"     default="[1200.0, 1000.0]"/>
+    <!-- call 0 记录路径：文件里有 pallet_size_mm 时优先用它，跨开关机保留。
+         空 = 仓库根/log/pallet_servo_pallet_record.json（与 v1/伺服节点共用）。 -->
+    <arg name="pallet_record_path" default=""/>
+    <!-- 伺服节点 call 0 实测尺寸的 latched 话题；空 = 不订阅。 -->
+    <arg name="pallet_size_topic" default="/pallet_servo_v2/pallet_size_mm"/>
+
+    <!-- 与画面近平行的托盘边是不是长边。**用户给出的先验，必须保留、必须传** ——
+         现场事实：短边近平行、长边近垂直画面，所以部署值 = false。
+         它定死**面内转角种子 θ0**；给错**明确偏 90°** 且不报错，换场景必须确认。
+         ⚠️ **不能改成"两个候选都试、用残差挑"**：关键点四边形的宽高比 ≈ 1，
+         "哪条边是长边"在框上不可分，靠数据投票会让同一场景不同帧投出不同结果。见
+         skills/atomic/perception/pallet_detect/solve_edges._seed_from_long_side。 -->
+    <arg name="long_side_parallel" default="false"/>
+
+    <!-- 法向：空串 = 从 TF 查（部署默认）。给 "x,y,z" 则直接用、不查 TF。
+         ⚠️ 缺 TF 时节点**不发布**，不会回退到瞎猜的法向。
+         ⚠️ 托盘解算把法向**锁死**成这个先验（6 自由度 → 4），
+         所以偏了没有任何下游步骤会纠正它 —— 换工位 / 动腰后要重新确认。 -->
+    <arg name="normal"        default=""/>
+    <arg name="camera_frame"  default="camera_color_optical_frame"/>
+    <arg name="base_frame"    default="base_link"/>
+
+    <!-- 法向第二级：**TF 先验的 z 与托盘实际台面法向有 0~10° 的偏差，靠当前帧
+         深度拟合纠正**（默认 true = 开）。关掉 = 用带偏差的 TF 法向。 -->
+    <arg name="fit_normal"    default="true"/>
+    <!-- false（默认）= 只在首帧拟合一次、之后复用（伺服只做平面内平移，朝向不变）。
+         真动了腰 / 换了工位要设 true。 -->
+    <arg name="normal_refit"  default="false"/>
+    <!-- 首帧拟合的**合理性自检**（2026-10-22 现场事故后加）：拟合出的法向与
+         相机光轴的夹角、拟合平面的距离都要说得通，才允许缓存。0 = 关掉对应闸。
+         事故：TF 初值本身侧向、拟合与初值只差 0.05°，于是歪法向被缓存，
+         D 恒为 241mm（ref=990），闸门把每一帧都拒掉（pub=0）。
+         法向只受 tilt 自检约束；V2 不再做 D 参照。 -->
+    <arg name="normal_max_tilt_deg" default="60.0"/>
+         关掉就退回"拟歪一次永久生效，只能重启进程"的旧行为。 -->
+
+    <!-- 托盘 POSE 模型（**必需**）。空 = 用包内 models/pallet_pose.onnx。
+         模型缺失 / 加载失败时节点**起不来**（不静默降级）—— 缺了它没法检测，
+         静默返回 None 会让"一直检不到"与"现场没有托盘"分不开。
+         engine_path 空 = 包内 models/pallet_pose_fp32.engine（目标机上用 trtexec 导出）。
+         infer_backend：auto = engine 文件在就用 engine、否则 ONNX；
+                        engine = 强制 engine（缺了报错）；onnx = 强制 ONNX。 -->
+    <arg name="pose_model_path" default=""/>
+    <arg name="pose_engine_path" default=""/>
+    <arg name="infer_backend" default="auto"/>
+    <arg name="imgsz"         default="640"/>
+    <arg name="nms_iou"       default="0.45"/>
+    <arg name="pose_conf"     default="0.25"/>
+    <arg name="pose_kconf"    default="0.5"/>
+    <!-- 一帧多个候选时怎么挑：bottom_center(离画面下方中心最近) / conf / area -->
+    <arg name="pose_pick"     default="bottom_center"/>
+
+    <!-- 全部 refine 已移除：POSE 初解就是最终位姿。 -->
+
+    <!-- 心跳周期（秒）。**成功时也打**，用来把「在跑」与「线程死了 / 一直被拒」
+         分开 —— 本节点原来的日志点全是一次性/只在失败时，正常工作时一片安静，
+         与挂掉长得一模一样（2026-09-29 现场踩过）。0 = 关掉。 -->
+    <arg name="heartbeat_s"   default="5.0"/>
+
+    <!-- 检测门控（2026-10-18）：true = 只在伺服节点广播"这一档要托盘"之后
+         才算、才发布；空闲时**启动先跑一帧预热**再待命。
+         mode: 0 全停 / 1 只要纸箱 / 2 托盘+纸箱（用记录）/
+               3 观测托盘（忽略记录，走 TF+深度）。
+         默认 false = 一直算（旧的独立 roslaunch 跑法行为不变）。
+         ⚠️ 依赖 `std_msgs/Int32` 话题 `/pallet_servo_v2/detect_mode`（伺服节点发，
+         latched）。检测器先起也没关系 —— 拿到当前值之前按"关"处理。 -->
+    <arg name="gated"         default="false"/>
+
+    <!-- D 闸门已移除（2026-11-10）：位姿只用 call 0 记录的 D；
+         没有记录时由 POSE 关键点几何自由解，不再用当前帧深度锚 D。 -->
+
+    <node name="pallet_detection_v2" pkg="pallet_detection_v2"
+          type="pallet_detection_node.py" output="screen"
+          launch-prefix="$(arg python)">
+        <param name="image_color"        value="$(arg image_color)"/>
+        <param name="image_depth"        value="$(arg image_depth)"/>
+        <param name="camera_info"        value="$(arg camera_info)"/>
+        <param name="detection_out"      value="$(arg detection_out)"/>
+        <!-- ⚠️ `target_mm` **必须走 `<rosparam>`**，不能用 `<param value="..."/>`。
+             roslaunch 的 `<param>` 不带 `type` 时按 `'auto'` 转换，而 `auto` 认不出
+             list —— `"[1200.0, 1000.0]"` 会**原样变成字符串**（实测
+             `roslaunch.loader.convert_value`），节点拿到它逐字符迭代，第一个字符
+             就是 `[`：`ValueError: could not convert string to float: '['`，
+             **节点起不来**。`<rosparam>` 走 YAML，给出的才是真正的 list。
+             节点侧 `_parse_target_mm` 对两种形式都容错，但 launch 这一层也要写对 ——
+             否则每次启动都靠节点的容错兜底，掩盖配置错误。 -->
+        <rosparam param="target_mm" subst_value="true">$(arg target_mm)</rosparam>
+        <param name="pallet_record_path" value="$(arg pallet_record_path)"/>
+        <param name="pallet_size_topic" value="$(arg pallet_size_topic)"/>
+        <param name="long_side_parallel" value="$(arg long_side_parallel)"/>
+        <param name="normal"             value="$(arg normal)"/>
+        <param name="fit_normal"         value="$(arg fit_normal)"/>
+        <param name="normal_refit"       value="$(arg normal_refit)"/>
+        <param name="normal_max_tilt_deg" value="$(arg normal_max_tilt_deg)"/>
+        <param name="camera_frame"       value="$(arg camera_frame)"/>
+        <param name="base_frame"         value="$(arg base_frame)"/>
+        <param name="infer_backend"      value="$(arg infer_backend)"/>
+        <param name="imgsz"              value="$(arg imgsz)"/>
+        <param name="nms_iou"            value="$(arg nms_iou)"/>
+        <param name="pose_model_path"    value="$(arg pose_model_path)"/>
+        <param name="pose_engine_path"   value="$(arg pose_engine_path)"/>
+        <param name="pose_conf"          value="$(arg pose_conf)"/>
+        <param name="pose_kconf"         value="$(arg pose_kconf)"/>
+        <param name="pose_pick"          value="$(arg pose_pick)"/>
+        <param name="pallet_record_epoch_topic" value="/pallet_servo_v2/pallet_record_epoch"/>
+        <param name="detect_mode_topic" value="/pallet_servo_v2/detect_mode"/>
+        <param name="pallet_normal_rot_topic" value="/pallet_servo_v2/pallet_normal_rot_deg"/>
+        <param name="heartbeat_s"        value="$(arg heartbeat_s)"/>
+        <param name="gated"              value="$(arg gated)"/>
+
+        <!-- 本项目矩阵都太小，OpenBLAS 多线程是纯开销，实测差 1.6x -->
+        <env name="OMP_NUM_THREADS" value="1"/>
+        <env name="OPENBLAS_NUM_THREADS" value="1"/>
+    </node>
+</launch>

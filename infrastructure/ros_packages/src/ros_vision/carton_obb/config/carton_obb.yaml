@@ -4,7 +4,7 @@
 # 输入彩色图。**必须是相机原始分辨率**（节点自己 letterbox 到 imgsz）。
 image_color: "/camera/color/image_raw"
 
-# 深度图。**用于选箱打分**，以及默认开启的深度下沿修正（`depth_refine_bottom`）。
+# 深度图。**用于选箱打分**，以及可选的深度下沿修正（`depth_refine_bottom`，默认关）。
 # ⚠️ 要求深度**已配准到彩色**（config/camera_config.yaml 的
 #    head_depth_registration: true）。没配准的话采样到的不是这个箱子的深度。
 image_depth: "/camera/depth/image_raw"
@@ -100,16 +100,16 @@ depth_patch_px: 15
 # 背景 830mm，深度跳变稳定在 362~364px。用下沿把框收回去后 h 从 227~333
 # 收到 218~229（std 1.9），单帧约 +0.67ms（本机单线程；Jetson 预计 2~3ms）。
 #
-# ⚠️ **默认开**。只在「框内箱体 → 下方远背景」有持续 > jump_mm 的跳变时收缩
+# ⚠️ **默认关**。只在「框内箱体 → 下方远背景」有持续 > jump_mm 的跳变时收缩
 #    下边；没有跳变（箱子放在料垛上、下沿出画）保持模型框。上机器人前先用
 #    其他现场 bag 回归，确认不会把料垛上的箱子误收缩。
 #    - step：深度剖面行/列采样步长，越大越快、y 的量化越粗（2 = 2px）。
 #    - band_px：沿框中心左右各取多少像素；太窄会受深度空洞影响。
 #    - min_shrink_px：只收缩，至少缩这么多像素才动框。
-# ⚠️ 这个键会被 carton_obb.launch 里同名 `<param>`（arg 默认 true）覆盖；
-#    要关闭请在启动命令/场景脚本里传 depth_refine_bottom:=false，或改 launch
+# ⚠️ 这个键会被 carton_obb.launch 里同名 `<param>`（arg 默认 false）覆盖；
+#    要开启请在启动命令/场景脚本里传 depth_refine_bottom:=true，或改 launch
 #    的 arg 默认值。只改这里不会生效。
-depth_refine_bottom: true
+depth_refine_bottom: false
 depth_refine_step: 2
 depth_refine_band_px: 45
 depth_refine_jump_mm: 150.0
@@ -149,3 +149,13 @@ infer_mode: "auto"
 infer_service: "/carton_obb/infer"
 infer_probe_s: 2.0
 shared_fail_limit: 3
+
+# ---- 选箱模式（2 类模型）-------------------------------------------------
+# held  = 直接取 ~held_class（默认 0）的框，取置信度最高的一个；码垛侧用。
+#         不再计算下方中心/面积/深度打分，但打分代码保留在 score 分支。
+# score = 原来的三项打分；单类模型必须用这个（单类所有框都是 0 类，held 会
+#         退化成「取置信度最高」，不是原来的下方中心选箱）。
+# ⚠️ 这个键会被 launch 的同名 <param> 覆盖。通用 carton_obb.launch 默认 score；
+#    码垛的 v1 启动脚本显式传 held，v2 专用 launch 默认 held。
+select_mode: "score"
+held_class: 0

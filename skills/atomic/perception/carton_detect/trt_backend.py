@@ -22,6 +22,7 @@ DEFAULT_TRT_ENGINE_PATH = (
 RotatedDetection = Tuple[
     Tuple[Tuple[float, float], Tuple[float, float], float],
     float,
+    int,
 ]
 
 
@@ -125,12 +126,37 @@ def _decode_obb(
     confidence,
     nms_iou,
 ) -> List[RotatedDetection]:
-    predictions = output[0].T
-    predictions = predictions[predictions[:, 4] >= confidence]
-    rects = []
-    scores = []
+    """解码导出图：`(1, 4+nc+1, 8400)`。
 
-    for x_center, y_center, width, height, score, angle in predictions:
+    单类是 `(1, 6, 8400)`，两类是 `(1, 7, 8400)`；第 4 列到倒数第二列是
+    每个类的分数，最后一列是**原始弧度**。类别取分数最大的一列。
+
+    NMS 仍按 `cv2.dnn.NMSBoxesRotated` 做（**不分类别**）：拆垛侧要的正是
+    两类合并后的行为；码垛侧请求 `nms_iou=1.0` 让服务端不 NMS，去重和
+    class-aware 由检测节点本地做。
+    """
+    predictions = output[0].T
+    if predictions.ndim != 2 or predictions.shape[1] < 6:
+        raise ValueError(
+            f"OBB output must be (4+nc+1, N), got {output.shape}"
+        )
+    if predictions.shape[1] > 16:
+        # 端到端导出 `(1, 300, 7)` 的转置是 `(7, 300)`，列数会被误当成类别数。
+        raise ValueError(
+            f"unexpected OBB output shape {output.shape}; "
+            "expected (1, 4+nc+1, N), did you export an end2end model?"
+        )
+    class_scores = predictions[:, 4:-1]
+    class_ids = np.argmax(class_scores, axis=1)
+    scores = class_scores[np.arange(len(predictions)), class_ids]
+    keep = scores >= confidence
+    predictions = predictions[keep]
+    class_ids = class_ids[keep]
+    scores = scores[keep]
+    rects = []
+
+    for row, score in zip(predictions, scores):
+        x_center, y_center, width, height = row[:4]
         rects.append(
             (
                 (
@@ -138,22 +164,21 @@ def _decode_obb(
                     (float(y_center) - pad_y) / scale,
                 ),
                 (float(width) / scale, float(height) / scale),
-                math.degrees(float(angle)),
+                math.degrees(float(row[-1])),
             )
         )
-        scores.append(float(score))
 
     if not rects:
         return []
 
     indices = cv2.dnn.NMSBoxesRotated(
         rects,
-        scores,
+        [float(score) for score in scores],
         confidence,
         nms_iou,
     )
     return [
-        (rects[int(index)], scores[int(index)])
+        (rects[int(index)], float(scores[int(index)]), int(class_ids[int(index)]))
         for index in np.asarray(indices).reshape(-1)
     ]
 

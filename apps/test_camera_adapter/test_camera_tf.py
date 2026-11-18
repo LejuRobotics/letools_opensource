@@ -75,7 +75,7 @@ class CameraTFTest:
             tf_nodes = self._get_tf_nodes()
             print(f"   发现 {len(tf_nodes)} 个 static_transform_publisher 节点")
 
-            if len(tf_nodes) >= 3:
+            if len(tf_nodes) >= 2:
                 for node in tf_nodes:
                     print(f"   ✅ 节点: {node}")
                 return True

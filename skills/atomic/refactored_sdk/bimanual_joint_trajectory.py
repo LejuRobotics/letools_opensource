@@ -12,10 +12,10 @@ from core.common.logger import get_logger
 from core.domain.result import Result
 from core.domain.skill_params import SkillParams
 from core.interfaces.i_hardware import IHardware
-from orchestration.scenarios.wheel_arm_single_tag_pick_v1.utils.async_execution import (
+from orchestration.scenarios.scenarios_internal.wheel_arm_single_tag_pick_v1.utils.async_execution import (
     submit_arm_joint_trajectory,
 )
-from orchestration.scenarios.wheel_arm_single_tag_pick_v1.utils.trajectory import (
+from orchestration.scenarios.scenarios_internal.wheel_arm_single_tag_pick_v1.utils.trajectory import (
     merge_bimanual_trajectory,
     validate_bimanual_14d_trajectory,
 )

@@ -11,13 +11,16 @@ std_msgs/Header source_header
 uint32 image_width
 uint32 image_height
 
-# N 个原图像素坐标系下的 cv2 RotatedRect，六个数组长度必须一致。
+# N 个原图像素坐标系下的 cv2 RotatedRect，七个数组长度必须一致。
 float32[] center_x
 float32[] center_y
 float32[] width
 float32[] height
 float32[] angle_deg
 float32[] scores
+# 每个框的类别（0=held 手里箱，1=neighbor 邻箱）。单类模型恒为 0。
+# 拆垛侧忽略它（两类合并）；码垛侧用它选 held。
+int32[] classes
 
 # 只统计 TensorRT execute，不包含 ROS 序列化、预处理和 NMS。
 float32 inference_ms

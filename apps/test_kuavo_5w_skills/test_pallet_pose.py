@@ -240,11 +240,12 @@ def test_skill_two_tags_one_tag_none(fixture):
 
 
 def test_skill_rejects_missing_calibration():
-    """没给标定结果时，initialize 就该失败并提示去跑标定工具。"""
+    """没给标定结果时，initialize 就该失败并提示先完成托盘标定。"""
     skill = PalletPoseSkill()
     result = skill.initialize(PalletPoseParams(tag_poses={1: Pose6D()}, pallet_tag={}))
     assert not result.success
-    assert "pallet_calibrate" in result.message
+    # 开源版提示不再给出内部标定脚本路径，只要求提示"标定"并指明产物文件
+    assert "标定" in result.message and "pallet_tag.yaml" in result.message, result.message
     print("    技能层：缺少标定时给出可操作的提示")
 
 

@@ -146,6 +146,14 @@ def main():
         ),
     )
     parser.add_argument(
+        "--ros2",
+        action="store_true",
+        help=(
+            "使用 ROS 2 硬件链（等价于 --hardware-config config/leju_wheeled_ros2.json）；"
+            "不传时一律走 ROS 1 原路径"
+        ),
+    )
+    parser.add_argument(
         "--ros-node",
         default="behavior_tree_main",
         help="ROS node name（仅在 ROS 环境生效）",
@@ -187,9 +195,28 @@ def main():
     _ensure_sys_path(studio_root, orch_root)
     init_logging()
 
-    # 行为树节点会动态导入 kuavo_msgs 等 catkin 生成包。
+    # ROS1/ROS2 分流只认**显式传入**的 --ros2 / --hardware-config：
+    # 不传时一律走 ROS 1 原路径，共享场景不会被隐式切换到 ROS 2。
+    hw_mode = "ros1"
+    if getattr(args, "ros2", False):
+        hw_mode = "ros2"
+    elif not args.dry_run and args.hardware_config and os.path.isfile(
+        os.path.abspath(args.hardware_config)
+    ):
+        try:
+            with open(os.path.abspath(args.hardware_config), "r", encoding="utf-8") as _f:
+                hw_mode = (
+                    "ros2"
+                    if json.load(_f).get("robot_type")
+                    in ("leju_wheeled_ros2", "ros2_wheeled")
+                    else "ros1"
+                )
+        except Exception:
+            hw_mode = "ros1"
+
+    # 行为树节点会动态导入 kuavo_msgs 等 catkin 生成包（仅 ROS 1 需要）。
     # 在正式入口统一补齐路径，避免要求每个节点或 Driver 各自修改 sys.path。
-    if not args.dry_run:
+    if not args.dry_run and hw_mode == "ros1":
         from core.common.ros_environment import ensure_local_ros_python_path
 
         ensure_local_ros_python_path(Path(studio_root))
@@ -307,19 +334,29 @@ def main():
             logger.info("[apps][dry-run] tick 后根状态: %s", tree.root.status)
         return
 
-    # ROS 模式：初始化节点、预热硬件、运行主循环
-    try:
-        import rospy
-    except Exception as e:
-        raise RuntimeError(f"当前环境不可用 rospy（若非 ROS 环境请使用 --dry-run）：{e}")
+    # ROS 模式：hw_mode 已在上方按场景配置判定
+    if hw_mode == "ros2":
+        # 必须先于任何 adapters.hardware 导入：跳过 ROS 1 硬件链
+        os.environ.setdefault("LEJU_HW_SKIP_ROS1", "1")
+        import rclpy
 
-    rospy.init_node(args.ros_node, log_level=rospy.INFO)
+        if not rclpy.ok():
+            rclpy.init()
+        # 日志收敛原因与 ROS 1 分支相同
+        init_logging(force=True)
+    else:
+        try:
+            import rospy
+        except Exception as e:
+            raise RuntimeError(f"当前环境不可用 rospy（若非 ROS 环境请使用 --dry-run）：{e}")
 
-    # 【重要】rospy.init_node() 会重装 root 上的 handler，清除我们的日志配置，
-    # 需立即重新收敛，否则此后到硬件初始化之间的日志不会落入 LeTools 日志文件。
-    init_logging(force=True)
+        rospy.init_node(args.ros_node, log_level=rospy.INFO)
 
-    controller.init_services()
+        # 【重要】rospy.init_node() 会重装 root 上的 handler，清除我们的日志配置，
+        # 需立即重新收敛，否则此后到硬件初始化之间的日志不会落入 LeTools 日志文件。
+        init_logging(force=True)
+
+        controller.init_services()
 
     # 预热硬件：提前触发 HardwareFactory.create + initialize，
     # 避免第一个 tick 在行为树 tick 循环内初始化阻塞 20+ 秒。
@@ -327,7 +364,14 @@ def main():
         from orchestration.shared_hardware import get_shared_hardware, set_hardware_config
 
         # 显式硬件配置优先；否则回退到场景目录的 hardware_config.json。
-        if hardware_config_path:
+        # --ros2 且没有可用配置文件时，直接使用 leju_wheeled_ros2 默认配置。
+        if getattr(args, "ros2", False) and not (
+            hardware_config_path and os.path.isfile(hardware_config_path)
+        ):
+            set_hardware_config({"robot_type": "leju_wheeled_ros2"})
+            print("[apps] --ros2：使用 leju_wheeled_ros2 硬件（无需 --hardware-config）")
+            logger.info("[apps] --ros2：使用 leju_wheeled_ros2 硬件")
+        elif hardware_config_path:
             if os.path.isfile(hardware_config_path):
                 with open(hardware_config_path, "r", encoding="utf-8") as f:
                     set_hardware_config(json.load(f))
@@ -341,6 +385,8 @@ def main():
         _hw = get_shared_hardware()
         print(f"[apps] 硬件预热完成: {type(_hw).__name__}")
         logger.info("[apps] 硬件预热完成: %s", type(_hw).__name__)
+        if hw_mode == "ros2":
+            controller.pre_tick_hook = _hw.spin_once
     except Exception as e:
         # 初始化失败后继续运行只会在首个硬件节点中重复初始化，并掩盖真正原因。
         print(f"[apps] 硬件预热失败: {e}")
@@ -362,6 +408,13 @@ def main():
             logger.error("[apps] 行为树失败原因: %s", feedback)
 
     if args.spin:
+        if hw_mode == "ros2":
+            import rclpy
+
+            logger.info("[apps] --spin: 保持节点运行（Ctrl+C 退出）")
+            while rclpy.ok():
+                _hw.spin_once(0.1)
+            return
         rospy.loginfo("[apps] --spin: 保持节点运行（Ctrl+C 退出）")
         rospy.spin()
         return

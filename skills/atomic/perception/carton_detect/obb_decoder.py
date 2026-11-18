@@ -199,8 +199,14 @@ def decode_obb(raw: np.ndarray, ratio: float, pad: Sequence[float], *,
                max_det: int = 300) -> List[dict]:
     """ONNX 原始输出 → 原图坐标下的候选列表（**未去重**，见 `nms_rotated`）。
 
-    `raw` 形状 `(N, 6)` = `[cx, cy, w, h, conf, angle]`（**调用方负责转置**，
-    导出图给的是 `(1, 6, 8400)`）。第 6 列是**原始弧度**，见模块 docstring。
+    `raw` 形状 `(N, 4+nc+1)`（**调用方负责转置**，导出图给的是
+    `(1, 4+nc+1, 8400)`）：
+
+    * 单类：`[cx, cy, w, h, conf, angle]`，`(N, 6)`；
+    * 两类：`[cx, cy, w, h, conf_cls0, conf_cls1, angle]`，`(N, 7)`。
+
+    类别取 `argmax(conf_cls0..n)`，置信度取该列；最后一个列恒为**原始弧度**
+    （见模块 docstring）。返回的每个 dict 多一个 `class_id` 字段；单类模型恒为 0。
 
     坐标反变换是**先转四角、再在像素空间减补边**：`(u - pad_u) / r`。反过来
     （先在 640 空间减补边再转四角）会得到错的框 —— 同一批帧上实测 IoU 从
@@ -213,16 +219,39 @@ def decode_obb(raw: np.ndarray, ratio: float, pad: Sequence[float], *,
     out: List[dict] = []
     if raw is None or len(raw) == 0:
         return out
-    arr = np.asarray(raw, np.float64).reshape(-1, 6)
-    keep = arr[:, 4] >= float(conf_thr)
+    arr = np.asarray(raw, np.float64)
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    if arr.ndim != 2 or arr.shape[1] < 6:
+        raise ValueError(
+            f'decode_obb expects (N, 4+nc+1), got {arr.shape}'
+        )
+    if arr.shape[1] > 16:
+        # 端到端导出的 `(1, 300, 7)` 转置后会变成 `(7, 300)`，列数看起来
+        # 像“类别很多”，实际是 300 个框。这里直接拒绝，别静默解出垃圾框。
+        raise ValueError(
+            f'decode_obb got {arr.shape}; expected anchors x (4+nc+1), '
+            'did you export an end2end OBB model?'
+        )
+    # 第 4 列到倒数第二列都是类别分数；单类时只有一列。
+    class_scores = arr[:, 4:-1]
+    class_ids = np.argmax(class_scores, axis=1)
+    conf = class_scores[np.arange(len(arr)), class_ids]
+    keep = conf >= float(conf_thr)
     arr = arr[keep]
+    conf = conf[keep]
+    class_ids = class_ids[keep]
     if len(arr) == 0:
         return out
-    arr = arr[np.argsort(-arr[:, 4])][:int(max_det)]
+    order = np.argsort(-conf)[:int(max_det)]
+    arr = arr[order]
+    conf = conf[order]
+    class_ids = class_ids[order]
 
     px, py = float(pad[0]), float(pad[1])
-    for row in arr:
-        q = quad_from_xywhr(row[0], row[1], row[2], row[3], row[5])
+    for row, score, class_id in zip(arr, conf, class_ids):
+        angle = float(row[-1])
+        q = quad_from_xywhr(row[0], row[1], row[2], row[3], angle)
         q[:, 0] = (q[:, 0] - px) / ratio
         q[:, 1] = (q[:, 1] - py) / ratio
         q = order_corners_uv(q)
@@ -234,21 +263,24 @@ def decode_obb(raw: np.ndarray, ratio: float, pad: Sequence[float], *,
         out.append({'corners_uv': q,
                     'box_uv': [float(q[:, 0].min()), float(q[:, 1].min()),
                                float(q[:, 0].max()), float(q[:, 1].max())],
-                    'confidence': float(row[4]),
-                    'angle_deg': float(row[5])})
+                    'confidence': float(score),
+                    'class_id': int(class_id),
+                    'angle_deg': angle})
     return out
 
 
 def dets_from_rotated_rects(center_x, center_y, width, height, angle_deg, scores, *,
+                            classes=None,
                             orig_shape: Optional[Sequence[int]] = None,
                             conf_thr: float = 0.25,
                             max_det: int = 300) -> List[dict]:
     """共享推理服务（`box_detection_msgs/InferCartonObb`）的输出 → 候选列表。
 
-    参数就是响应里的六个**等长数组**：原图像素坐标系下的 `cv2.RotatedRect`
-    （中心、宽高、角度**度**）与置信度。返回的字典与 `decode_obb()` **逐字段
+    参数就是响应里的**等长数组**：原图像素坐标系下的 `cv2.RotatedRect`
+    （中心、宽高、角度**度**）、置信度和类别。`classes=None` 表示旧服务
+    （没有类别字段），按全 0 类处理。返回的字典与 `decode_obb()` **逐字段
     同构**，下游（`nms_rotated` / 选箱 / 时间窗）不需要知道数据是本地 ONNX 还是
-    服务来的。
+    服务来的；`class_id` 只在码垛侧选 held 类时使用。
 
     ⚠️ **这条路径必须与 `decode_obb` 同口径**，否则"用公共输出"与"自己推理"会
     出现肉眼看不出的差异：
@@ -272,16 +304,21 @@ def dets_from_rotated_rects(center_x, center_y, width, height, angle_deg, scores
     n = len(scores)
     arrays = {'center_x': center_x, 'center_y': center_y, 'width': width,
               'height': height, 'angle_deg': angle_deg, 'scores': scores}
+    if classes is not None:
+        arrays['classes'] = classes
     for name, seq in arrays.items():
         if len(seq) != n:
             raise ValueError(f'{name} 长度 {len(seq)} 与 scores 长度 {n} 不一致')
     if n == 0:
         return []
+    if classes is None:
+        classes = np.zeros(n, dtype=np.int64)
 
     arr = np.column_stack([
         np.asarray(center_x, np.float64), np.asarray(center_y, np.float64),
         np.asarray(width, np.float64), np.asarray(height, np.float64),
         np.asarray(scores, np.float64), np.asarray(angle_deg, np.float64),
+        np.asarray(classes, np.int64),
     ])
     arr = arr[arr[:, 4] >= float(conf_thr)]
     if len(arr) == 0:
@@ -289,7 +326,7 @@ def dets_from_rotated_rects(center_x, center_y, width, height, angle_deg, scores
     arr = arr[np.argsort(-arr[:, 4])][:int(max_det)]
 
     out: List[dict] = []
-    for cx, cy, w, h, conf, deg in arr:
+    for cx, cy, w, h, conf, deg, class_id in arr:
         pts = cv2.boxPoints(((float(cx), float(cy)), (float(w), float(h)),
                              float(deg)))
         q = order_corners_uv(np.asarray(pts, np.float64))
@@ -302,6 +339,7 @@ def dets_from_rotated_rects(center_x, center_y, width, height, angle_deg, scores
                     'box_uv': [float(q[:, 0].min()), float(q[:, 1].min()),
                                float(q[:, 0].max()), float(q[:, 1].max())],
                     'confidence': float(conf),
+                    'class_id': int(class_id),
                     'angle_deg': float(np.radians(deg))})
     return out
 
@@ -352,9 +390,13 @@ def _rot_overlaps(m1: np.ndarray, a1: int, m2: np.ndarray, a2: int
 
 
 def nms_rotated(dets: Sequence[dict], iou_thr: float = DEFAULT_NMS_IOU,
-                size=(480, 640), *, iomin_thr: float = DEFAULT_NMS_IOMIN
-                ) -> List[dict]:
+                size=(480, 640), *, iomin_thr: float = DEFAULT_NMS_IOMIN,
+                class_aware: bool = False) -> List[dict]:
     """旋转框 NMS，按 `confidence` 降序保留。
+
+    `class_aware=False`（默认）时类别不参与比较，等价于旧的单类行为；两类模型
+    在码垛侧要保留 held 与 neighbor 两类，必须传 `class_aware=True`，否则重叠的
+    两类框会互相压掉。缺 `class_id` 的候选按 0 类处理。
 
     **这一步是必须的，不是保险。** 导出图里没有 NMS、也没有 query 上限
     （8400 行全在），同一目标会出 2~3 行 IoU>0.9 的重复框；实测 val 330 帧里
@@ -381,12 +423,15 @@ def nms_rotated(dets: Sequence[dict], iou_thr: float = DEFAULT_NMS_IOU,
     th_i, th_m = float(iou_thr), float(iomin_thr)
     ms = [_mask(d['corners_uv'], size) for d in dets]
     areas = [int(m.sum()) for m in ms]
+    classes = [int(d.get('class_id', 0)) for d in dets]
 
     order = sorted(range(len(dets)), key=lambda i: -dets[i]['confidence'])
     keep: List[int] = []
     for i in order:
         ok = True
         for j in keep:
+            if class_aware and classes[i] != classes[j]:
+                continue
             iou, iomin = _rot_overlaps(ms[i], areas[i], ms[j], areas[j])
             if iou > th_i or iomin > th_m:
                 ok = False
@@ -491,7 +536,8 @@ def refine_bottom_by_depth(depth_mm, corners_uv, *,
        远背景；
     3. 在跳变附近找到深度穿越点 `y_new`（箱体/背景中值的中点）；
     4. 框的「高度方向」（下边中点到上边中点）要基本竖直（`up[1] < -0.2`）；
-    5. 只收缩：`y_new` 至少比原下边高 `min_shrink_px`。
+    5. 只收缩：`y_new` 至少比**下边中点**高 `min_shrink_px`，且改动后外接框
+       底边不能变大（框轻微旋转时，外接框底边比下边中点低，不能用它当判据）。
 
     ## 输入/输出
 
@@ -605,7 +651,10 @@ def refine_bottom_by_depth(depth_mm, corners_uv, *,
     if up[1] > -0.2:               # 高度方向不竖直：深度扫描沿图像列，不可靠
         info['reason'] = 'not_vertical'
         return None, info
-    if bot - y_new < float(min_shrink_px):
+    # ⚠️ 只收缩要用**下边中点**，不能用外接框底边：框轻微旋转时，外接框底边
+    # 比下边中点低；穿越点落在两者之间时，用 `bot` 会误判成「还能收」，实际
+    # 把下边往下挪、h 变大（2026-11-06 tuopan2 评测 52 帧踩到）。
+    if bm[1] - y_new < float(min_shrink_px):
         info['reason'] = 'already_ok'
         return None, info
 
@@ -613,6 +662,10 @@ def refine_bottom_by_depth(depth_mm, corners_uv, *,
     new = q.copy()
     new[0] = q[0] + up * delta
     new[1] = q[1] + up * delta
+    # 兜底：外接框底边也绝不能变大（浮点/旋转的边界情况）
+    if float(new[:, 1].max()) >= float(q[:, 1].max()):
+        info['reason'] = 'not_shrinking'
+        return None, info
     info['changed'] = True
     info['h_after'] = float(new[:, 1].max() - new[:, 1].min())
     return new, info
@@ -717,3 +770,14 @@ def pick_best(dets: Sequence[dict], ref_uv,
         return None
     scored = score_candidates(dets, ref_uv, z_list, **score_kw)
     return max(scored, key=lambda t: t[1])[0]
+
+
+def select_held(dets: Sequence[dict], held_class: int = 0) -> Optional[dict]:
+    """2 类模型的码垛选箱：只取 `held_class`，返回置信度最高的一个。
+
+    没有该类候选返回 `None`。**不走打分** —— held/neighbor 已由模型分好，
+    再拿下方中心/面积/深度去挑反而会挑到邻箱。`class_id` 缺失按 0 类处理
+    （单类模型调用时等价于「取置信度最高」）。
+    """
+    held = [d for d in dets if int(d.get('class_id', 0)) == int(held_class)]
+    return max(held, key=lambda d: d['confidence']) if held else None

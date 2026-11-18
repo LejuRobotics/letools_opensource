@@ -30,7 +30,7 @@ from obb_decoder import (        # noqa: E402
     depth_score, dets_from_rotated_rects, letterbox, nms_rotated,
     order_corners_uv, pick_best,
     quad_from_xywhr, refine_bottom_by_depth, sample_depth_mm, score_candidates,
-    to_input_tensor,
+    select_held, to_input_tensor,
 )
 
 _FAILED = []
@@ -131,6 +131,87 @@ def test_decode_obb_conf_filter() -> None:
     check('完全跑出图外的被丢',
           len(decode_obb(far, 1.0, (0.0, 80.0), conf_thr=0.25,
                          orig_shape=(480, 640))) == 0)
+
+
+def test_decode_obb_two_classes() -> None:
+    print('decode_obb：两类输出 (N,7)')
+    raw = np.array([
+        # cx, cy, w, h, held, neighbor, angle
+        [320.0, 400.0, 200.0, 100.0, 0.90, 0.20, 0.10],
+        [100.0, 200.0, 80.0, 60.0, 0.30, 0.80, 0.00],
+    ])
+    dets = decode_obb(raw, ratio=1.0, pad=(0.0, 80.0), conf_thr=0.25,
+                      orig_shape=(480, 640))
+    check('出两个框', len(dets) == 2, str(len(dets)))
+    if len(dets) == 2:
+        check('置信度取类别分数最大列',
+              abs(dets[0]['confidence'] - 0.90) < 1e-9
+              and abs(dets[1]['confidence'] - 0.80) < 1e-9,
+              str([d['confidence'] for d in dets]))
+        check('class_id 正确',
+              dets[0]['class_id'] == 0 and dets[1]['class_id'] == 1,
+              str([d['class_id'] for d in dets]))
+        check('两类按置信度降序', dets[0]['confidence'] >= dets[1]['confidence'])
+    low = np.array([[320.0, 400.0, 100.0, 100.0, 0.10, 0.05, 0.0]])
+    check('所有类别分数都低于阈值时整框滤掉',
+          decode_obb(low, 1.0, (0.0, 80.0), conf_thr=0.25) == [])
+    try:
+        decode_obb(np.zeros((7, 300)), 1.0, (0.0, 0.0), conf_thr=0.25)
+        raised = False
+    except ValueError:
+        raised = True
+    check('端到端导出的 (7,300) 形状被拒绝', raised)
+
+
+def test_dets_from_rotated_rects_classes() -> None:
+    print('dets_from_rotated_rects：类别字段')
+    dets = dets_from_rotated_rects(
+        [100.0, 200.0], [100.0, 200.0], [50.0, 50.0], [40.0, 40.0],
+        [0.0, 0.0], [0.9, 0.8], classes=[1, 0])
+    check('出两个框', len(dets) == 2, str(len(dets)))
+    if len(dets) == 2:
+        check('class_id 跟着候选走',
+              [d['class_id'] for d in dets] == [1, 0],
+              str([d['class_id'] for d in dets]))
+    try:
+        dets_from_rotated_rects(
+            [100.0, 200.0], [100.0, 200.0], [50.0, 50.0], [40.0, 40.0],
+            [0.0, 0.0], [0.9, 0.8], classes=[1])
+        raised = False
+    except ValueError:
+        raised = True
+    check('classes 长度不一致直接报错', raised)
+
+
+def test_nms_rotated_class_aware() -> None:
+    print('nms_rotated：class_aware 保住两类')
+    a = {'corners_uv': quad_from_xywhr(100, 100, 60, 40, 0.0),
+         'confidence': 0.9, 'class_id': 0}
+    b = {'corners_uv': quad_from_xywhr(100, 100, 60, 40, 0.0),
+         'confidence': 0.8, 'class_id': 1}
+    check('class_aware=False 仍按旧行为去重',
+          len(nms_rotated([a, b], 0.45, (480, 640))) == 1)
+    check('class_aware=True 保留两类',
+          len(nms_rotated([a, b], 0.45, (480, 640), class_aware=True)) == 2)
+
+
+def test_select_held() -> None:
+    print('select_held：只取 held 类，取置信度最高')
+    dets = [
+        {'corners_uv': quad_from_xywhr(100, 100, 60, 40, 0.0),
+         'confidence': 0.70, 'class_id': 1},
+        {'corners_uv': quad_from_xywhr(300, 100, 60, 40, 0.0),
+         'confidence': 0.60, 'class_id': 0},
+        {'corners_uv': quad_from_xywhr(500, 100, 60, 40, 0.0),
+         'confidence': 0.95, 'class_id': 0},
+    ]
+    best = select_held(dets, 0)
+    check('不选置信度更高的 neighbor',
+          best is not None and best['class_id'] == 0 and best['confidence'] == 0.95,
+          str(best))
+    check('没有 held 时返回 None',
+          select_held([dets[0]], 0) is None)
+    check('held_class 可切换', select_held(dets, 1)['confidence'] == 0.70)
 
 
 def test_dets_from_rotated_rects_matches_decode() -> None:
@@ -432,6 +513,34 @@ def test_refine_bottom_by_depth() -> None:
     check('深度全无效时不动', none5 is None, str(info5))
 
 
+def test_refine_bottom_rotated_guard() -> None:
+    """旋转框：不能用外接框底边当「只收缩」的判据。"""
+    print('refine_bottom_by_depth：旋转框的下边中点 vs 外接框底边')
+    q = order_corners_uv(quad_from_xywhr(320, 300, 300, 200, math.radians(10)))
+    bm_y = float((q[0, 1] + q[1, 1]) / 2.0)
+    bot = float(q[:, 1].max())
+    check('构造的框确实有外接框底边低于下边中点', bot > bm_y + 20,
+          f'bm={bm_y:.1f} bot={bot:.1f}')
+    # 穿越点在 bm 下方 5px、但在外接框底边上方 21px：
+    # 旧判据（bot - y_new）会误判成能收，实际会把框拉长
+    cr = int(round(bm_y + 5))
+    depth = np.full((480, 640), 580, np.uint16)
+    depth[cr:, :] = 830
+    none, info = refine_bottom_by_depth(depth, q)
+    check('穿越点在下边中点之下时不改框',
+          none is None and info['reason'] == 'already_ok', str(info))
+
+    # 穿越点在下边中点上方 10px：应该收缩，且外接框底边变小
+    cr2 = int(round(bm_y - 10))
+    depth2 = np.full((480, 640), 580, np.uint16)
+    depth2[cr2:, :] = 830
+    new, info2 = refine_bottom_by_depth(depth2, q)
+    check('下边中点上方时收缩', new is not None and info2['changed'], str(info2))
+    if new is not None:
+        check('外接框底边不增大', float(new[:, 1].max()) < bot,
+              f'{new[:, 1].max():.1f} vs {bot:.1f}')
+
+
 def test_ultralytics_parity() -> None:
     """装了 ultralytics 才跑的**真判据**：与官方预测器逐帧比四点。"""
     print('与 ultralytics 的 LetterBox 逐像素比对')
@@ -454,11 +563,14 @@ if __name__ == '__main__':
     for fn in (test_letterbox_square, test_letterbox_non_square,
                test_quad_from_xywhr_axis_aligned, test_quad_rotated_90,
                test_order_corners_any_input, test_decode_obb_roundtrip,
-               test_decode_obb_conf_filter, test_dets_from_rotated_rects_matches_decode,
-               test_nms_rotated,
+               test_decode_obb_conf_filter, test_decode_obb_two_classes,
+               test_dets_from_rotated_rects_matches_decode,
+               test_dets_from_rotated_rects_classes,
+               test_nms_rotated, test_nms_rotated_class_aware,
+               test_select_held,
                test_nms_iomin_containment, test_d_center,
                test_depth, test_pick_best, test_angle_deg, test_input_tensor,
-               test_refine_bottom_by_depth,
+               test_refine_bottom_by_depth, test_refine_bottom_rotated_guard,
                test_ultralytics_parity):
         fn()
         print()

@@ -56,6 +56,7 @@ from .obb_decoder import (  # noqa: F401
     refine_bottom_by_depth,
     sample_depth_mm,
     score_candidates,
+    select_held,
     to_input_tensor,
 )
 
@@ -91,5 +92,6 @@ __all__ = [
     "refine_bottom_by_depth",
     "sample_depth_mm",
     "score_candidates",
+    "select_held",
     "to_input_tensor",
 ]

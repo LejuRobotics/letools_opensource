@@ -1,8 +1,0 @@
-{
-  "robot_type": "leju_wheeled",
-  "skip_camera": true,
-  "skip_end_effector": true,
-  "skip_force_publishers": true,
-  "skip_state_manager": true,
-  "angle_unit": "rad"
-}

@@ -1,4 +1,8 @@
-# 托盘伺服误差（图像空间）
+# 托盘伺服误差（图像空间，v1）
+
+> ⚠️ **v1 说明（2026-11）**：本模块是旧链路 v1。当前生产链路是 v2
+> （`pallet_servo_v2/`、`pallet_detect_v2/`），部署与 call 0/-1 语义见
+> `docs_internal/托盘伺服部署与跑通.md`。两套可同时运行。
 
 读「托盘位姿 + 箱子框」，算出**三个误差数**（两条带符号的像素垂距 + 一个角度差），
 给下游控制器把箱子伺服到木托盘上的指定位置。
@@ -408,7 +412,7 @@ TF 用**短超时（0.05 s）+ 最近一次成功值缓存**—— 标定工具�
 
 ## 2.1 接进行为树
 
-> **真机上现成的场景在 `orchestration/scenarios/pallet_servo_real_v1/`** ——
+> **真机上现成的场景在 `orchestration/scenarios/scenarios_internal/pallet_servo_real_v1/`** ——
 > 那里托盘走**视觉托盘检测器**（`NodePalletObs` 订阅 `/pallet/detection`），箱子走
 > `NodeBoxObs`（订阅 `/box/detection`），**两路都是自动的**。
 > 本节下面这段是**纯离线**的骨架：托盘和箱子都由那份 JSON 提供。

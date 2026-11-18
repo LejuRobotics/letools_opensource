@@ -7,7 +7,7 @@
 
 轻量级机器人行为树启动工具，仅负责从 JSON 加载并运行行为树，**所有业务逻辑由行为树配置定义**。支持离线验证（无 ROS）和 ROS 环境运行。
 
-> 编排层主入口 `orchestration/main.py` 默认场景为 `studio_smoke_v1`，详见 [行为树编排（orchestration）说明](../../docs/03-接口详细文档/05-orchestration-行为树编排.md)。本启动器是**通用、场景无关**的入口，建议新场景优先使用本启动器。
+> 编排层主入口 `orchestration/main.py` 默认场景为 `instructional_case_01`，详见 [行为树编排（orchestration）说明](../../docs/03-接口详细文档/05-orchestration-行为树编排.md)。本启动器是**通用、场景无关**的入口，建议新场景优先使用本启动器。
 
 <!-- AUTO-GENERATED:START directory-tree -->
 ## 目录结构
@@ -30,7 +30,7 @@ apps/test_upper_init/
 | 维度 | `run_behavior_tree_json.py`(本启动器) | `orchestration/main.py` |
 |---|---|---|
 | 路径 | `apps/test_upper_init/` | `orchestration/` |
-| 默认场景 | 无(必须 `--scenario`) | `studio_smoke_v1` |
+| 默认场景 | 无(必须 `--scenario`) | `instructional_case_01`（仅 `orchestration/main.py`；本脚本无默认，必须 `--scenario`） |
 | `--scenario` 自动发现 | ✅ | ❌(需 `--tree` + `--board`) |
 | 子树加载 | 单文件 `py_tree_child.json` | 同左 |
 | 适用 | 通用 / CI / 多场景复用 | 阶段 1 默认烟测 |
@@ -72,7 +72,7 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 
 | 参数 | 必填 | 说明 | 示例 |
 |------|:----:|------|------|
-| `--scenario DIR` | 否 | 场景文件夹，自动从该目录取 `py_tree.json` / `py_tree_child.json` / `board.json`（默认 `studio_smoke_v1`） | `--scenario studio_smoke_v1` |
+| `--scenario DIR` | 否 | 场景文件夹，自动从该目录取 `py_tree.json` / `py_tree_child.json` / `board.json`（本脚本无默认，必须显式指定） | `--scenario orchestration/scenarios/instructional_case_01` |
 | `--tree PATH` | 否 | 显式指定主树路径（优先级高于 `--scenario` 默认值） | `--tree path/to/py_tree.json` |
 | `--subtrees PATH` | 否 | 显式指定子树集合文件（单文件 `py_tree_child.json`） | `--subtrees path/to/child.json` |
 | `--board PATH` | 否 | 显式指定黑板 JSON | `--board path/to/board.json` |
@@ -188,7 +188,7 @@ skills
 - 子树 JSON 的 `interface.inputs` 字段描述该子树需要的外部输入
 - 节点类自动从 `orchestration/nodes/` 发现:snake_case 文件名 → PascalCase 类名
 - 详细编排机制见 [行为树编排（orchestration）说明](../../docs/03-接口详细文档/05-orchestration-行为树编排.md)
-- 完整链路示例见各 scenario 自带 readme(如 [refactored_sdk_atomic_v1 § 完整链路示例](../../orchestration/scenarios/refactored_sdk_atomic_v1/readme.md#完整链路示例))
+- 完整链路示例见各 scenario 自带 readme(如 [refactored_sdk_atomic_v1 § 完整链路示例](../../orchestration/scenarios/scenarios_internal/refactored_sdk_atomic_v1/readme.md#完整链路示例))
 
 ---
 

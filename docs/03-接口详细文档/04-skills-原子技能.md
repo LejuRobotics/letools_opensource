@@ -91,7 +91,7 @@ class HeadControlSdkSkill(SkillBase):
 | `arm_reset_sdk.py` | `ArmResetSdkSkill` | `ArmResetSdkParams` | `arm_reset()` | 手臂归位 |
 | `arm_ee_dual_timed.py` | `ArmEEDualTimedSkill` | `ArmEEDualTimedParams` | `send_arm_ee_world_timed` / `_local_timed` | 双臂单次末端位姿（双 planner 并发） |
 | `arm_ee_single_timed.py` | `ArmEESingleTimedSkill` | `ArmEESingleTimedParams` | `send_left/right_arm_ee_*_timed` | 单臂单次末端位姿 |
-| `arm_ee_burst_timed.py` | `ArmEEBurstTimedSkill` | `ArmEEBurstTimedParams` | `send_timed_single_command` 循环 | 在线连发航点（可双臂互不干扰） |
+| `arm_ee_burst_timed.py` | `ArmEEBurstTimedSkill` | `ArmEEBurstTimedParams` | `send_timed_<side>_arm_ee_<frame>` 循环 | 在线连发航点（可双臂互不干扰） |
 | `arm_ee_local_relative_timed.py` | `ArmEELocalRelativeTimedSkill` | `ArmEELocalRelativeTimedParams` | 相对补偿 TimedCmd | 双臂末端 local 相对补偿 |
 | `arm_ee_timed_cmd.py` | `ArmEETimedCmdSkill` | `ArmEETimedCmdParams` | `send_timed_multi_commands` | TimedCmd 末端位姿（多航点 index 切换） |
 | `arm_ee_offline_traj.py` | `ArmEEOfflineTrajSkill` | `ArmEEOfflineTrajParams` | `set_offline_trajectory` + `enable_offline_trajectory` | 离线时间最优轨迹 |
@@ -185,7 +185,7 @@ class HeadControlSdkSkill(SkillBase):
 
 | Params | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|---|
-| `ArmEEDualTimedParams` | `frame` | `str` | `'world'` | `world` → planner 4+5；`local` / `base_link` → 6+7 |
+| `ArmEEDualTimedParams` | `frame` | `str` | `'world'` | `world` → planner 4+5；`local` → 6+7 |
 | | `left_pose` / `right_pose` | `List[float]` | 见下 | 6 维 `[x, y, z, yaw, pitch, roll]`（**度**） |
 | | `desire_time` | `float` | `2.0` | 期望执行时长（秒） |
 | | `focus_ee` / `focus_z` | `bool` | `False` | 是否抢占笛卡尔 / Z 轴跟踪焦点 |
@@ -269,7 +269,7 @@ class HeadControlSdkSkill(SkillBase):
 | `Vacuum485Params` / `VacuumControlParams` | `action` | `str` | `'suck'` |
 | `InferenceControlParams` | `inference_config_path` | `str` | 内置默认 |
 | | `policy_type` | `str` | `'act'` |
-| | `pretrained_path` / `task_prompt` | `str` | `''` / `'Pick Place'` |
+| | `pretrained_path` / `task_prompt` | `str` | `''` / `'Pick and Place'` |
 | | `max_episode_steps` | `int` | `200` |
 | | `device` / `inference_env` | `str` | `'cuda'` / `'sim'` |
 

@@ -238,6 +238,7 @@ class RosObbInferenceClient:
             response.height,
             response.angle_deg,
             response.scores,
+            response.classes,
         )
         lengths = {len(field) for field in fields}
         if len(lengths) != 1:
@@ -255,12 +256,15 @@ class RosObbInferenceClient:
 
         detections = []
         for values in zip(*fields):
-            center_x, center_y, width, height, angle_deg, score = values
+            center_x, center_y, width, height, angle_deg, score, _class_id = values
             rect = (
                 (float(center_x), float(center_y)),
                 (float(width), float(height)),
                 float(angle_deg),
             )
+            # 拆垛不区分 held/neighbor：这里丢掉类别，后面的 select_best_obb
+            # 仍按原打分对全部候选选一个。服务端 NMS 本身不分类别，所以这就是
+            # 「两类合并为一类」。
             detections.append((rect, float(score)))
         return (
             detections,
@@ -335,6 +339,34 @@ def normalize_scores(values, higher_is_better):
     return normalized if higher_is_better else 1.0 - normalized
 
 
+def filter_top_layer_detections(valid_detections, prefer_top_layer, depth_margin_m):
+    """Keep only the nearest depth cluster (current top carton layer).
+
+    Head-camera depth is smaller for the upper stack layer. A plain
+    ``min_depth + margin`` band is too loose when layer height is about the
+    same as the margin: both layers survive, then bottom-center scoring picks
+    the lower-layer box. Instead, sort by depth and cut at the first gap larger
+    than ``depth_margin_m``.
+    """
+    if (
+        not prefer_top_layer
+        or not valid_detections
+        or depth_margin_m is None
+        or not math.isfinite(depth_margin_m)
+        or depth_margin_m < 0.0
+    ):
+        return valid_detections
+
+    ordered = sorted(valid_detections, key=lambda item: item["distance_m"])
+    cluster = [ordered[0]]
+    for item in ordered[1:]:
+        gap_m = float(item["distance_m"] - cluster[-1]["distance_m"])
+        if gap_m > float(depth_margin_m):
+            break
+        cluster.append(item)
+    return cluster
+
+
 def select_best_obb(
     detections,
     depth_m,
@@ -348,6 +380,8 @@ def select_best_obb(
     depth_weight,
     bottom_center_weight,
     area_weight,
+    prefer_top_layer=True,
+    top_layer_depth_margin_m=0.06,
 ):
     depth_readings = []
     valid_detections = []
@@ -389,16 +423,24 @@ def select_best_obb(
     if not valid_detections:
         return [], depth_readings, score_details, []
 
+    scoring_detections = filter_top_layer_detections(
+        valid_detections,
+        prefer_top_layer,
+        top_layer_depth_margin_m,
+    )
+    if not scoring_detections:
+        return [], depth_readings, score_details, []
+
     depth_scores = normalize_scores(
-        [item["distance_m"] for item in valid_detections],
+        [item["distance_m"] for item in scoring_detections],
         higher_is_better=False,
     )
     bottom_center_scores = normalize_scores(
-        [item["bottom_center_distance"] for item in valid_detections],
+        [item["bottom_center_distance"] for item in scoring_detections],
         higher_is_better=False,
     )
     area_scores = normalize_scores(
-        [item["area"] for item in valid_detections],
+        [item["area"] for item in scoring_detections],
         higher_is_better=True,
     )
     weight_sum = depth_weight + bottom_center_weight + area_weight
@@ -410,7 +452,7 @@ def select_best_obb(
 
     scored_detections = []
     for item, depth_score, bottom_score, area_score in zip(
-        valid_detections,
+        scoring_detections,
         depth_scores,
         bottom_center_scores,
         area_scores,
@@ -1124,7 +1166,7 @@ class CartonObbServoService:
 
     def _select_target(self, detections, source_shape, depth_m):
         args = self.args
-        _, _, _, candidates = select_best_obb(
+        _, depth_readings, _, candidates = select_best_obb(
             detections,
             depth_m,
             source_shape,
@@ -1137,8 +1179,10 @@ class CartonObbServoService:
             args.depth_weight,
             args.bottom_center_weight,
             args.area_weight,
+            prefer_top_layer=args.prefer_top_layer,
+            top_layer_depth_margin_m=args.top_layer_depth_margin,
         )
-        return candidates
+        return candidates, depth_readings
 
     def _build_result(self, selected, color_stamp):
         result_position = self.result_projector.project(
@@ -1284,11 +1328,12 @@ class CartonObbServoService:
 
                 depth_m, depth_stamp = self.depth_subscriber.latest()
                 candidates = []
+                depth_readings = [None] * len(detections)
                 if (
                     depth_m is not None
                     and abs(color_stamp - depth_stamp) <= args.max_depth_age
                 ):
-                    candidates = self._select_target(
+                    candidates, depth_readings = self._select_target(
                         detections,
                         source_shape,
                         depth_m,
@@ -1297,6 +1342,24 @@ class CartonObbServoService:
                 debug_frame_count += 1
                 if selected is not None:
                     debug_selected_count += 1
+                if debug_frame_count == 1:
+                    valid_depths = [
+                        float(distance)
+                        for distance in depth_readings
+                        if distance is not None
+                    ]
+                    print(
+                        "Servo select debug: "
+                        f"obb={len(detections)} "
+                        f"valid_depth={len(valid_depths)} "
+                        f"candidates={len(candidates)} "
+                        f"depths={[round(v, 3) for v in sorted(valid_depths)]} "
+                        f"prefer_top_layer={args.prefer_top_layer} "
+                        f"gap_margin={args.top_layer_depth_margin:.3f}m "
+                        f"selected_depth="
+                        f"{None if selected is None else round(selected[2], 3)}",
+                        flush=True,
+                    )
                 angle_error_deg = None
                 position = None
                 if selected is not None:
@@ -1344,6 +1407,7 @@ class CartonObbServoService:
                         frame_index=debug_frame_count,
                         phase="PROCESS",
                         inference_ms=inference_ms,
+                        depth_readings=depth_readings,
                     )
                     capture_now = time.monotonic()
                     if (
@@ -1447,6 +1511,7 @@ class CartonObbServoService:
                             frame_index=debug_frame_count,
                             phase="FINAL_ALIGNED",
                             inference_ms=inference_ms,
+                            depth_readings=depth_readings,
                         )
                     final_path = self._save_capture(
                         capture_session,
@@ -1682,11 +1747,14 @@ def draw_servo_capture(
     frame_index,
     phase,
     inference_ms,
+    depth_readings=None,
 ):
     """Render the exact inference frame and target used by visual servo."""
     rendered = frame.copy()
     selected_rect = selected[0] if selected is not None else None
-    for rect, confidence in detections:
+    if depth_readings is None:
+        depth_readings = [None] * len(detections)
+    for index, (rect, confidence) in enumerate(detections):
         points = cv2.boxPoints(rect).astype(np.int32)
         is_selected = rect is selected_rect or (
             selected_rect is not None and rect == selected_rect
@@ -1702,22 +1770,26 @@ def draw_servo_capture(
             cv2.LINE_AA,
         )
         center = tuple(np.round(rect[0]).astype(int))
+        depth_m = (
+            depth_readings[index] if index < len(depth_readings) else None
+        )
+        depth_text = "depth=NA" if depth_m is None else f"depth={depth_m:.3f}"
         label = (
             f"{'SELECTED ' if is_selected else ''}"
-            f"conf={confidence:.3f} angle={horizontal_rotation_deg(rect):+.1f}"
+            f"conf={confidence:.3f} {depth_text} "
+            f"angle={horizontal_rotation_deg(rect):+.1f}"
         )
         cv2.putText(
             rendered,
             label,
-            (max(4, center[0] - 90), max(118, center[1] - 8)),
+            (max(4, center[0] - 110), max(118, center[1] - 8)),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.48,
+            0.45,
             color,
             2 if is_selected else 1,
             cv2.LINE_AA,
         )
 
-    cv2.rectangle(rendered, (0, 0), (rendered.shape[1], 105), (0, 0, 0), -1)
     selected_depth = selected[2] if selected is not None else None
     selected_score = selected[3] if selected is not None else None
     angle = (
@@ -1869,13 +1941,6 @@ def draw_detections(
             cv2.LINE_AA,
         )
 
-    cv2.rectangle(
-        rendered,
-        (0, 0),
-        (rendered.shape[1], 102),
-        (0, 0, 0),
-        -1,
-    )
     status = (
         f"TRT FP16 | boxes {len(detections)} | infer {inference_ms:.2f} ms "
         f"| FPS {display_fps:.1f} | conf {confidence:.2f}"
@@ -2060,6 +2125,32 @@ def parse_args():
         help="Weight for larger OBB area (default: 0.2)",
     )
     parser.add_argument(
+        "--prefer-top-layer",
+        dest="prefer_top_layer",
+        action="store_true",
+        default=True,
+        help=(
+            "Pre-filter OBBs to the nearest depth band before scoring "
+            "(default: enabled; pick upper stack layer first)"
+        ),
+    )
+    parser.add_argument(
+        "--no-prefer-top-layer",
+        dest="prefer_top_layer",
+        action="store_false",
+        help="Disable nearest-depth top-layer pre-filter",
+    )
+    parser.add_argument(
+        "--top-layer-depth-margin",
+        type=float,
+        default=0.06,
+        help=(
+            "Split depth-sorted OBBs into layers at the first gap larger than "
+            "this value in meters; keep only the nearest cluster "
+            "(default: 0.06)"
+        ),
+    )
+    parser.add_argument(
         "--no-display",
         action="store_true",
         help="Disable the OpenCV window",
@@ -2172,7 +2263,7 @@ def parse_args():
     parser.add_argument(
         "--servo-max-runtime",
         type=float,
-        default=30.0,
+        default=20.0,
         help="Maximum active servo time in seconds; 0 disables the timeout",
     )
     parser.add_argument(
@@ -2306,6 +2397,11 @@ def parse_args():
     )
     if any(weight < 0 for weight in weights) or sum(weights) <= 0:
         parser.error("Scoring weights must be non-negative with a positive sum")
+    if (
+        not math.isfinite(args.top_layer_depth_margin)
+        or args.top_layer_depth_margin < 0.0
+    ):
+        parser.error("--top-layer-depth-margin must be a non-negative finite number")
     if args.servo_kp <= 0.0:
         parser.error("--servo-kp must be positive")
     if args.servo_deadband < 0.0 or args.servo_max_yaw_rate <= 0.0:
@@ -2438,6 +2534,13 @@ def main():
             f"bottom-center={args.bottom_center_weight:.2f}, "
             f"area={args.area_weight:.2f}"
         )
+        if args.prefer_top_layer:
+            print(
+                "Top-layer filter : ENABLED "
+                f"(margin={args.top_layer_depth_margin:.3f}m)"
+            )
+        else:
+            print("Top-layer filter : DISABLED")
         print("Waiting for the shared TensorRT inference service...")
         inference_client = RosObbInferenceClient(
             args.inference_service,
@@ -2588,6 +2691,8 @@ def main():
                     args.depth_weight,
                     args.bottom_center_weight,
                     args.area_weight,
+                    prefer_top_layer=args.prefer_top_layer,
+                    top_layer_depth_margin_m=args.top_layer_depth_margin,
                 )
             else:
                 selected_detections = []

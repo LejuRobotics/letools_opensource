@@ -45,11 +45,11 @@
     <arg name="z_near_mm"       default="500.0"/>
     <arg name="z_far_mm"        default="1500.0"/>
     <!-- 深度下沿修正（2026-11-06）：用框内箱体与下方背景的深度跳变把被拉长的
-         下边收回去。只收缩、找不到明确跳变就不动。现场修拉长，默认开启；
-         需要时传 depth_refine_bottom:=false 关掉。详见
+         下边收回去。只收缩、找不到明确跳变就不动。现场修拉长，默认关闭；
+         需要时传 depth_refine_bottom:=true 开启。详见
          skills/atomic/perception/carton_detect/obb_decoder.py 的
          refine_bottom_by_depth。 -->
-    <arg name="depth_refine_bottom"        default="true"/>
+    <arg name="depth_refine_bottom"        default="false"/>
     <arg name="depth_refine_step"          default="2"/>
     <arg name="depth_refine_band_px"       default="45"/>
     <arg name="depth_refine_jump_mm"       default="150.0"/>
@@ -70,6 +70,14 @@
     <arg name="infer_service" default="/carton_obb/infer"/>
     <arg name="infer_probe_s" default="2.0"/>
     <arg name="shared_fail_limit" default="3"/>
+
+    <!-- 选箱模式（2 类模型）
+         held  = 直接取 class_id==held_class 的框（取置信度最高），码垛侧用；
+         score = 原来的「下方中心距离 + 面积 + 深度」打分，代码保留。
+         这个通用 launch 默认 score（保住旧部署/单类模型的行为）；码垛场景
+         `pallet_servo_real_v1` 显式传 select_mode:=held，v2 专用 launch 默认 held。 -->
+    <arg name="select_mode" default="score"/>
+    <arg name="held_class"  default="0"/>
 
     <!-- ⚠️ **按需自己给 cuDNN 的 LD_LIBRARY_PATH。** onnxruntime 的 CUDA provider
          **不会**自己去 conda 环境的 `site-packages/nvidia/` 里找库；不给的话
@@ -111,6 +119,8 @@
         <param name="infer_service" value="$(arg infer_service)"/>
         <param name="infer_probe_s" value="$(arg infer_probe_s)"/>
         <param name="shared_fail_limit" value="$(arg shared_fail_limit)"/>
+        <param name="select_mode"   value="$(arg select_mode)"/>
+        <param name="held_class"    value="$(arg held_class)"/>
 
         <!-- 选箱判据（离画面下方中心越近分越高 + 面积 + 深度）。
              命令行是覆盖口，一键脚本从 board.json 传进来。 -->

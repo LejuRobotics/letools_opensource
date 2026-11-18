@@ -55,6 +55,19 @@ def _load_feedback_config(path):
     return data
 
 
+def _load_inference_config(config_path):
+    """Use the ring loader when available; preserve the shared loader otherwise."""
+    try:
+        from tools.ring_sim.runtime.ring_config import load_config_for_inference
+    except ModuleNotFoundError as exc:
+        missing = exc.name or ""
+        if missing != "tools" and not missing.startswith("tools.ring_sim"):
+            raise
+        from kuavo_deploy.config import load_kuavo_config
+        return load_kuavo_config(config_path)
+    return load_config_for_inference(config_path)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Kuavo 推理子进程")
     parser.add_argument("--config", required=True, help="推理配置文件路径")
@@ -88,14 +101,13 @@ def _run_inference(args):
     import torch
 
     import kuavo_deploy.kuavo_env  # noqa: F401  注册 Kuavo-Sim/Kuavo-Real
-    from kuavo_deploy.config import load_kuavo_config
     from kuavo_deploy.utils.policy_loader import (
         load_native_policy_bundle,
         inject_task_prompt,
     )
 
     # ---------- 加载配置 ----------
-    cfg = load_kuavo_config(args.config)
+    cfg = _load_inference_config(args.config)
     inf = cfg.inference
     env_cfg = cfg.env
 
@@ -146,7 +158,9 @@ def _run_inference(args):
     rospy.init_node("inference_control_subprocess", anonymous=True)
 
     # ---------- 创建环境 ----------
-    env_name = "Kuavo-Sim" if env_cfg.inference_env == "sim" else "Kuavo-Real"
+    env_name = getattr(env_cfg, "env_name", "") or (
+        "Kuavo-Sim" if env_cfg.inference_env == "sim" else "Kuavo-Real"
+    )
     _emit(f"正在创建推理环境：{env_name} (which_arm={which_arm}, ros_rate={env_cfg.ros_rate})")
     env = gym.make(env_name, max_episode_steps=max_steps, config=cfg)
     while hasattr(env, "env"):
@@ -165,12 +179,13 @@ def _run_inference(args):
         policy, preprocessor, postprocessor, _ = load_native_policy_bundle(
             pretrained_path=inf.pretrained_path, device=device, strict=True
         )
-    if inf.policy_type == "act" and inf.act_n_action_steps is not None:
+    act_n_action_steps = getattr(inf, "act_n_action_steps", None)
+    if inf.policy_type == "act" and act_n_action_steps is not None:
         if policy.config.temporal_ensemble_coeff is not None:
             raise ValueError("覆盖 act_n_action_steps 前需关闭时序集成（temporal_ensemble_coeff）")
-        if inf.act_n_action_steps > policy.config.chunk_size:
+        if act_n_action_steps > policy.config.chunk_size:
             raise ValueError("act_n_action_steps 不能大于模型的 chunk_size")
-        policy.config.n_action_steps = inf.act_n_action_steps
+        policy.config.n_action_steps = act_n_action_steps
     _emit(f"策略已加载：{inf.policy_type} ({inf.pretrained_path})")
     if inf.policy_type == "act":
         _emit(f"ACT chunk_size={policy.config.chunk_size} n_action_steps={policy.config.n_action_steps} ros_rate={ros_rate:g} max_steps={max_steps}")
