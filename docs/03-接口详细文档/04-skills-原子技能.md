@@ -9,7 +9,7 @@ skills 层主要负责业务逻辑：参数校验、调用硬件接口、判断�
 | 点分路径 | 实体 | 说明 |
 |---|---|---|
 | `skills.base.skill_base` | `SkillBase` | 所有技能的基类（实现 `ISkill`，附带超时与异常兜底） |
-| `skills.atomic.refactored_sdk` | 45 个顶层 Python 文件 | **当前主力**：扁平结构，包含技能及场景辅助模块；具体控制路径见下方总表 |
+| `skills.atomic.refactored_sdk` | 47 个顶层 Python 文件 | **当前主力**：扁平结构，包含技能及场景辅助模块；具体控制路径见下方总表 |
 | `skills.atomic.manipulation.*` | 14 个目录 | **旧版**技能（`studio_smoke_v1` 场景使用） |
 | `skills.atomic.motion.chassis_velocity` / `move_to_pose` | 2 个技能 | **旧版**运动技能 |
 | `skills.atomic.perception.*` | `camera_capture` / `read_qrcode` / `pallet_*` / `box_frame` | 感知技能（非 SDK 路径） |
@@ -20,7 +20,7 @@ skills 层主要负责业务逻辑：参数校验、调用硬件接口、判断�
 
 | 口径 | 数量 |
 |---|---|
-| `refactored_sdk/` 顶层 `.py`（不含 `__init__.py`） | **45** |
+| `refactored_sdk/` 顶层 `.py`（不含 `__init__.py`） | **47** |
 | `manipulation/*/skill.py` | 14 |
 | `motion/*/skill.py` | 2 |
 | `perception/*/skill.py` | 4（另有若干 `algorithm.py` 纯计算模块） |
@@ -107,6 +107,8 @@ class HeadControlSdkSkill(SkillBase):
 | `check_arrived_jibot.py` | `CheckArrivedJibotSkill` | `CheckArrivedJibotParams` | `check_arrived_jibot()` | JiBot 到达检查 |
 | `check_distance_to_target.py` | `CheckDistanceToTargetSkill` | `CheckDistanceToTargetParams` | 读黑板 / 状态 | 检查到目标距离 |
 | `head_control_sdk.py` | `HeadControlSdkSkill` | `HeadControlSdkParams` | `control_head_sdk()` | 头部（SDK 直调） |
+| `get_head_pose.py` | `GetHeadPoseSkill` | `GetHeadPoseParams` | `get_head_pose()` | 获取头部姿态（yaw/pitch，度） |
+| `set_head_pose.py` | `SetHeadPoseSkill` | `SetHeadPoseParams` | `set_head_pose()` | 设置头部姿态（yaw/pitch，度） |
 | `leg_joint_sdk.py` | `LegJointSdkSkill` | `LegJointSdkParams` | `send_leg_joint_sdk()` | 下肢关节（SDK） |
 | `leg_joint_timed.py` | `LegJointTimedSkill` | `LegJointTimedParams` | `send_leg_joint_timed()` | 下肢关节（TimedCmd，服务端 Ruckig） |
 | `torso_reset_sdk.py` | `TorsoResetSdkSkill` | `TorsoResetSdkParams` | `reset_torso_to_initial()` | 躯干复位（ROS Service） |
@@ -260,8 +262,14 @@ class HeadControlSdkSkill(SkillBase):
 | Params | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|---|
 | `HeadControlSdkParams` | `yaw_deg` / `pitch_deg` | `float` | `0.0` | **度** |
+| `SetHeadPoseParams` | `yaw` / `pitch` | `Optional[float]` | `None` | 两项均必填且必须是有限数字；固定为度，不受 Adapter `angle_unit` 影响 |
+| `GetHeadPoseParams` | — | — | 无额外字段 | 无业务输入，仅继承技能生命周期通用参数 |
 | `LegJointSdkParams` / `LegJointTimedParams` | `joint_angles` | `List[float]` | — | 4 关节 |
 | `TorsoResetSdkParams` | — | — | 无额外字段 | |
+
+`SetHeadPoseSkill` / `GetHeadPoseSkill` 通过 `IHardware` 的同名接口调用 `HeadPoseMixin` → `LowLevelSDKManager` → SDK。setter 成功只表示目标发送成功，不等待或验证物理到位；getter 的 `Result.data` 为 `{"yaw": ..., "pitch": ...}`（度），来自 SDK 缓存，不保证首帧或反馈新鲜度。两者均缓存本次执行结果，调用后 `is_finished()` 为 `True`（包括硬件返回失败的情况），再次 `initialize()` 会清空缓存。
+
+这两个技能自身不做 dry-run 短路；对应行为树节点 `SetHeadPose` / `GetHeadPose` 负责该逻辑，详见 [`11-节点清单.md`](./11-节点清单.md)。
 
 **抓取 / 末端工具**
 

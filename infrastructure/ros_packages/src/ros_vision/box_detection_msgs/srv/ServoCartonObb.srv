@@ -11,6 +11,7 @@ float32 vertical_target_x_m
 ---
 bool success
 string message
+string orientation
 
 # 仅在 success=true 时有效，默认坐标系为 waist_link。
 geometry_msgs/PointStamped carton_pose

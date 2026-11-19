@@ -195,11 +195,27 @@ def main():
     _ensure_sys_path(studio_root, orch_root)
     init_logging()
 
-    # ROS1/ROS2 分流只认**显式传入**的 --ros2 / --hardware-config：
-    # 不传时一律走 ROS 1 原路径，共享场景不会被隐式切换到 ROS 2。
+    # ROS1/ROS2 分流优先级：显式 --ros2 > 本地配置 config/robot_config.yaml 的
+    # ros_version > --hardware-config 的 robot_type > 默认 ROS 1 原路径。
+    # robot_config.yaml 由模板复制而来、不进仓库；缺文件/缺字段/解析失败按 ROS 1。
+    _robot_cfg_path = Path(studio_root) / "config" / "robot_config.yaml"
+    _config_ros_version = 1
+    if _robot_cfg_path.is_file():
+        try:
+            import yaml as _yaml
+
+            _robot_cfg = _yaml.safe_load(_robot_cfg_path.read_text(encoding="utf-8")) or {}
+            _config_ros_version = int(_robot_cfg.get("ros_version", 1))
+        except Exception as _exc:
+            print(f"[apps] robot_config.yaml 解析失败，按 ROS 1 处理: {_exc}")
+            logger.info("[apps] robot_config.yaml 解析失败，按 ROS 1 处理: %s", _exc)
     hw_mode = "ros1"
     if getattr(args, "ros2", False):
         hw_mode = "ros2"
+    elif _config_ros_version == 2:
+        hw_mode = "ros2"
+        print("[apps] robot_config.yaml: ros_version=2，走 ROS 2（等效 --ros2）")
+        logger.info("[apps] robot_config.yaml: ros_version=2，走 ROS 2")
     elif not args.dry_run and args.hardware_config and os.path.isfile(
         os.path.abspath(args.hardware_config)
     ):
@@ -365,12 +381,12 @@ def main():
 
         # 显式硬件配置优先；否则回退到场景目录的 hardware_config.json。
         # --ros2 且没有可用配置文件时，直接使用 leju_wheeled_ros2 默认配置。
-        if getattr(args, "ros2", False) and not (
+        if hw_mode == "ros2" and not (
             hardware_config_path and os.path.isfile(hardware_config_path)
         ):
             set_hardware_config({"robot_type": "leju_wheeled_ros2"})
-            print("[apps] --ros2：使用 leju_wheeled_ros2 硬件（无需 --hardware-config）")
-            logger.info("[apps] --ros2：使用 leju_wheeled_ros2 硬件")
+            print("[apps] ROS 2：使用 leju_wheeled_ros2 硬件（无需 --hardware-config）")
+            logger.info("[apps] ROS 2：使用 leju_wheeled_ros2 硬件")
         elif hardware_config_path:
             if os.path.isfile(hardware_config_path):
                 with open(hardware_config_path, "r", encoding="utf-8") as f:

@@ -756,22 +756,20 @@ class CartonObbNode:
             best = None
             best_score = None
             best_parts = None
+            # 候选池：held 模式只给 held 打分，neighbor 不参与；score 模式全量。
+            pool = dets
             if self.select_mode == 'held':
-                # 码垛：模型已经分出 held，直接取 class 0 里置信度最高的那个，
-                # 不再用下方中心/面积/深度打分（那套代码保留在 score 分支）。
-                best = select_held(dets, self.held_class)
-            else:
-                # ---- 选箱：离画面下方中心最近的那个 ----------------------
+                pool = [d for d in dets if int(d.get('class_id', 0)) == int(self.held_class)]
+            if pool:
                 ref_uv = (w / 2.0, float(h))
                 zs = [sample_depth_mm(depth, d['box_uv'], half=self.depth_patch,
-                                      z_near=self.z_near, z_far=self.z_far)
-                      for d in dets]
-                cand = score_candidates(dets, ref_uv, zs, w_dcenter=self.w_dcenter,
+                                    z_near=self.z_near, z_far=self.z_far)
+                    for d in pool]
+                cand = score_candidates(pool, ref_uv, zs, w_dcenter=self.w_dcenter,
                                         w_area=self.w_area, w_depth=self.w_depth,
                                         d_near=self.d_near, d_far=self.d_far,
                                         z_near=self.z_near, z_far=self.z_far)
-                best, best_score, best_parts = (max(cand, key=lambda t: t[1])
-                                                if cand else (None, None, None))
+                best, best_score, best_parts = max(cand, key=lambda t: t[1])
 
             if best is None:
                 self._n_empty += 1
