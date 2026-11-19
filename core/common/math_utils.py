@@ -1,7 +1,25 @@
-# LeTools/core/common/math_utils.py
+import math
 import numpy as np
 from typing import Tuple
 from ..domain.pose import Pose6D
+
+
+def convert_angle(value: float, from_unit: str, to_unit: str) -> float:
+    """转换有限角度（deg/rad），输入无效时抛 ValueError。"""
+    if from_unit not in ("deg", "rad") or to_unit not in ("deg", "rad"):
+        raise ValueError("角度单位必须为 'deg' 或 'rad'")
+    try:
+        angle = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("角度必须是有限数字") from exc
+    if not math.isfinite(angle):
+        raise ValueError("角度必须是有限数字")
+    if from_unit == to_unit:
+        return angle
+    converted = math.radians(angle) if to_unit == "rad" else math.degrees(angle)
+    if not math.isfinite(converted):
+        raise ValueError("转换结果超出有限数字范围")
+    return converted
 
 def calculate_distance(pose1: Pose6D, pose2: Pose6D) -> float:
     """计算两个位姿位置之间的欧氏距离 (m)"""

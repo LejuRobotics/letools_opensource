@@ -536,6 +536,14 @@ class IHardware(ABC):
         pass
 
     # --- 5.5 头部控制 ---
+    def set_head_pose(self, yaw: float, pitch: float) -> Result:
+        """发送头部姿态 yaw/pitch（deg）。"""
+        return Result.fail("当前 Hardware Adapter 不支持 set_head_pose")
+
+    def get_head_pose(self) -> Result:
+        """获取头部姿态 yaw/pitch（deg）。"""
+        return Result.fail("当前 Hardware Adapter 不支持 get_head_pose")
+
     @abstractmethod
     def control_head(self, yaw: float, pitch: float) -> Result:
         """
