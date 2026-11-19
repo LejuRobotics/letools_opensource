@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..', '..')))
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, call
 import numpy as np
 
 from adapters.hardware.leju_wheeled.services.sdk_manager import base_sdk_manager as base_sdk_module
@@ -42,10 +42,323 @@ def sdk_mocks(monkeypatch):
         yield kuavo_sdk_cls, robot_sdk_cls
 
 
+@pytest.fixture(autouse=True)
+def close_test_managers(monkeypatch):
+    """测试结束前释放Manager引用，避免析构日志写入pytest已关闭的捕获流。"""
+    managers = []
+    original_init = LowLevelSDKManager.__init__
+
+    def tracked_init(manager):
+        original_init(manager)
+        managers.append(manager)
+
+    monkeypatch.setattr(LowLevelSDKManager, "__init__", tracked_init)
+    yield
+    for manager in managers:
+        if manager.is_initialized():
+            manager.shutdown()
+
+
 def _robot_sdk(sdk_mocks):
     """取出 fixture 里的 RobotSDK Mock 实例——代码中 control.* 都调在它身上。"""
     _, robot_sdk_cls = sdk_mocks
     return robot_sdk_cls.return_value
+
+
+class TestArmKinematics:
+    def test_fk_given_joint_does_not_read_feedback(self, sdk_mocks):
+        from types import SimpleNamespace
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.control.arm_fk.return_value = (SimpleNamespace(position=(1, 0, 0), orientation=(0, 0, 0, 1)),) * 2
+        sdk.tools.get_tf_transform.return_value = SimpleNamespace(position=(0, 2, 0), orientation=(0, 0, np.sin(np.pi/4), np.cos(np.pi/4)))
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        result = manager.get_arm_fk_result([0.1] * 14, frame="world", fk_frame="torso")
+        assert result.success
+        assert result.data["left_pose"][:3] == pytest.approx([0, 3, 0])
+        sdk.control.arm_fk.assert_called_once_with([0.1] * 14)
+        sdk.state.arm_joint_state.assert_not_called()
+        sdk.tools.get_tf_transform.assert_called_once_with(target_frame="odom", source_frame="torso", return_type="pose_quaternion")
+
+    def test_ik_transforms_targets_into_model_and_returns_radians(self, sdk_mocks):
+        from types import SimpleNamespace
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.control.arm_ik.return_value = [0.2] * 14
+        sdk.tools.get_tf_transform.return_value = SimpleNamespace(position=(0, -2, 0), orientation=(0, 0, 0, 1))
+        pose = SimpleNamespace(position=(1, 2, 3), orientation=(0, 0, 0, 1))
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        result = manager.get_arm_ik_result(pose, pose, frame="world", ik_frame="torso", joint=[0.1] * 14)
+        assert result.data == [0.2] * 14
+        kwargs = sdk.control.arm_ik.call_args.kwargs
+        assert kwargs["left_pose"].position == (1, 0, 3)
+        assert kwargs["arm_q0"] == [0.1] * 14
+        assert kwargs["params"] is not None  # SDK下层不能接收params=None。
+        sdk.tools.get_tf_transform.assert_called_once_with(target_frame="torso", source_frame="odom", return_type="pose_quaternion")
+        sdk.control.control_arm_joint_positions.assert_not_called()
+        sdk.control.set_external_control_arm_mode.assert_not_called()
+
+    @pytest.mark.parametrize("solution", [None, [0.0] * 13, [np.nan] * 14])
+    def test_invalid_ik_solution_fails(self, sdk_mocks, solution):
+        from types import SimpleNamespace
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.control.arm_ik.return_value = solution
+        pose = SimpleNamespace(position=(1, 0, 0), orientation=(0, 0, 0, 1))
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.get_arm_ik_result(pose, pose, ik_frame="base_link").success
+
+    def test_missing_model_frame_or_transform_never_calls_solver(self, sdk_mocks):
+        from types import SimpleNamespace
+        sdk = _robot_sdk(sdk_mocks)
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.get_arm_fk_result([0.1]*14).success
+        pose = SimpleNamespace(position=(1, 0, 0), orientation=(0, 0, 0, 1))
+        assert not manager.get_arm_ik_result(pose, pose).success
+        sdk.tools.get_tf_transform.return_value = None
+        assert not manager.get_arm_ik_result(pose, pose, ik_frame="torso").success
+        sdk.control.arm_ik.assert_not_called()
+        sdk.control.arm_fk.assert_not_called()
+
+
+class TestArmControlMode:
+    @pytest.mark.parametrize("mode,method", [(0, "set_fixed_arm_mode"), (1, "set_auto_swing_arm_mode"), (2, "set_external_control_arm_mode")])
+    def test_set_mode_calls_only_corresponding_sdk_method(self, sdk_mocks, mode, method):
+        sdk = _robot_sdk(sdk_mocks)
+        getattr(sdk.control, method).return_value = True
+        manager = LowLevelSDKManager()
+        assert manager.initialize().success
+        result = manager.set_arm_control_mode(mode)
+        assert result.success and result.data is None
+        assert sdk.control.mock_calls == [getattr(call, method)()]
+        sdk.state.arm_control_mode.assert_not_called()
+
+    @pytest.mark.parametrize("returned", [False, None])
+    def test_set_mode_failure(self, sdk_mocks, returned):
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.control.set_external_control_arm_mode.return_value = returned
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.set_arm_control_mode(2).success
+
+    def test_set_mode_exception_and_missing_initialization(self, sdk_mocks):
+        sdk = _robot_sdk(sdk_mocks)
+        manager = LowLevelSDKManager()
+        assert not manager.set_arm_control_mode(2).success
+        assert not sdk.control.mock_calls
+        manager.initialize()
+        sdk.control.set_external_control_arm_mode.side_effect = RuntimeError("collision")
+        result = manager.set_arm_control_mode(2)
+        assert not result.success and "collision" in result.message
+
+    @pytest.mark.parametrize("mode", [None, True, "2", 2.0, -1, 3])
+    def test_set_mode_invalid_input_does_not_call_sdk(self, sdk_mocks, mode):
+        sdk = _robot_sdk(sdk_mocks)
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.set_arm_control_mode(mode).success
+        assert not sdk.control.mock_calls
+
+    def test_set_mode_full_hardware_skill_chain(self, sdk_mocks):
+        from adapters.hardware.leju_wheeled.hardware import LejuWheeledArmHardware
+        from skills.atomic.refactored_sdk.set_arm_control_mode import SetArmControlModeSkill, SetArmControlModeParams
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.control.set_fixed_arm_mode.return_value = True
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        hardware = object.__new__(LejuWheeledArmHardware)
+        hardware._low_level_sdk_manager = manager
+        skill = SetArmControlModeSkill(hardware)
+        assert skill.initialize(SetArmControlModeParams(control_mode=0)).success
+        assert skill.execute().success
+        sdk.control.set_fixed_arm_mode.assert_called_once_with()
+
+    @pytest.mark.parametrize("value,name", [(0, "ArmFixed"), (1, "AutoSwing"), (2, "ExternalControl")])
+    def test_reads_sdk_enum_without_setting_mode(self, sdk_mocks, value, name):
+        from kuavo_humanoid_sdk.interfaces.data_types import KuavoArmCtrlMode
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.state.arm_control_mode.return_value = KuavoArmCtrlMode(value)
+        manager = LowLevelSDKManager()
+        assert manager.initialize().success
+        result = manager.get_arm_control_mode()
+        assert result.success
+        assert result.data == {"mode": value, "name": name}
+        sdk.state.arm_control_mode.assert_called_once_with()
+        assert not sdk.control.mock_calls
+
+    @pytest.mark.parametrize("value", [None, 0, True, "ExternalControl", -1])
+    def test_rejects_missing_or_invalid_sdk_mode(self, sdk_mocks, value):
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.state.arm_control_mode.return_value = value
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.get_arm_control_mode().success
+
+    def test_sdk_exception_and_uninitialized(self, sdk_mocks):
+        sdk = _robot_sdk(sdk_mocks)
+        manager = LowLevelSDKManager()
+        assert not manager.get_arm_control_mode().success
+        sdk.state.arm_control_mode.assert_not_called()
+        manager.initialize()
+        sdk.state.arm_control_mode.side_effect = RuntimeError("query failed")
+        result = manager.get_arm_control_mode()
+        assert not result.success and "query failed" in result.message
+
+
+class TestArmFeedbackPose:
+    def test_joint_read_uses_state(self, sdk_mocks):
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.state.arm_joint_state.return_value.position = [0.1] * 14
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert manager.get_arm_joint().data == [0.1] * 14
+        sdk.state.arm_joint_state.assert_called_once()
+
+    @pytest.mark.parametrize("position", [None, [0.0] * 13, [np.nan] * 14])
+    def test_invalid_joint_feedback(self, sdk_mocks, position):
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.state.arm_joint_state.return_value.position = position
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.get_arm_joint().success
+
+    def test_tf_reads_both_links_in_requested_frame(self, sdk_mocks):
+        from types import SimpleNamespace
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.tools.get_link_pose.return_value = SimpleNamespace(position=(0.1, 0.2, 0.3), orientation=(0, 0, 0, 1))
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        result = manager.get_arm_pose()
+        assert result.success and result.data["frame"] == "local"
+        assert sdk.tools.get_link_pose.call_args_list[0].kwargs == {"link_name": "zarm_l7_end_effector", "reference_frame": "base_link"}
+        assert sdk.tools.get_link_pose.call_args_list[1].kwargs == {"link_name": "zarm_r7_end_effector", "reference_frame": "base_link"}
+        sdk.control.arm_fk.assert_not_called()
+
+    def test_fk_transforms_from_explicit_model_frame(self, sdk_mocks):
+        from types import SimpleNamespace
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.state.arm_joint_state.return_value.position = [0.1] * 14
+        sdk.control.arm_fk.return_value = (SimpleNamespace(position=(1, 0, 0), orientation=(0, 0, 0, 1)),) * 2
+        # 非平凡旋转+平移，验证变换方向，不只验证单位阵。
+        sdk.tools.get_tf_transform.return_value = SimpleNamespace(position=(0, 2, 0), orientation=(0, 0, np.sin(np.pi/4), np.cos(np.pi/4)))
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        result = manager.get_arm_pose(frame="world", source="fk", fk_frame="torso")
+        assert result.success
+        assert result.data["left_pose"][:3] == pytest.approx([0, 3, 0])
+        sdk.control.arm_fk.assert_called_once_with([0.1] * 14)
+        sdk.tools.get_tf_transform.assert_called_once_with(target_frame="odom", source_frame="torso", return_type="pose_quaternion")
+
+    def test_fk_same_frame_does_not_require_tf(self, sdk_mocks):
+        from types import SimpleNamespace
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.state.arm_joint_state.return_value.position = [0.1] * 14
+        sdk.control.arm_fk.return_value = (SimpleNamespace(position=(1, 0, 0), orientation=(0, 0, 0, 1)),) * 2
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert manager.get_arm_pose(source="fk", fk_frame="base_link").success
+        sdk.tools.get_tf_transform.assert_not_called()
+
+    def test_missing_source_does_not_fallback(self, sdk_mocks):
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.tools.get_link_pose.return_value = None
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.get_arm_pose().success
+        sdk.control.arm_fk.assert_not_called()
+        assert not manager.get_arm_pose(source="fk").success
+        assert not manager.get_arm_pose(source="wrong").success
+
+    def test_fk_failure_or_missing_transform_returns_failure(self, sdk_mocks):
+        from types import SimpleNamespace
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.state.arm_joint_state.return_value.position = [0.1] * 14
+        sdk.control.arm_fk.return_value = (None, None)
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.get_arm_pose(source="fk", fk_frame="base_link").success
+        sdk.control.arm_fk.return_value = (SimpleNamespace(position=(1, 0, 0), orientation=(0, 0, 0, 1)),) * 2
+        sdk.tools.get_tf_transform.return_value = None
+        assert not manager.get_arm_pose(frame="world", source="fk", fk_frame="torso").success
+
+    def test_feedback_methods_require_initialized_sdk(self):
+        manager = LowLevelSDKManager()
+        assert not manager.get_arm_joint().success
+        assert not manager.get_arm_pose().success
+
+    def test_invalid_quaternion_is_rejected(self, sdk_mocks):
+        from types import SimpleNamespace
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.tools.get_link_pose.return_value = SimpleNamespace(position=(0, 0, 0), orientation=(0, 0, 0, 0))
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.get_arm_pose().success
+
+
+class TestNativeArmTrajectory:
+    def test_sends_original_time_points_once(self, sdk_mocks):
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.control.control_arm_joint_trajectory.return_value = True
+        manager = LowLevelSDKManager()
+        assert manager.initialize().success
+        times, frames = [0.5, 2.0], [[0.1] * 14, [-0.2] * 14]
+        result = manager.control_arm_joint_trajectory(times, frames)
+        assert result.success and result.data is None
+        sdk.control.control_arm_joint_trajectory.assert_called_once_with(times=times, q_frames=frames)
+        sdk.control.set_manipulation_mpc_mode.assert_not_called()
+        sdk.control.control_arm_joint_positions.assert_not_called()
+
+    @pytest.mark.parametrize("sdk_result", [False, None])
+    def test_sdk_failure(self, sdk_mocks, sdk_result):
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.control.control_arm_joint_trajectory.return_value = sdk_result
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.control_arm_joint_trajectory([1.0], [[0.1] * 14]).success
+
+    def test_sdk_exception(self, sdk_mocks):
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.control.control_arm_joint_trajectory.side_effect = ValueError("joint limit")
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        result = manager.control_arm_joint_trajectory([1.0], [[0.1] * 14])
+        assert not result.success and "joint limit" in result.message
+
+    def test_not_initialized(self):
+        manager = LowLevelSDKManager()
+        assert not manager.control_arm_joint_trajectory([1.0], [[0.1] * 14]).success
+
+    @pytest.mark.parametrize("times,frames", [([], []), ([0.0], [[0.1] * 14]),
+                                             ([1.0, 0.5], [[0.1] * 14] * 2),
+                                             ([1.0], [[np.nan] * 14])])
+    def test_invalid_input_never_calls_sdk(self, sdk_mocks, times, frames):
+        sdk = _robot_sdk(sdk_mocks)
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.control_arm_joint_trajectory(times, frames).success
+        sdk.control.control_arm_joint_trajectory.assert_not_called()
+
+    def test_full_hardware_skill_chain_uses_low_manager_only(self, sdk_mocks):
+        from adapters.hardware.leju_wheeled.hardware import LejuWheeledArmHardware
+        from skills.atomic.refactored_sdk.set_arm_joint import SetArmJointParams, SetArmJointSkill
+        from skills.atomic.refactored_sdk.set_arm_joint_trajectory import SetArmJointTrajectoryParams, SetArmJointTrajectorySkill
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.control.control_arm_joint_positions.return_value = True
+        sdk.control.control_arm_joint_trajectory.return_value = True
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        hardware = object.__new__(LejuWheeledArmHardware)
+        hardware._low_level_sdk_manager = manager
+        hardware._angle_unit = "rad"
+        setter = SetArmJointSkill(hardware)
+        assert setter.initialize(SetArmJointParams(joint=[10.0] * 14)).success
+        assert setter.execute().success
+        sdk.control.control_arm_joint_positions.assert_called_once_with(joint_positions=[np.deg2rad(10.0)] * 14)
+        trajectory = SetArmJointTrajectorySkill(hardware)
+        assert trajectory.initialize(SetArmJointTrajectoryParams(times=[1.0, 2.5], q_frames=[[10.0] * 14] * 2)).success
+        assert trajectory.execute().success
+        sdk.control.control_arm_joint_trajectory.assert_called_once_with(times=[1.0, 2.5], q_frames=[[np.deg2rad(10.0)] * 14] * 2)
 
 
 class TestHeadPose:

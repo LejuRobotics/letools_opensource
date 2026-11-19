@@ -1,6 +1,6 @@
 # 头部接口分层测试
 
-面向人工真机验证。调用链保持 Node → Skill → IHardware → HeadPoseMixin → LowLevelSDKManager → SDK。
+面向人工真机验证。调用链保持 Node → Skill → IHardware → HeadMixin → LowLevelSDKManager → SDK。
 
 ## 脚本结构
 

@@ -67,6 +67,27 @@ class Pose6D:
         qz = cr * cp * sy - sr * sp * cy
         return (qx, qy, qz, qw)
 
+def validate_arm_pose(pose: List[float]) -> List[float]:
+    """校验6维末端位姿[x,y,z,yaw,pitch,roll]，不改单位或输入。"""
+    if not isinstance(pose, (list, tuple)) or len(pose) != 6:
+        raise ValueError("末端位姿必须为6维[x,y,z,yaw,pitch,roll]")
+    try:
+        values = [float(value) for value in pose]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("末端位姿必须包含有限数字") from exc
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("末端位姿必须包含有限数字")
+    return values
+
+
+def validate_arm_frame(frame: str) -> str:
+    """新末端接口只接受local/base_link和world/odom，不接受隐式fallback。"""
+    frames = {"local": "local", "base_link": "local", "world": "world", "odom": "world"}
+    if not isinstance(frame, str) or frame not in frames:
+        raise ValueError("frame 必须为 local/base_link 或 world/odom")
+    return frames[frame]
+
+
 @dataclass
 class TransformMatrix:
     """4x4 齐次变换矩阵"""

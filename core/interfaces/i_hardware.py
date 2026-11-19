@@ -126,6 +126,79 @@ class IHardware(ABC):
         """
         pass
 
+    def set_arm_joint(self, joint: List[float]) -> Result:
+        """单次发送双臂14维关节目标（固定deg），不等待到位。
+
+        顺序为左臂7个、右臂7个；不受 angle_unit 配置影响。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 set_arm_joint")
+
+    def set_arm_joint_trajectory(
+        self, times: List[float], q_frames: List[List[float]],
+    ) -> Result:
+        """发送原生双臂轨迹（deg），成功只表示发送成功，不等待到位。
+
+        times 为相对轨迹起点的时间点（秒），大于0且严格递增；
+        q_frames 每帧14维，与 times 一一对应。不重采样、不增加模式恢复。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 set_arm_joint_trajectory")
+
+    def set_arm_control_mode(self, control_mode: int) -> Result:
+        """设置手臂模式：0固定、1AutoSwing、2外部控制。
+
+        ROS1使用low Manager调用SDK，需先初始化；模式1可能触发运动，
+        SDK已在目标模式时可能跳过切换，不承诺重复归位。不保证到位。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 set_arm_control_mode")
+
+    def get_arm_control_mode(self) -> Result:
+        """读取SDK手臂模式，data为mode(0/1/2)及原生枚举name。
+
+        0=ArmFixed，1=AutoSwing，2=ExternalControl。SDK可能回退到缓存，
+        成功不证明控制器在线，也不表示运动已经执行或到位。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 get_arm_control_mode")
+
+    def get_arm_ik_result(
+        self, left_pose: List[float], right_pose: List[float], frame: str = "local",
+        ik_frame: Optional[str] = None, joint: Optional[List[float]] = None,
+    ) -> Result:
+        """双臂6维m/deg目标求14维关节角（deg），只计算不发送。
+
+        ik_frame 必须为IK模型基准对应的整机TF frame；joint为可选14维q0（deg）。
+        不替换旧solve_ik的四元数/rad请求、主备服务与连续性策略。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 get_arm_ik_result")
+
+    def get_arm_fk_result(
+        self, joint: List[float], frame: str = "local", fk_frame: Optional[str] = None,
+    ) -> Result:
+        """给定14维关节角（deg）计算双臂6维位姿（m/deg），不读取关节反馈。
+
+        fk_frame 必须为FK模型基准对应的整机TF frame；data为双臂位姿及来源信息。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 get_arm_fk_result")
+
+    def get_arm_joint(self) -> Result:
+        """读取双臂14维关节反馈缓存（deg），左臂7个、右臂7个。"""
+        return Result.fail("当前 Hardware Adapter 不支持 get_arm_joint")
+
+    def set_arm_pose(
+        self, left_pose: List[float], right_pose: List[float], frame: str = "local",
+    ) -> Result:
+        """双臂必填位姿[x,y,z,yaw,pitch,roll]，位置m、角度deg；不等待。"""
+        return Result.fail("当前 Hardware Adapter 不支持 set_arm_pose")
+
+    def get_arm_pose(
+        self, frame: str = "local", source: str = "tf", fk_frame: Optional[str] = None,
+    ) -> Result:
+        """读取双臂位姿（m/deg），source可选tf/fk，不静默回退。
+
+        data包含left_pose、right_pose、frame、source；选择fk必须确认并提供
+        FK输出对应的TF frame，缺少坐标转换时失败；缓存无新鲜度保证。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 get_arm_pose")
+
     @abstractmethod
     def send_arm_joint_trajectory(self, positions: List[float], time_sec: float = 0.0) -> Result:
         """手臂关节轨迹控制 (14个自由度)。

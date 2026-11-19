@@ -9,7 +9,7 @@ skills 层主要负责业务逻辑：参数校验、调用硬件接口、判断�
 | 点分路径 | 实体 | 说明 |
 |---|---|---|
 | `skills.base.skill_base` | `SkillBase` | 所有技能的基类（实现 `ISkill`，附带超时与异常兜底） |
-| `skills.atomic.refactored_sdk` | 47 个顶层 Python 文件 | **当前主力**：扁平结构，包含技能及场景辅助模块；具体控制路径见下方总表 |
+| `skills.atomic.refactored_sdk` | 56 个顶层 Python 文件 | **当前主力**：扁平结构，包含技能及场景辅助模块；具体控制路径见下方总表 |
 | `skills.atomic.manipulation.*` | 14 个目录 | **旧版**技能（`studio_smoke_v1` 场景使用） |
 | `skills.atomic.motion.chassis_velocity` / `move_to_pose` | 2 个技能 | **旧版**运动技能 |
 | `skills.atomic.perception.*` | `camera_capture` / `read_qrcode` / `pallet_*` / `box_frame` | 感知技能（非 SDK 路径） |
@@ -20,7 +20,7 @@ skills 层主要负责业务逻辑：参数校验、调用硬件接口、判断�
 
 | 口径 | 数量 |
 |---|---|
-| `refactored_sdk/` 顶层 `.py`（不含 `__init__.py`） | **47** |
+| `refactored_sdk/` 顶层 `.py`（不含 `__init__.py`） | **56** |
 | `manipulation/*/skill.py` | 14 |
 | `motion/*/skill.py` | 2 |
 | `perception/*/skill.py` | 4（另有若干 `algorithm.py` 纯计算模块） |
@@ -79,7 +79,7 @@ class HeadControlSdkSkill(SkillBase):
 
 ### refactored_sdk 技能总表
 
-「Params」列是该技能的参数 dataclass；「Adapter 调用」列是它真正打到的适配器方法。
+「Params」列是该技能的参数 dataclass；「Adapter 调用」列是它真正打到的适配器方法。路径基准：总表中的技能文件名相对仓库根目录下的 `skills/atomic/refactored_sdk/`，不是命令执行目录；本文其余带目录的项目路径均相对仓库根目录。
 
 | 技能文件 | Skill 类 | Params | Adapter 调用 | 功能 |
 |---|---|---|---|---|
@@ -89,6 +89,15 @@ class HeadControlSdkSkill(SkillBase):
 | `multi_timed_command.py` | `MultiTimedCommandSkill` | `MultiTimedCommandParams` | `set_arm_control_mode(2)`（可选） + `set_focus_ee()` + `set_focus_z()` + `send_timed_multi_commands()` | 可配置的多 planner 单次组合控制（如 2/8/9、3/6/7）；`prepare_arm_control=true` 默认在含 planner 2–9 时准备外部控制模式，失败不发令，不复位、不自动切回 0；`focus_ee=true` 专注末端解算，躯干可能随动，`false` 尽可能不动躯干并在手臂工作区间内解算，精度可能降低；`focus_z` 跟随 `focus_ee` |
 | `arm_joint_traj_sdk.py` | `ArmJointTrajSdkSkill` | `ArmJointTrajSdkParams` | `send_arm_joint_traj_sdk()` | 手臂 14 关节多关键点轨迹 |
 | `arm_reset_sdk.py` | `ArmResetSdkSkill` | `ArmResetSdkParams` | `arm_reset()` | 手臂归位 |
+| `set_arm_joint.py` | `SetArmJointSkill` | `SetArmJointParams` | `set_arm_joint()` | 双臂 14 维关节单目标发送（固定度） |
+| `set_arm_joint_trajectory.py` | `SetArmJointTrajectorySkill` | `SetArmJointTrajectoryParams` | `set_arm_joint_trajectory()` | 原生双臂带时间点轨迹发送（固定度，不重采样） |
+| `get_arm_joint.py` | `GetArmJointSkill` | `GetArmJointParams` | `get_arm_joint()` | 读取双臂 14 维关节反馈（固定度） |
+| `set_arm_control_mode.py` | `SetArmControlModeSkill` | `SetArmControlModeParams` | `set_arm_control_mode()` | 设置手臂模式（整数 0/1/2，无默认模式） |
+| `get_arm_control_mode.py` | `GetArmControlModeSkill` | `GetArmControlModeParams` | `get_arm_control_mode()` | 查询手臂模式及名称，不切换模式 |
+| `set_arm_pose.py` | `SetArmPoseSkill` | `SetArmPoseParams` | `set_arm_pose()` | 同时发送双臂末端位姿（米 / ZYX 欧拉角度） |
+| `get_arm_pose.py` | `GetArmPoseSkill` | `GetArmPoseParams` | `get_arm_pose()` | 读取双臂末端位姿（TF / FK，米 / 度） |
+| `get_arm_ik_result.py` | `GetArmIkResultSkill` | `GetArmIkResultParams` | `get_arm_ik_result()` | 双臂目标位姿求 14 维关节解（度，不发送运动） |
+| `get_arm_fk_result.py` | `GetArmFkResultSkill` | `GetArmFkResultParams` | `get_arm_fk_result()` | 给定 14 维关节计算双臂位姿（不读实时反馈） |
 | `arm_ee_dual_timed.py` | `ArmEEDualTimedSkill` | `ArmEEDualTimedParams` | `send_arm_ee_world_timed` / `_local_timed` | 双臂单次末端位姿（双 planner 并发） |
 | `arm_ee_single_timed.py` | `ArmEESingleTimedSkill` | `ArmEESingleTimedParams` | `send_left/right_arm_ee_*_timed` | 单臂单次末端位姿 |
 | `arm_ee_burst_timed.py` | `ArmEEBurstTimedSkill` | `ArmEEBurstTimedParams` | `send_timed_<side>_arm_ee_<frame>` 循环 | 在线连发航点（可双臂互不干扰） |
@@ -226,6 +235,35 @@ class HeadControlSdkSkill(SkillBase):
 | | `bimanual_traj_14d` | `Optional[List[List[float]]]` | `None` | 直接给 14 维 |
 | | `total_time` | `float` | `3.0` | |
 
+**新双臂接口（原生 SDK / 反馈 / IK / FK）**
+
+这 9 个技能通过 `IHardware` → 轮式 `ArmMixin` → `LowLevelSDKManager` → SDK 调用；其他适配器是否支持须看其实现。关节角固定为**度**，不受 Adapter `angle_unit` 影响，14 维顺序为左臂 7 个、右臂 7 个。末端位姿使用普通 6 维列表 `[x,y,z,yaw,pitch,roll]`，位置为米、ZYX 欧拉角为度，不是使用弧度的 `Pose6D` 或四元数列表。
+
+| Params | 字段 | 默认 | 说明 |
+|---|---|---|---|
+| `SetArmJointParams` | `joint` | `[]` | 必填，14 维有限关节角（度） |
+| `SetArmJointTrajectoryParams` | `times` / `q_frames` | `[]` / `[]` | 必填，N 个时间点与 N×14 维关节帧一一对应；时间点为相对起点的秒数，必须大于 0 且严格递增，不是分段时长 |
+| `GetArmJointParams` | — | 无额外字段 | 返回 `Result.data` 为 14 维反馈角（度） |
+| `SetArmControlModeParams` | `control_mode` | `None` | 必填，只接受整数 0/1/2，不接受布尔值或字符串 |
+| `GetArmControlModeParams` | — | 无额外字段 | 返回 `{"mode": int, "name": str}`：0=`ArmFixed`、1=`AutoSwing`、2=`ExternalControl` |
+| `SetArmPoseParams` | `left_pose` / `right_pose` | `[]` / `[]` | 左右均必填，各 6 维有限数值（米 / 度），不补默认目标、不支持单臂缺省 |
+| | `frame` | `'local'` | 目标参考系 |
+| `GetArmPoseParams` | `frame` / `source` | `'local'` / `'tf'` | `source` 只接受 `tf/fk`，失败不自动换来源 |
+| | `fk_frame` | `None` | `source='fk'` 时必填，人工确认的 FK 模型基准对应整机 TF frame |
+| `GetArmIkResultParams` | `left_pose` / `right_pose` | `[]` / `[]` | 必填，双臂 6 维目标（米 / 度） |
+| | `frame` / `ik_frame` | `'local'` / `None` | `ik_frame` 必填，人工确认的 IK 模型基准对应整机 TF frame |
+| | `joint` | `None` | 可选 14 维关节初值 q0（度）；结果为 14 维关节解（度） |
+| `GetArmFkResultParams` | `joint` | `[]` | 必填，14 维关节角（度），不读取实时关节 |
+| | `frame` / `fk_frame` | `'local'` / `None` | `fk_frame` 必填，模型基准含义同上 |
+
+`frame` 接受 `local/base_link` 和 `world/odom`，规范化输出为 `local/world`；`world` 对应 `odom`，不是 `map`。跨参考系需要可用 TF；模型基准和工具偏移须人工确认，不能仅因模型 frame 与整机 frame 同名就认为坐标一致。
+
+`get_arm_pose` 与 `get_arm_fk_result` 的成功数据为含 `left_pose/right_pose/frame/source` 的字典，两侧位姿均为 6 维米 / 度列表，FK 结果另含 `fk_frame`。前者在 `source='fk'` 时读取关节反馈再计算，后者只对给定关节计算。IK/FK 不发送运动；新 IK 不等同于旧 `solve_ik` 的补偿、精度和连续性策略，不能无感替换旧业务。
+
+四个 setter 成功时 `data=None`，仅表示 SDK 设置或发送成功，**不表示物理到位**；不额外等待到位、恢复模式或切换 MPC。原生轨迹保留时间点、不走旧重采样路径。模式 1 可能触发运动，SDK 已处于目标模式时可能跳过切换，不能把它当作可重复的归位动作。模式查询可能返回缓存，关节及位姿反馈不保证首帧或新鲜度。
+
+这 9 个技能每次 `initialize()` 后单次调用并缓存 `Result`，不自动重试；`is_finished()` 表示已有调用结果，不表示机械臂到位。`timeout` 沿用技能生命周期超时，不是运动时长；技能自身不做 dry-run 短路，对应节点负责校验后跳过硬件，getter 输出保持 `None`，详见 [`11-节点清单.md`](./11-节点清单.md)。
+
 **底盘 / JiBot**
 
 | Params | 字段 | 类型 | 默认 |
@@ -267,7 +305,7 @@ class HeadControlSdkSkill(SkillBase):
 | `LegJointSdkParams` / `LegJointTimedParams` | `joint_angles` | `List[float]` | — | 4 关节 |
 | `TorsoResetSdkParams` | — | — | 无额外字段 | |
 
-`SetHeadPoseSkill` / `GetHeadPoseSkill` 通过 `IHardware` 的同名接口调用 `HeadPoseMixin` → `LowLevelSDKManager` → SDK。setter 成功只表示目标发送成功，不等待或验证物理到位；getter 的 `Result.data` 为 `{"yaw": ..., "pitch": ...}`（度），来自 SDK 缓存，不保证首帧或反馈新鲜度。两者均缓存本次执行结果，调用后 `is_finished()` 为 `True`（包括硬件返回失败的情况），再次 `initialize()` 会清空缓存。
+`SetHeadPoseSkill` / `GetHeadPoseSkill` 通过 `IHardware` 的同名接口调用 `HeadMixin` → `LowLevelSDKManager` → SDK。setter 成功只表示目标发送成功，不等待或验证物理到位；getter 的 `Result.data` 为 `{"yaw": ..., "pitch": ...}`（度），来自 SDK 缓存，不保证首帧或反馈新鲜度。两者均缓存本次执行结果，调用后 `is_finished()` 为 `True`（包括硬件返回失败的情况），再次 `initialize()` 会清空缓存。
 
 这两个技能自身不做 dry-run 短路；对应行为树节点 `SetHeadPose` / `GetHeadPose` 负责该逻辑，详见 [`11-节点清单.md`](./11-节点清单.md)。
 

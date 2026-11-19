@@ -329,7 +329,14 @@ manager.shutdown()
 | 方法 | 说明 | MPC 模式 |
 |------|------|---------|
 | `control_arm_joint_positions()` | 手臂关节控制 | ✅ 需要 |
+| `control_arm_joint_trajectory(times, q_frames)` | 原生带时间点双臂轨迹（rad）；只发送，不重采样、不等待、不恢复模式 | SDK内部会检查stance并切换ExternalControl |
 | `control_robot_end_effector_pose()` | 手臂末端控制 | ✅ 需要 |
+| `get_arm_joint()` | 读取14维SDK关节反馈（rad） | ❌ 不切模式 |
+| `get_arm_control_mode()` | SDK查询手臂模式，data为mode/name；服务失败可能回退缓存 | ❌ 不切模式 |
+| `set_arm_control_mode(control_mode)` | 映射0/1/2到原生fixed/auto-swing/external方法；需SDK已初始化，不回退ROS直调 | 不额外切MPC；SDK处理手臂模式和碰撞检查 |
+| `get_arm_pose(frame, source, fk_frame)` | TF/FK读取双臂末端，返回xyz米+xyzw四元数；FK需显式模型参考系 | ❌ 不切模式；FK需服务及可选TF |
+| `get_arm_fk_result(joint, frame, fk_frame)` | 给定rad关节计算双臂位姿，反馈getter复用此函数 | ❌ 纯计算；需FK服务及可选TF |
+| `get_arm_ik_result(left_pose, right_pose, frame, ik_frame, joint)` | 原生SDK IK，输入四元数/rad，返回14维rad；不替换旧solve_ik策略 | ❌ 纯计算；需IK服务及可选TF |
 | `control_head()` | 头部控制 | ❌ 不需要 |
 | `control_base_position()` | 底盘位置控制 | ❌ 不需要 |
 | `control_base_position_local()` | 底盘局部位置控制 | ❌ 不需要 |
