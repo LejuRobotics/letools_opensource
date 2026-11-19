@@ -8,10 +8,11 @@
 #   3. robot_config.yaml 不纳入 git（见 config/.gitignore），用户本地维护。
 #
 # 生效范围：apps/test_upper_init/run_behavior_tree_json.py 启动的行为树案例。
-# 分流优先级：命令行 --ros2 > 本文件 ros_version > --hardware-config 的
-# robot_type > 默认 ROS 1。不复制本文件时行为与历史版本完全一致（ROS 1）。
+# 分流规则：本文件 ros_version 优先；没有本文件时才看 --hardware-config /
+# 场景 hardware_config.json 的 robot_type；都没有则默认 ROS 1。
+# 不复制本文件时行为与历史版本完全一致（ROS 1）。
 # ============================================================
 
 # ROS 版本：1 = ROS 1（catkin/Noetic，默认）；2 = ROS 2（Jazzy，AGX 轮臂）
-# 改为 2 后，行为树案例不用加 --ros2，原来的 ROS 1 命令直接跑 ROS 2。
+# 改为 2 后，所有行为树案例都用原来的命令直接跑 ROS 2。
 ros_version: 1

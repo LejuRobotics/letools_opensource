@@ -146,14 +146,6 @@ def main():
         ),
     )
     parser.add_argument(
-        "--ros2",
-        action="store_true",
-        help=(
-            "使用 ROS 2 硬件链（等价于 --hardware-config config/leju_wheeled_ros2.json）；"
-            "不传时一律走 ROS 1 原路径"
-        ),
-    )
-    parser.add_argument(
         "--ros-node",
         default="behavior_tree_main",
         help="ROS node name（仅在 ROS 环境生效）",
@@ -195,9 +187,10 @@ def main():
     _ensure_sys_path(studio_root, orch_root)
     init_logging()
 
-    # ROS1/ROS2 分流优先级：显式 --ros2 > 本地配置 config/robot_config.yaml 的
-    # ros_version > --hardware-config 的 robot_type > 默认 ROS 1 原路径。
-    # robot_config.yaml 由模板复制而来、不进仓库；缺文件/缺字段/解析失败按 ROS 1。
+    # ROS1/ROS2 分流：本地配置 config/robot_config.yaml 的 ros_version 决定；
+    # 没有该文件时再看 --hardware-config / 场景 hardware_config.json 的 robot_type；
+    # 都没有则默认 ROS 1 原路径。配置文件由模板复制而来、不进仓库；
+    # 缺文件/缺字段/解析失败按 ROS 1。
     _robot_cfg_path = Path(studio_root) / "config" / "robot_config.yaml"
     _config_ros_version = 1
     if _robot_cfg_path.is_file():
@@ -210,11 +203,9 @@ def main():
             print(f"[apps] robot_config.yaml 解析失败，按 ROS 1 处理: {_exc}")
             logger.info("[apps] robot_config.yaml 解析失败，按 ROS 1 处理: %s", _exc)
     hw_mode = "ros1"
-    if getattr(args, "ros2", False):
+    if _config_ros_version == 2:
         hw_mode = "ros2"
-    elif _config_ros_version == 2:
-        hw_mode = "ros2"
-        print("[apps] robot_config.yaml: ros_version=2，走 ROS 2（等效 --ros2）")
+        print("[apps] robot_config.yaml: ros_version=2，走 ROS 2")
         logger.info("[apps] robot_config.yaml: ros_version=2，走 ROS 2")
     elif not args.dry_run and args.hardware_config and os.path.isfile(
         os.path.abspath(args.hardware_config)
@@ -380,7 +371,7 @@ def main():
         from orchestration.shared_hardware import get_shared_hardware, set_hardware_config
 
         # 显式硬件配置优先；否则回退到场景目录的 hardware_config.json。
-        # --ros2 且没有可用配置文件时，直接使用 leju_wheeled_ros2 默认配置。
+        # robot_config.yaml 选择 ROS 2 且没有可用硬件配置文件时，使用 ROS 2 默认配置。
         if hw_mode == "ros2" and not (
             hardware_config_path and os.path.isfile(hardware_config_path)
         ):
