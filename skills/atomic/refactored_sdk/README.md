@@ -43,8 +43,20 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 
 | 技能文件 | 功能 | 调用的 Adapter 方法 | 底层链路 |
 |---------|------|-------------------|---------|
-| `head_control_sdk.py` | 头部偏航/俯仰控制 | `hardware.control_head_sdk(yaw, pitch)` | `sdk_control_mixin.py` → `LowLevelSDKManager.control_head()` → `robot_sdk.control.control_head()` |
+| `head_control_sdk.py` | 头部偏航/俯仰控制（旧入口保留） | `hardware.control_head_sdk(yaw, pitch)` | `sdk_control_mixin.py` → `LowLevelSDKManager.control_head()` → `robot_sdk.control.control_head()` |
+| `set_head_pose.py` | 单次发送头部目标角（度） | `hardware.set_head_pose(yaw, pitch)` | `head_pose_mixin.py` → `LowLevelSDKManager.set_head_pose()` → SDK control |
+| `get_head_pose.py` | 单次读取头部反馈角（度） | `hardware.get_head_pose()` | `head_pose_mixin.py` → `LowLevelSDKManager.get_head_pose()` → SDK state |
 | `leg_joint_sdk.py` | 下肢 4 关节控制 | `hardware.send_leg_joint_sdk()` | `sdk_control_mixin.py` → `LowLevelSDKManager.move_wheel_lower_joint_auto()` → `robot_sdk.control.control_leg_joint_positions()` |
+
+### 头部姿态输入输出
+
+- `SetHeadPoseParams(yaw=..., pitch=...)`：两个角度均必填，单位固定为度，参数名不带单位后缀；不受 Adapter 的 `angle_unit` 影响。技能仅发送一次，不等待到位，成功返回 `Result` 且 `data=None`，失败透传错误信息。
+- `GetHeadPoseParams()`：无业务输入；成功返回 `Result.data={"yaw": float, "pitch": float}`，单位固定为度。读取 SDK 的传感器反馈缓存，不是上一次目标角。每次技能初始化后读取一次；再次获取需重新初始化技能。
+- 调用链为 Node → Skill → IHardware → HeadPoseMixin → LowLevelSDKManager → SDK。Mixin 使用 math_utils.convert_angle 转换度/弧度，Manager 同名方法直接调用 SDK，不复用旧 control_head。原 Hardware 生命周期和 BaseSDKManager 初始化流程保持不变。
+- SDK 缓存没有首帧标记或时间戳，初始化默认零值可能被读出，也无法识别断流后的旧数据。本次仅验证返回值为两维有限角度，不提供反馈有效性/新鲜度保证，不可仅凭一次读取证明到位。
+- 行为树节点为 `SetHeadPose` / `GetHeadPose`；getter 的 `output_key` 默认 `head_pose`，将结果字典写入黑板。读取开始清空该键，失败不留下上一次结果；dry-run 不访问硬件、不伪造反馈，输出保持 `None`。
+- 旧接口、旧技能节点和场景保留；IHardware 新方法默认返回不支持，不增加抽象方法要求。
+- 离线测试见 tests/test_head_pose.py、tests/test_head_pose_app_scripts.py 和 LowLevelSDKManager 的测试，不发送真机指令。
 
 ### 4. 通用 TimedCmd
 

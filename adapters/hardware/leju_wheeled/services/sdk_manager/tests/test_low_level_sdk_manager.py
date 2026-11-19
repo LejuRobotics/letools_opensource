@@ -48,6 +48,44 @@ def _robot_sdk(sdk_mocks):
     return robot_sdk_cls.return_value
 
 
+class TestHeadPose:
+    def test_set_direct_sdk_call(self, sdk_mocks):
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.control.control_head.return_value = True
+        manager = LowLevelSDKManager()
+        assert manager.initialize().success
+        with patch.object(manager, "control_head", side_effect=AssertionError("旧入口不应调用")):
+            assert manager.set_head_pose(0.1, -0.2).success
+        sdk.control.control_head.assert_called_once_with(yaw=0.1, pitch=-0.2)
+
+    def test_set_failure(self, sdk_mocks):
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.control.control_head.return_value = False
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.set_head_pose(0.1, -0.2).success
+
+    def test_get_feedback(self, sdk_mocks):
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.state.head_joint_state.return_value.position = [0.1, -0.2]
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert manager.get_head_pose().data == {"yaw": 0.1, "pitch": -0.2}
+
+    @pytest.mark.parametrize("position", [None, [], [0.0], [np.nan, 0.0], [0.0, np.inf]])
+    def test_invalid_feedback(self, sdk_mocks, position):
+        sdk = _robot_sdk(sdk_mocks)
+        sdk.state.head_joint_state.return_value.position = position
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        assert not manager.get_head_pose().success
+
+    def test_not_initialized(self):
+        manager = LowLevelSDKManager()
+        assert not manager.set_head_pose(0.0, 0.0).success
+        assert not manager.get_head_pose().success
+
+
 class TestLowLevelSDKManagerInit:
     """测试初始化"""
 
