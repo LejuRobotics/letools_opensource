@@ -5,7 +5,7 @@ event. No ROS object is created and no hardware command is sent at import time.
 """
 import threading
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Optional
 
 from core.domain.result import Result
 from core.domain.skill_params import SkillParams
@@ -17,6 +17,7 @@ class RingRealActionParams(SkillParams):
     skill_name: str = 'ring_real_action'
     action: Callable = None
     timeout: float = 120.0
+    cancel_event: Optional[threading.Event] = None
 
 
 class RingRealActionSkill(SkillBase):
@@ -32,7 +33,12 @@ class RingRealActionSkill(SkillBase):
             return Result.fail('Invalid real-ring action')
         if self._thread is not None and self._thread.is_alive():
             return Result.fail('Previous action still running')
-        self.cancel_event.clear()
+        if params.cancel_event is not None:
+            self.cancel_event = params.cancel_event
+            if self.cancel_event.is_set():
+                return Result.fail('Real-ring task already interrupted')
+        else:
+            self.cancel_event.clear()
         self.finished.clear()
         self._result = None
         self._thread = None
@@ -58,7 +64,7 @@ class RingRealActionSkill(SkillBase):
     def on_cancel(self):
         self.cancel_event.set()
         if self._thread is not None:
-            self._thread.join(timeout=15.0)
+            self._thread.join(timeout=25.0)
             if self._thread.is_alive():
                 return Result.fail('Action did not stop; retain control ownership and inspect the robot')
         return Result.ok()

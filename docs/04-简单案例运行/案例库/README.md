@@ -14,5 +14,6 @@
 | 测试部门 01→04 顺序联测 | [case05 运行说明](../../../orchestration/scenarios/instructional_case_05/README.md) | `instructional_case_05`，顺序执行 01–04 子树，相邻案例间用公共 `WaitSeconds` 等待 2 秒，board 键按案例加前缀隔离 | 非 dry-run 包含 JiBot 真机动作；成功仅表示现有节点返回，不新增到达等待、模式恢复或复位 |
 | Tag 与搬箱 | [搬箱场景](../10-搬箱场景-grasp_mtbf.md) | `grasp_mtbf` | 需要地图导航与真实 Tag；虚拟 Tag 只用于干跑和仿真 |
 | 模仿学习抓取 | [小件上料模仿学习](../11-小件上料模仿学习-grasp_ring_pick_place.md) | `grasp_ring_pick_place`，ACT 模型 | 仅 MuJoCo 仿真；需要本案例补丁包与 LeTools-Learning 环境 |
+| 真机模仿学习上料 | [真机小件上料模仿学习](../12-真机小件上料模仿学习-grasp_ring_pick_place_real.md) | `grasp_ring_pick_place_real`，PI05 / ACT 模型 | V62 轮臂真机；干跑只验证加载，配套配置与权重另行准备 |
 
 新增公开案例时，在索引里写明**场景目录、输入配置、启动命令、运行环境、预期输出、失败排查以及复用的技能**。现有案例若缺其中一项，应在原教程补齐；不要把案例直接标成“标准技能”。单项能力的参数和调用见[原子技能库](../../03-接口详细文档/原子技能库/README.md)。

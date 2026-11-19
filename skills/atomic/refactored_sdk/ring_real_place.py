@@ -70,6 +70,7 @@ class RingRealPlaceSkill:
 
     def home(self):
         robot, config = self.robot, self.config
+        robot.timing_phase = "home"
         config['limits']['arm_speed_deg_s'] = config['integrated']['return_arm_speed_deg_s']
         for index, point in enumerate(config['place']['return_waypoints_deg']):
             if index == len(config['place']['return_waypoints_deg']) - 1:

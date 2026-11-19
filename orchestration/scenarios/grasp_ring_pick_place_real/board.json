@@ -7,7 +7,8 @@
     "硬编码": "底盘加减速系数、部分反馈检查、头部单次25度限制及PI05其他部署参数仍在代码或部署YAML中。",
     "单位": "未特别说明时长度为米，关节及姿态角度为度，时间为秒。",
     "record_runtime": "是否保留圆环阶段日志和结果，默认false；false使用流程结束后清理的临时交接文件，true保存在runtime/grasp_ring_pick_place_real。SDK等组件自身日志由各自配置控制。",
-    "data_type": "类型写在各段 _说明 和顶层 _data_type 中，供阅读；不改变运行时校验。int 为整数，float 为浮点数（可带小数），bool 为 true/false，string 为带双引号的文本，array<float> 为数值数组，array<array<float>> 为多组数值数组。关节角度和速度等数值按 float 标注，即使部分默认值写作整数也可使用小数。"
+    "data_type": "类型写在各段 _说明 和顶层 _data_type 中，供阅读；不改变运行时校验。int 为整数，float 为浮点数（可带小数），bool 为 true/false，string 为带双引号的文本，array<float> 为数值数组，array<array<float>> 为多组数值数组。关节角度和速度等数值按 float 标注，即使部分默认值写作整数也可使用小数。",
+    "transition_timing": "场景阶段交接的确认窗口，单位秒；正常双臂收尾三段合计0.3秒，归位三段合计0.2秒；服务调用、采样间隔及实际稳定等待另计。切换前后发送不提供下位机缓存回读确认。"
   },
   "_路径说明": {
     "deployment_root": "[data_type: string] LeTools 主仓库根目录；点号 . 表示当前仓库，场景中其他相对路径以此为基准。",
@@ -27,7 +28,8 @@
     "自动路径_日志": "runtime/grasp_ring_pick_place_real，由程序根据当前仓库位置计算；包含本轮配置快照和结果。",
     "自动路径_控制锁": "preset_routes/.arm_control.lock，由程序根据当前仓库位置计算，用于协调真机动作。",
     "ROS消息目录": "统一入口读取 infrastructure/ros_packages/devel/lib/python3/dist-packages；需在当前机器编译并 source 对应工作区。",
-    "路径验证": "board 内相对路径仅在 relocatable_paths=true 时按仓库根目录解析；环境、SDK、模型和下位机路径按各项说明配置。"
+    "路径验证": "board 内相对路径仅在 relocatable_paths=true 时按仓库根目录解析；环境、SDK、模型和下位机路径按各项说明配置。",
+    "pi05_registered_publishers": "[data_type: object<array<string>>] PI05控制话题上已核实的常驻发布者登记名单，键为话题、值为绝对ROS节点名列表。换launch/命名空间时逐项替换；显式空列表表示该话题不允许常驻登记。未配置话题沿用原默认名单。不授权它们发控制消息；模型运行时实际竞争命令仍会报错，不支持通配符。"
   },
   "_data_type": {
     "schema": "int",
@@ -100,6 +102,8 @@
     "carry.return_to_grasp": "bool",
     "carry.posture_observation_s": "float",
     "place": "object",
+    "place.ee_endpoint_hold_s": "float",
+    "pi05_registered_publishers": "object<array<string>>",
     "place.move_duration_s": "float",
     "place.open_percent": "float",
     "place.retreat_m": "float",
@@ -170,7 +174,24 @@
     "integrated.home_final_arm_speed_deg_s": "float",
     "integrated.place_tool_rotation_deg": "float",
     "integrated.base_countdown_s": "int",
-    "integrated.place_base_pitch_deg": "float"
+    "integrated.place_base_pitch_deg": "float",
+    "transition_timing": "object",
+    "transition_timing.external_before_s": "float",
+    "transition_timing.external_after_s": "float",
+    "transition_timing.pi05_before_s": "float",
+    "transition_timing.arm_endpoint_s": "float",
+    "transition_timing.arm_keep_before_s": "float",
+    "transition_timing.arm_keep_after_s": "float",
+    "transition_timing.home_arm_endpoint_s": "float",
+    "transition_timing.home_arm_keep_before_s": "float",
+    "transition_timing.home_arm_keep_after_s": "float",
+    "transition_timing.body_still_s": "float",
+    "transition_timing.body_still_timeout_s": "float",
+    "transition_timing.prepare_torso_endpoint_s": "float",
+    "transition_timing.home_torso_endpoint_s": "float",
+    "transition_timing.base_endpoint_s": "float",
+    "transition_timing.base_stop_stream_s": "float",
+    "claw_task.release_settle_s": "float"
   },
   "schema": 1,
   "environment": "real",
@@ -268,8 +289,8 @@
   },
   "grasp": {
     "_说明": {
-      "timeout_s": "[data_type: float] PI05推理就绪后等待抓取确认的超时，单位秒；timeout_enabled为false时不生效。",
-      "timeout_enabled": "[data_type: bool] 是否启用PI05抓取超时；false不因timeout_s进入搬运，其他监督和故障检查仍生效。",
+      "timeout_s": "[data_type: float] 推理就绪后等待抓取确认的超时，单位秒；本场景为50秒，timeout_enabled为false时不生效。",
+      "timeout_enabled": "[data_type: bool] 是否启用PI05抓取超时；false关闭任务超时及该阶段的总时长监督，启动和故障检查仍保留。超时停止模型并完成交接后才继续搬运，停止失败或反馈异常不继续。",
       "startup_timeout_s": "[data_type: float] PI05子进程启动和就绪超时，秒。",
       "timeout_outcome": "[data_type: string] 抓取超时结果；timeout_skip表示未确认抓取，交接通过后可继续。",
       "grasp_hold_s": "[data_type: float] 右夹爪抓取状态连续确认时间，秒。",
@@ -287,8 +308,8 @@
       "effort_detector": "[data_type: object] 实验性抓取辅助判断：右爪实测闭合度60%～97%，effort方向由direction选择；negative表示effort< -threshold，持续hold_s。仍保留state=3和停止后的交接检查。",
       "position_detector": "[data_type: object] 实验性右爪位置稳定判断：位置位于min_percent～max_percent，连续hold_s内最大变化≤range_percent；不代表一定抓住物体。"
     },
-    "timeout_s": 30.0,
-    "timeout_enabled": false,
+    "timeout_s": 50.0,
+    "timeout_enabled": true,
     "startup_timeout_s": 90.0,
     "timeout_outcome": "timeout_skip",
     "grasp_hold_s": 0.5,
@@ -383,6 +404,7 @@
   },
   "place": {
     "_说明": {
+      "ee_endpoint_hold_s": "[data_type: float] 放置前伸和后撤的末端实测连续到位确认0.2秒；缺省0.75秒，不等同于关节静止。",
       "move_duration_s": "[data_type: float] 右臂前伸请求的规划时间，秒；必须为有限正数，控制器返回的实际规划时间可能不同。",
       "open_percent": "[data_type: float] 放置时右夹爪目标，百分比；当前集成校验要求0。",
       "retreat_m": "[data_type: float] 右手后撤距离，米。",
@@ -392,6 +414,7 @@
       "max_stage_s": "[data_type: int] 放置及归位阶段监督超时，秒。",
       "home_both_after_initial": "[data_type: bool] 归位时先保持左臂并让右臂到首个路点，再解除左臂保持并执行后续双臂路点。"
     },
+    "ee_endpoint_hold_s": 0.2,
     "move_duration_s": 1.5,
     "open_percent": 0.0,
     "retreat_m": 0.2,
@@ -438,20 +461,22 @@
     "_说明": {
       "enabled": "[data_type: bool] 是否启用任务开爪准备检查。",
       "open_max_percent": "[data_type: array<float>] 左右夹爪准备就绪时允许的最大实测闭合百分比，不代表精确达到目标。",
-      "settle_s": "[data_type: float] 状态和反馈稳定持续时间，秒。",
+      "settle_s": "[data_type: float] 预抓取夹爪任务稳定持续0.3秒，需要不同时间戳的新反馈。",
       "range_percent": "[data_type: float] 稳定窗口内允许的反馈变化范围，百分点。",
       "position_tolerance_percent": "[data_type: float] 夹爪任务目标允许的残差，百分点。",
-      "accept_open_residual": "[data_type: bool] 是否允许按任务开爪范围接受残余闭合。"
+      "accept_open_residual": "[data_type: bool] 是否允许按任务开爪范围接受残余闭合。",
+      "release_settle_s": "[data_type: float] 放置开爪任务稳定持续0.2秒，保留反馈、状态及范围检查。"
     },
     "enabled": true,
     "open_max_percent": [
       20.0,
       20.0
     ],
-    "settle_s": 1.0,
+    "settle_s": 0.3,
     "range_percent": 0.3,
     "position_tolerance_percent": 6.0,
-    "accept_open_residual": true
+    "accept_open_residual": true,
+    "release_settle_s": 0.2
   },
   "integrated": {
     "_说明": {
@@ -490,7 +515,7 @@
       25.0
     ],
     "base_linear_speed_m_s": 0.4,
-    "base_angular_speed_rad_s": 0.60,
+    "base_angular_speed_rad_s": 0.6,
     "place_forward_m": 0.3,
     "place_height_m": 0.8,
     "return_arm_speed_deg_s": 90.0,
@@ -544,6 +569,25 @@
     "existing_sdk": "/media/data/example/LeTools/diagnostics/reference_sdk",
     "kuavo_common_python": "/media/data/example/LeTools/drivers/leju/kuavo_humanoid_sdk/kuavo_common/python"
   },
+  "pi05_registered_publishers": {
+    "/kuavo_arm_traj": [
+      "/arms_ik_node",
+      "/autostart_arm_trajectory_bezier_demo",
+      "/humanoid_plan_arm_trajectory_node",
+      "/kb_head_control"
+    ],
+    "/arm_collision/kuavo_arm_traj": [],
+    "/leju_claw_command": [
+      "/kb_head_control"
+    ],
+    "/lb_leg_traj": [
+      "/nodelet_manager",
+      "/kb_head_control"
+    ],
+    "/cmd_lb_torso_pose": [
+      "/mobile_manipulator_joy_command_node"
+    ]
+  },
   "pi05_runtime": {
     "_说明": {
       "ros_rate_hz": "[data_type: int] PI05模型观测和策略步频，Hz，不是手臂速度。",
@@ -581,5 +625,39 @@
     "checkpoint": "/media/data/example/act-orin-standalone/pretrained_model",
     "device": "cuda"
   },
-  "record_runtime": false
+  "record_runtime": false,
+  "transition_timing": {
+    "external_before_s": 0.3,
+    "external_after_s": 0.3,
+    "pi05_before_s": 0.3,
+    "arm_endpoint_s": 0.1,
+    "arm_keep_before_s": 0.1,
+    "arm_keep_after_s": 0.1,
+    "home_arm_endpoint_s": 0.05,
+    "home_arm_keep_before_s": 0.075,
+    "home_arm_keep_after_s": 0.075,
+    "body_still_s": 0.2,
+    "body_still_timeout_s": 2.0,
+    "prepare_torso_endpoint_s": 0.3,
+    "home_torso_endpoint_s": 0.2,
+    "base_endpoint_s": 0.2,
+    "base_stop_stream_s": 0.2
+  },
+  "_transition_timing说明": {
+    "external_before_s": "[data_type: float] native手臂切换模式前发送实测姿态0.3秒。",
+    "external_after_s": "[data_type: float] native手臂切换两层模式后发送实测姿态0.3秒。",
+    "pi05_before_s": "[data_type: float] PI05切模式前在KEEP中发送实测双臂姿态0.3秒。",
+    "arm_endpoint_s": "[data_type: float] 预抓取和搬运双臂末路点连续到位0.1秒。",
+    "arm_keep_before_s": "[data_type: float] 预抓取和搬运KEEP前稳定窗口0.1秒，最长等待3秒。",
+    "arm_keep_after_s": "[data_type: float] 预抓取和搬运KEEP后稳定窗口0.1秒。",
+    "home_arm_endpoint_s": "[data_type: float] 归位双臂末路点连续到位0.05秒。",
+    "home_arm_keep_before_s": "[data_type: float] 归位KEEP前稳定窗口0.075秒。",
+    "home_arm_keep_after_s": "[data_type: float] 归位KEEP后稳定窗口0.075秒。",
+    "body_still_s": "[data_type: float] 整机、底盘和默认关节稳定窗口0.2秒；允许复用符合要求的新鲜反馈，推理结束交接重新采样。",
+    "body_still_timeout_s": "[data_type: float] 整机稳定检查最长2秒，失败中止。",
+    "prepare_torso_endpoint_s": "[data_type: float] 预抓取躯干连续到位0.3秒。",
+    "home_torso_endpoint_s": "[data_type: float] 归位躯干连续到位0.2秒。",
+    "base_endpoint_s": "[data_type: float] 底盘去程和返程末端到位且停稳持续0.2秒。",
+    "base_stop_stream_s": "[data_type: float] 底盘正常结束持续零速发送0.2秒；失败或中断仍为2秒。"
+  }
 }
