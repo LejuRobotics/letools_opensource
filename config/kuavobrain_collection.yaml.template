@@ -1,0 +1,35 @@
+# ============================================================
+# KuavoBrain 自动采集配置模板
+#
+# 部署步骤：
+#   1. 新部署且目标文件不存在时，从仓库根目录执行：
+#      cp -n config/kuavobrain_collection.yaml.template config/kuavobrain_collection.yaml
+#   2. 填写 [启用采集时必填] 字段，再将 auto_collection.enabled 改为 true
+#   3. 启动或重启行为树进程。
+# ============================================================
+
+auto_collection:
+  enabled: false
+  alert_on_exception: true        # 供项目适配器读取，控制采集异常上报
+  stop_task_on_exception: false   # 供项目适配器读取，控制采集异常时是否终止任务
+  max_duration_seconds: 0         # 0 关闭检查；正整数为秒，停止时若超限则取消本次录制
+
+auto_label:
+  enabled: false                  # 启用时需接入项目打标逻辑，并开启平台任务的自动上传
+
+platform:
+  base_url: ""                    # [启用采集时必填] HTTP(S) 平台 API 根地址，包含 /api
+  api_key: ""                     # [启用采集时必填] 平台用户 API Key
+  basic_auth_b64: ""              # [启用采集时必填] Base64 凭证，省略 Basic 前缀
+
+robot:
+  ip: ""                          # [启用采集时必填] 目标机器人的 IPv4 地址
+
+task:
+  id: ""                          # [启用采集时必填] 平台采集任务内部 ID，保留引号
+
+# metadata:                       # 可选，按平台任务需要填写
+#   collector_id: ""              # 留空使用当前平台用户 ID
+#   recorder_id: ""
+#   work_area_id: ""              # 与 work_station_id 同时填写或同时留空
+#   work_station_id: ""
