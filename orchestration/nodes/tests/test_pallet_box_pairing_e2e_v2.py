@@ -88,6 +88,12 @@ def _make_nodes(**servo_over):
         node._setup_error = ""
     params = {"ref_edges": ["y=0", "x=W"],
               "pallet_size_mm": [PALLET_W_MM, PALLET_H_MM],
+              # ★ 固定尺寸要**显式**钉成本场景的 1200×800。生产默认值是
+              #   [1000, 1200] 且优先级最高（2026-11-19 操作员裁定），不显式给的话
+              #   本文件的几何期望（托盘中心 u=1250、e_right=−878 等）会整体偏
+              #   100px。要测「没有固定值」的旧链路，就在用例里传
+              #   `pallet_size_fixed_mm=[]`。
+              "pallet_size_fixed_mm": [PALLET_W_MM, PALLET_H_MM],
               "K": [[FX, 0.0, CX], [0.0, FY, CY], [0.0, 0.0, 1.0]],
               # ⚠️ 这副合成场景里**托盘跨到图外**：托盘系 x∈[0,1200]mm、相机高
               # 1m、FX=1000 → u∈[CX, CX+1200]=[640,1840]。与兄弟文件

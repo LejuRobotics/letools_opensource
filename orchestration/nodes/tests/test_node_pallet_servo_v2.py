@@ -264,6 +264,13 @@ def make_node(tmp_path, **over):
     params = {
         "ref_edges": ["y=0", "x=W"],
         "pallet_size_mm": [PALLET_W_MM, PALLET_H_MM],
+        # ★ 固定尺寸必须**显式**钉成本场景的 1200x800。节点的生产默认值是
+        #   [1000, 1200]（2026-11-19 操作员裁定：call 0 不再靠观测反算托盘大小），
+        #   且它**优先于** `pallet_size_mm` / 上游 / 记录整条链 —— 不在这里显式给，
+        #   本文件几十条几何用例就会被生产默认值悄悄换掉基准（合入当天实测
+        #   `e_right` 从 −88 变 +112）。要测「没有固定值」的旧链路，就在用例里传
+        #   `pallet_size_fixed_mm=[]`。
+        "pallet_size_fixed_mm": [PALLET_W_MM, PALLET_H_MM],
         "K": K_PARAM,
         "image_size": IMAGE_SIZE,
         "dump_dir": str(tmp_path / "dump"),
@@ -4015,6 +4022,10 @@ def test_slot_zero_records_pallet_z_normal_and_D_in_base_link(tmp_path, monkeypa
     record_path = tmp_path / "pallet_record.json"
     node = make_node(
         tmp_path,
+        # ★ 本条测的是「记录里写的是**观测反算**尺寸」。固定尺寸优先级最高，
+        #   不关掉的话 `pallet_size_from` 恒为 "fixed"、`pallet_size_mm` 恒为
+        #   生产默认值 —— 这条用例就测不到它本来要测的那条链了。
+        pallet_size_fixed_mm=[],
         pallet_record_path=str(record_path),
         pallet_record_samples=2,
         pallet_record_min_samples=1,
@@ -4158,7 +4169,12 @@ def test_slot_zero_spread_gate_catches_xy_drift_with_tilted_normal(
 
 
 def test_size_falls_back_to_call0_record(tmp_path, monkeypatch):
-    """★ 生产不再配 pallet_size_mm：上游没出数时用 call 0 记录里的尺寸。"""
+    """★ 不配 pallet_size_mm：上游没出数时用 call 0 记录里的尺寸。
+
+    ⚠️ 必须显式 `pallet_size_fixed_mm=[]`：固定尺寸是**最高优先级**，开着的话
+    这条回退链根本不会被走到（`_size` 恒等于固定值）。生产上要不要开固定值
+    由 `pallet_size_fixed_mm` 决定，默认值是 [1000, 1200]。
+    """
     _fake_ros_modules(monkeypatch)
     _fake_servo_msgs(monkeypatch)
     path = tmp_path / "pallet_record.json"
@@ -4167,7 +4183,7 @@ def test_size_falls_back_to_call0_record(tmp_path, monkeypatch):
         "origin_mm": [0.0, 0.0, 890.5], "pallet_size_mm": [1200.0, 1000.0],
         "samples": 5, "saved_at": "2026-11-03T00:00:00+0800",
     }), encoding="utf-8")
-    node = make_node(tmp_path, pallet_size_mm=None,
+    node = make_node(tmp_path, pallet_size_mm=None, pallet_size_fixed_mm=[],
                      pallet_record_path=str(path))
     assert node._size is not None, "记录里的尺寸必须被 _resolve_size 用上"
     assert np.allclose(node._size, (1200.0, 1000.0)), node._size
@@ -4336,8 +4352,9 @@ def test_the_whole_slot_table_is_checked_at_startup(tmp_path, monkeypatch):
 def test_node_starts_without_configured_pallet_size(tmp_path, monkeypatch):
     """★ 主流程删掉尺寸配置后，节点启动**不能失败**。
 
-    尺寸只从检测器上报的 `latest_pallet_v2_size_mm` 来；启动时它还是 None 是
-    正常状态。pallet 档会在 `update()` 里等它，neighbor 档不受影响。
+    2026-11-19 起默认带固定尺寸 [1000, 1200]：没配 `pallet_size_mm`、
+    检测器也还没上报时，`_size` 直接取固定值 —— 不再是 None。
+    pallet 档照常出数，neighbor 档不受影响。
     """
     _fake_ros_modules(monkeypatch)
     _fake_servo_msgs(monkeypatch)
@@ -4352,9 +4369,34 @@ def test_node_starts_without_configured_pallet_size(tmp_path, monkeypatch):
     node.initialise()
 
     assert node._config_err is None, node._config_err
-    assert node._size is None
+    assert np.allclose(node._size, (1000.0, 1200.0)), node._size
+    assert node._size_from_fixed is True
     # 未激活路径照常返回 RUNNING（不是 FAILURE）
     assert node.update() == Status.RUNNING
+
+
+def test_fixed_size_can_be_switched_off_to_restore_the_old_chain(tmp_path,
+                                                                monkeypatch):
+    """★ `pallet_size_fixed_mm=[]` 关掉固定值 → 回到「没有任何尺寸」的状态。
+
+    这条钉住提交说明里承诺的那个开关：关掉之后 `_size` 该是 None（等上游 /
+    记录），不是悄悄退回某个默认值。
+    """
+    _fake_ros_modules(monkeypatch)
+    _fake_servo_msgs(monkeypatch)
+    py_trees.blackboard.Blackboard.clear()
+    node = NodePalletServoV2("servo", "servo", "ns", {
+        "ref_edges": SLOTS,
+        "pallet_size_fixed_mm": [],
+        "config_path": str(tmp_path / "no_such_pallet_tag.yaml"),
+        "K": K_PARAM, "image_size": IMAGE_SIZE,
+        "dump_dir": str(tmp_path / "dump"), "pallet_frame": "base_link",
+    })
+    node.initialise()
+
+    assert node._config_err is None, node._config_err
+    assert node._size is None
+    assert node._size_from_fixed is False
 
 
 def test_absolute_edge_outside_the_pallet_is_allowed(tmp_path, monkeypatch):

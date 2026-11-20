@@ -209,7 +209,8 @@ warn 文案长这样：`theta +0.872rad 超出 ±0.785rad`。
 | `bag_stop_timeout_s` | `5.0` | 停止时等 rosbag 写完尾部索引的秒数，超时才强杀 |
 | `pallet_size_out` | `/pallet_servo_v2/pallet_size_mm` | call 0 实测尺寸的 latched 话题；检测器订阅后**同一运行里**用它覆盖 `target_mm`。空串 = 不发 |
 | `candidates_key` | `latest_box_candidates` | 邻居路线读的**候选列表**键（`NodeBoxObs` 写）。只有 `mode == "neighbor"` 的档用它；托盘路线一个字都不看 |
-| `pallet_size_mm` | — | 台面 `[W, H]` 毫米。**生产不配它**：尺寸优先用检测器上报的 `{pallet_key}_size_mm`，其次用 call 0 记录里的 `pallet_size_mm`；这个参数和 `config_path` 只给离线回放/单测兜底。pallet 档会等尺寸，neighbor 档不需要尺寸 |
+| `pallet_size_fixed_mm` | `[1000, 1200]` | ★ **伺服的台面尺寸，优先级最高**，压过下面整条「检测器上报 > call 0 记录 > `pallet_size_mm`」链。按 **(W, H)** 写（与 `pallet_size_mm` 的 `[短, 长]` **顺序相反**）。同一份值还会发到 `pallet_size_out` 保证检测器与伺服同源。**给 `[]` 关掉**，退回旧链路 |
+| `pallet_size_mm` | — | 台面 `[短, 长]` 毫米。**只在 `pallet_size_fixed_mm` 关掉时**才轮到它（那时链路是：检测器上报 > call 0 记录 > 本参数 / `config_path`）。pallet 档会等尺寸，neighbor 档不需要尺寸 |
 | `max_dt_s` | `0.05` | 配对允许的最大时间戳差（秒）。**只认正有限值**，否则退回默认值并记 WARNING |
 | `pair_cache` | `5` | **每侧**留几个观测供配对。**不是窗长** —— 与 `window` 是两个独立旋钮。⚠️ **回溯窗口 ≈ `pair_cache` × 伺服 tick 周期**（10 Hz 下 `5` ≈ **500 ms**），**必须大于托盘检测器的端到端延迟** |
 | `window` | `3` | **成对序列**上取几对做平均（1 = 不平滑）。⚠️ 默认值与槽位配置无关，只影响平滑；板子上当前也是 `3` |
@@ -286,9 +287,13 @@ warn 文案长这样：`theta +0.872rad 超出 ±0.785rad`。
 "想对齐的位置"）。启动时只查**写法**与**两条不平行**；表达式在每一帧按当前
 `W/H` 求值。
 
-⚠️ **当前尺寸从哪来**：`NodePalletServo` 优先用检测器每帧上报的 `size_mm`，
-其次用 **call 0 记录**里的 `pallet_size_mm`，最后才是参数/标定文件（离线/测试兜底）。
-**生产板子不再需要手写 `pallet_size_mm`**。
+⚠️ **当前尺寸从哪来**：默认是 **`pallet_size_fixed_mm`**（`[1000, 1200]`，现场口径，
+2026-11-19 操作员裁定）。把它设成 `[]` 才退回旧链：检测器每帧上报的 `size_mm`
+> **call 0 记录**里的 `pallet_size_mm` > 参数/标定文件（离线/测试兜底）。
+
+固定值的意义是**检测器与伺服同源**：同一份数既用来投参考边（`x=W` / `y=0.2H`），
+也经 `pallet_size_out` 发给检测器建 `T_cam_pallet`。分成两套数时会静默出现
+「青框比托盘大一圈、方向还拧着」。
 
 为什么现场越来越倾向用表达式：`x=W-100` 只表达"离右边 100mm"，换托盘尺寸时
 不用跟着改；但**表达式会跟着尺寸变**，如果某条边必须钉死在绝对位置，就继续写
@@ -638,7 +643,7 @@ pytest orchestration/nodes/tests/test_box_obs_to_servo_e2e.py -m unit -q  # 端�
    | 2 | **标定手性** | ✅ **已修**：标定工具现在会重排 + 手性自检 + **拒绝写出镜面标定**（见本条末尾） |
    | 3 | （老路径）`config/camera_config.yaml` 的 `launch_apriltag` | 当前 `false`，此时 `lifecycle_mixin` **根本不构造** `PerceptionAdapter`（`lifecycle_mixin.py:135`），`hardware.perception` 是 `None`，`NodePercep` 会爆。**要改成 `true`** |
    | 4 | （老路径）`config/apriltag_tags.yaml` | 当前 id 1–4 / size 0.06，要填现场标签的真实 id 与尺寸 |
-   | 5 | （老路径）`config/pallet_tag.yaml` | **必须重标**（见下）——老路径下 `pallet_size_mm` 不给就从这里读。**新链路不读这个文件**：尺寸优先用检测器上报的 `latest_pallet_size_mm`，两者都没有也能启动（pallet 档等上游尺寸，neighbor 档不受影响） |
+   | 5 | （老路径）`config/pallet_tag.yaml` | **必须重标**（见下）——老路径下 `pallet_size_mm` 不给就从这里读。**新链路不读这个文件**：默认尺寸来自 `pallet_size_fixed_mm`；把它关掉时才依次看检测器上报的 `latest_pallet_size_mm` 与 call 0 记录 |
    | 6 | **`pallet_servo_msgs_v2` 编译过** | 只影响**发话题**：没编过时节点记一条 WARNING 说"只写黑板，行为树之外的控制器拿不到误差"，其余照常 |
 
    **`NodeBoxObs` 的三个参数就是接到真机的全部动作**：`topic`（默认 `/box/detection`）、

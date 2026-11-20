@@ -904,14 +904,15 @@ def detect_pallet_frame_pose(color: np.ndarray, depth: np.ndarray, k, *,
     _timing = bool(opts.get('timing', True))
     _t0 = time.perf_counter()
     x, ratio, pad = _to_input_tensor(img, imgsz)
-    _t_pre = time.perf_counter()
     try:
         in_name = sess.get_inputs()[0].name
+        # `_t_pre` 在 try 内重取：`get_inputs()` 也算推理前的开销
+        _t_pre = time.perf_counter()
         raw = sess.run(None, {in_name: x})[0]
+        _t_infer = time.perf_counter()
     except Exception as exc:                         # noqa: BLE001
         return None, {'source': 'pose', 'reject': 'infer_failed',
                       'why': f'{type(exc).__name__}: {exc}', 'model': model_src}
-    _t_infer = time.perf_counter()
 
     def _stage_diag(d):
         if not _timing:

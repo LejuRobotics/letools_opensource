@@ -825,6 +825,7 @@ class NodePalletServoV2(BaseAction):
         # 实测尺寸（call 0 / 记录）覆盖上游 target_mm；通过 latched 话题通知检测器。
         self._size_measured = None
         self._size_from_measured = False
+        self._size_from_fixed = False
         self._pallet_size_out = str(self.params.get(
             "pallet_size_out", "/pallet_servo_v2/pallet_size_mm")).strip()
         self._pallet_size_pub = None
@@ -850,6 +851,20 @@ class NodePalletServoV2(BaseAction):
         # 那种调用会等本节点的 update()，会自锁。见 `_activate_slot`。
         self._tree_thread_id = None
         self._size_param = self.params.get("pallet_size_mm")
+        # ★ 固定台面尺寸（2026-11-19 操作员裁定）：call 0 **不再靠观测反算托盘
+        #   大小**，直接用 `pallet_size_fixed_mm`（默认 [1000, 1200] 毫米，[W, H]）。
+        #   优先级高于"上游 > 记录 > 参数"整条链 —— 参考边（`x=W` / `y=0.2H`）
+        #   与投给检测器的 `/pallet_servo_v2/pallet_size_mm` 都会用这个数。
+        #   给 `[]`（或 null）表示关掉固定值，退回原来的观测链。
+        self._size_fixed, _size_fixed_err = parse_pair_param(
+            self.params.get("pallet_size_fixed_mm", [1000.0, 1200.0]),
+            "pallet_size_fixed_mm",
+        )
+        if _size_fixed_err:
+            logger.error(
+                "pallet_size_fixed_mm 解释不了：%s —— 退回「上游 > 记录 > 参数」链",
+                _size_fixed_err)
+            self._size_fixed = None
         # 上游报的尺寸写在 `{pallet_key}_size_mm`（`NodePalletObsV2` 写、本节点读）。
         # ⚠️ 后缀**必须与那边逐字一致** —— 对不上不会报错，只会永远读不到、
         # 静默退回配置（那正是这次要修的那个静默）。
@@ -1248,6 +1263,7 @@ class NodePalletServoV2(BaseAction):
         # 这一 tick 的尺寸来源：上游 / call 0 记录 / 参数兜底（HUD 上要写出来）
         self._size_from_upstream = False
         self._size_from_record = False
+        self._size_from_fixed = False
         self._frames = 0        # 真正算过的帧数（日志里用它编号）
         self._ticks = 0         # update() 被调了多少次（节流用它，包括没输入的帧）
         self._version_warned = set()   # 已就"版本键从未写过"喊过的键名
@@ -1747,8 +1763,9 @@ class NodePalletServoV2(BaseAction):
                         queue_size=1, latch=True)
                     logger.info("NodePalletServoV2 实测托盘尺寸 → %s",
                                 self._pallet_size_out)
-                    if self._size_measured is not None:
-                        self._publish_pallet_size(self._size_measured)
+                    _size_now = self._size_to_publish()
+                    if _size_now is not None:
+                        self._publish_pallet_size(_size_now)
             except Exception as exc:                     # noqa: BLE001
                 logger.warning("NodePalletServoV2 实测尺寸话题起不来（%s）—— "
                                "检测器只能等下次启动从记录读尺寸", exc)
@@ -1978,6 +1995,14 @@ class NodePalletServoV2(BaseAction):
         self._size_from_upstream = False
         self._size_from_record = False
         self._size_from_measured = False
+        self._size_from_fixed = False
+        # ⓪ 固定尺寸（2026-11-19）：**优先于下面所有来源**。
+        #    操作员裁定：call 0 不再靠观测确定托盘大小，直接写死 [1000, 1200]。
+        #    这一档保证参考边（`x=W` / `y=0.2H`）与投给检测器的尺寸始终一致，
+        #    不受检测器逐帧上报的 E1/E2 抖动影响。
+        if self._size_fixed is not None:
+            self._size_from_fixed = True
+            return self._size_fixed
         # ① 实测尺寸（call 0 的原始角点+平面反算）优先：它与检测器通过
         #    `/pallet_servo_v2/pallet_size_mm` 同步，参考边和检测器用同一个尺寸。
         if self._size_measured is not None:
@@ -2849,6 +2874,14 @@ class NodePalletServoV2(BaseAction):
                 self._observe_done.set()
             self._slot_version += 1
             self._bag.stop("slot_-1")
+            # ★ 2026-11-19 修「退出后残留」：`/pallet_servo_v2/overlay` 是**按需
+            #   发图**（只在伺服/观测档里发）。call slot=-1 之后不再发，rqt 会一直
+            #   停在**最后一帧**，上面还挂着上一轮的台面矩形和箱子框，看着像
+            #   "数据还在"。这里主动补发一张 `clean` 图（不读黑板调试量、不画任何
+            #   几何，只留 HUD 一行），把残留擦掉。
+            self._maybe_publish_overlay(
+                None, -1, reason="已退出码放（slot=-1）",
+                plan=None, force=True, clean=True)
             return True, (f"已退出码放伺服（之前是第 {was} 档）。"
                           f"检测器回到待命；托盘记录文件保留")
 
@@ -3156,18 +3189,25 @@ class NodePalletServoV2(BaseAction):
             self.feedback_message = msg
             return False
 
-        # 实测尺寸（来自检测器的原始角点+平面反算）优先；没有就退回上游/记录/参数。
+        # 实测尺寸（来自检测器的原始角点+平面反算）—— **只作诊断记录**。
         measured_list = [s["measured_size_mm"] for s in samples
                          if s.get("measured_size_mm")]
         measured_size = (np.median(np.asarray(measured_list, float), axis=0).tolist()
                          if measured_list else None)
-        size_record = measured_size if measured_size is not None else (
-            list(self._size) if self._size else None)
-        size_from = ("measured" if measured_size is not None
-                     else "upstream" if self._size_from_upstream
-                     else "record" if self._size_from_record
-                     else "measured" if self._size_from_measured
-                     else "param" if self._size else None)
+        if self._size_fixed is not None:
+            # ★ 2026-11-19 操作员裁定：call 0 **不再靠观测确定托盘大小**，
+            #   记录里直接写固定尺寸 [1000, 1200]（W, H 毫米）。
+            #   `measured_size_mm` 仍然记下来（现场核对用），但**不参与控制**。
+            size_record = [float(self._size_fixed[0]), float(self._size_fixed[1])]
+            size_from = "fixed"
+        else:
+            size_record = measured_size if measured_size is not None else (
+                list(self._size) if self._size else None)
+            size_from = ("measured" if measured_size is not None
+                         else "upstream" if self._size_from_upstream
+                         else "record" if self._size_from_record
+                         else "measured" if self._size_from_measured
+                         else "param" if self._size else None)
 
         rep = samples[0]
         record = {
@@ -3207,7 +3247,11 @@ class NodePalletServoV2(BaseAction):
 
         if measured_size is not None:
             self._size_measured = tuple(float(v) for v in measured_size)
-            self._publish_pallet_size(self._size_measured)
+        # ★ 固定尺寸模式下投给检测器的必须是**固定值**，不能是观测反算值 ——
+        #   否则检测器按观测尺寸建参考边、伺服按固定尺寸投影，两边不同源。
+        published_size = self._size_to_publish()
+        if published_size is not None:
+            self._publish_pallet_size(published_size)
         # ★ 无条件通知：法向/高度已经写进文件，与尺寸是否测出来无关。
         #   检测器只靠这个 epoch 重读记录；尺寸话题可能因为 measured=None 不发。
         self._publish_record_epoch()
@@ -3238,6 +3282,11 @@ class NodePalletServoV2(BaseAction):
             return
         self._active_slot = -1
         self._slot_version += 1
+        # 与 slot=-1 同一条纪律：退回未激活后补发一张 clean 图，别让观测档
+        # 最后一帧的台面矩形留在 rqt 上。
+        self._maybe_publish_overlay(
+            None, -1, reason="观测托盘失败/超时，已退回未激活",
+            plan=None, force=True, clean=True)
         logger.info("NodePalletServoV2 观测结束（失败/超时）—— 已退回 slot=-1")
 
     def _save_pallet_record(self, record: dict) -> None:
@@ -3644,6 +3693,18 @@ class NodePalletServoV2(BaseAction):
             return "pallet", "none"
         return _slot_mode_of(self._slot_modes, int(index))
 
+    def _size_to_publish(self):
+        """投给检测器 `/pallet_servo_v2/pallet_size_mm` 的那份尺寸。
+
+        ★ 2026-11-19：固定尺寸模式下**必须发固定值**。检测器用这个尺寸建参考边
+        与 `T_cam_pallet`，伺服再用 `_size` 做投影 —— 两边不同源就会出现"青框
+        比托盘大一圈、方向还拧着"那类静默错（见 `_resolve_size` 的 docstring）。
+        `_size_measured`（观测反算值）仍然照旧记录、照旧更新，只是不往外发。
+        """
+        if self._size_fixed is not None:
+            return (float(self._size_fixed[0]), float(self._size_fixed[1]))
+        return self._size_measured
+
     def _publish_pallet_size(self, size) -> None:
         """把实测尺寸发到 latched 话题；失败只记 WARNING，绝不抛。"""
         if self._pallet_size_pub is None:
@@ -3949,8 +4010,13 @@ class NodePalletServoV2(BaseAction):
             tail.get("pair_dt_s"), tail.get("reason"))
 
     def _maybe_publish_overlay(self, error, slot, *, pose=None, box=None,
-                               reason="", plan=None) -> None:
+                               reason="", plan=None, force=False,
+                               clean=False) -> None:
         """按 `overlay_period_s` 降频发一张叠加图。
+
+        `force=True` 跳过降频（退出清屏用，只发一张）；
+        `clean=True` **不读任何黑板调试量、不画任何几何**，只留 HUD 一行 ——
+        专供 `slot=-1` 退出后把上一轮残留的台面矩形/箱子框擦掉。
 
         ★ **不是"三个数算出来了"才画。** 三个数要托盘与纸箱**两路检测都出了
         结果、而且配得上对**才算得出来，而排查时最需要的恰恰是"只有一边有
@@ -3987,7 +4053,7 @@ class NodePalletServoV2(BaseAction):
         if self._overlay_pub is None:
             return
         now = time.time()
-        if self._overlay_period_s > 0.0 and \
+        if not force and self._overlay_period_s > 0.0 and \
                 now - self._last_overlay_t < self._overlay_period_s:
             return
         with self._overlay_lock:
@@ -4068,9 +4134,10 @@ class NodePalletServoV2(BaseAction):
                 #   （旧生产者 / 这一帧没有关键点）就是 `None`，`render` 不画那一层。
                 #   ⚠️ `read_blackboard` 只接 `KeyError`；键没注册会抛
                 #   AttributeError —— 已在 `__init__` 的 READ 注册里登记。
-                _dbg = {
-                    name: read_blackboard(self.global_blackboard, key, None)
-                    for name, key in self._edge_debug_keys.items()}
+                _dbg = ({name: None for name in self._edge_debug_keys}
+                        if clean else
+                        {name: read_blackboard(self.global_blackboard, key, None)
+                         for name, key in self._edge_debug_keys.items()})
                 canvas, probes = render_servo_overlay(
                     color, error=error, T_cam_pallet=T_cam_pallet,
                     size_mm=self._size, K=self._K,
