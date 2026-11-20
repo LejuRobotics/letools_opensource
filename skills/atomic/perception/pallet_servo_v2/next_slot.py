@@ -9,7 +9,8 @@
 
 不同箱型有独立的槽位表与进度，所以命令行要带 `--box-type`（默认 0）。
 
-槽位顺序（操作员给定，横竖各自独立）：
+槽位顺序默认（CLI / 未传 `orders` 时；主流程应读各箱型
+`type*.py` 的 `place_slot_orders` 再传入）：
 
     横：3, 2, 5, 8, 7, 10
     竖：1, 4, 6, 9
@@ -28,10 +29,11 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Dict, Iterable, Mapping, Optional, Sequence
 
-# 操作员给定的占据顺序。**横竖各自独立**，不要把两张表混在一起排序。
-PLACE_ORDERS = {
+# CLI / 未传 orders 时的默认表（与 type1/3/4/5 的 place_slot_orders 一致）。
+# 主流程以 carton profile 为准，不要在这里为新箱型硬编码。
+PLACE_ORDERS: Dict[str, tuple] = {
     "horizontal": (3, 2, 5, 8, 7, 10),
     "vertical": (1, 4, 6, 9),
 }
@@ -180,22 +182,68 @@ def load_placed_slots(record_path: Path, box_type: int = 0) -> set[int]:
     return _occupied_from_record(record, box_type=box_type)
 
 
-def _order_for(direction: str, allowed: Optional[Iterable[int]] = None):
-    order = PLACE_ORDERS[direction]
+def coerce_place_orders(
+    raw: Optional[Mapping[str, Sequence[int]]],
+) -> Dict[str, tuple]:
+    """把 profile / 调用方传来的顺序表规范成 `{direction: tuple[int, ...]}`。
+
+    `raw is None` 时退回 `PLACE_ORDERS`（CLI 默认）。空 dict 不合法。
+    """
+    if raw is None:
+        return dict(PLACE_ORDERS)
+    if not isinstance(raw, Mapping) or not raw:
+        raise ValueError("place_slot_orders 必须是非空 dict（含 horizontal / vertical）")
+    out: Dict[str, tuple] = {}
+    for key, value in raw.items():
+        direction = str(key).strip().lower()
+        if direction not in ("horizontal", "vertical"):
+            raise ValueError(
+                f"place_slot_orders 未知方向 {key!r}（只认 horizontal / vertical）"
+            )
+        if not isinstance(value, (list, tuple)) or not value:
+            raise ValueError(
+                f"place_slot_orders[{direction}] 必须是非空 list/tuple"
+            )
+        try:
+            out[direction] = tuple(int(slot) for slot in value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"place_slot_orders[{direction}] 含非整数：{value!r}"
+            ) from exc
+    return out
+
+
+def _order_for(
+    direction: str,
+    allowed: Optional[Iterable[int]] = None,
+    orders: Optional[Mapping[str, Sequence[int]]] = None,
+):
+    table = coerce_place_orders(orders)
+    if direction not in table:
+        supported = ", ".join(sorted(table)) or "(空)"
+        raise ValueError(
+            f"当前箱型没有 {direction!r} 槽位顺序表（已配置：{supported}）"
+        )
+    order = table[direction]
     if allowed is None:
         return order
     allowed_set = {int(v) for v in allowed}
     return tuple(slot for slot in order if slot in allowed_set)
 
 
-def next_slot(orientation: str, placed: Iterable[int],
-              allowed: Optional[Iterable[int]] = None) -> int:
+def next_slot(
+    orientation: str,
+    placed: Iterable[int],
+    allowed: Optional[Iterable[int]] = None,
+    orders: Optional[Mapping[str, Sequence[int]]] = None,
+) -> int:
     """按方向返回第一个尚未码放的槽位；该方向全满抛 `SlotFullError`。
 
     `allowed` 给了就只在该箱型实际配置的槽位里选（`--board` 读到的槽位表）。
+    `orders` 来自 carton profile 的 `place_slot_orders`；省略则用默认表。
     """
     direction = normalize_orientation(orientation)
-    order = _order_for(direction, allowed)
+    order = _order_for(direction, allowed, orders=orders)
     occupied = {int(v) for v in placed}
     for slot in order:
         if slot not in occupied:
@@ -203,13 +251,20 @@ def next_slot(orientation: str, placed: Iterable[int],
     raise SlotFullError("横" if direction == "horizontal" else "竖", order)
 
 
-def remaining_slots(orientation: str, placed: Iterable[int],
-                    allowed: Optional[Iterable[int]] = None) -> list[int]:
+def remaining_slots(
+    orientation: str,
+    placed: Iterable[int],
+    allowed: Optional[Iterable[int]] = None,
+    orders: Optional[Mapping[str, Sequence[int]]] = None,
+) -> list[int]:
     """该方向还空着的槽位（按占据顺序；`allowed` 限定当前箱型的槽位表）。"""
     direction = normalize_orientation(orientation)
     occupied = {int(v) for v in placed}
-    return [slot for slot in _order_for(direction, allowed)
-            if slot not in occupied]
+    return [
+        slot
+        for slot in _order_for(direction, allowed, orders=orders)
+        if slot not in occupied
+    ]
 
 
 def _slots_from_board(board_path: Path, box_type: int) -> set[int]:

@@ -459,7 +459,8 @@ python3 skills/atomic/perception/pallet_servo_v2/next_slot.py --orientation h --
   `--record` 覆盖。
 * `--board` 可选：给了就只在该箱型 `box_types` 实际配置的槽位里选，
   避免算出该箱型不存在的位置（箱型缺槽 / 方向没有槽位时退出码 1）。
-* 横/竖是**两张独立顺序表**（`next_slot.PLACE_ORDERS`），一边满了不影响另一边。
+* 横/竖是**两张独立顺序表**；主流程读各箱型 `type*.py` 的 `place_slot_orders`，
+  CLI 未传时退回 `next_slot.PLACE_ORDERS`。一边满了不影响另一边。
 
 ⚠️ **服务从 1 数，槽位表从 0 数** —— `slot=2` 用该箱型 `slots[1]`。
 

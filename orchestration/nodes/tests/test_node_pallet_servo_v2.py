@@ -2830,6 +2830,50 @@ def test_the_overlay_can_be_turned_off_entirely(tmp_path):
     assert node._n_overlay == 0
 
 
+def test_stale_overlay_after_exit_is_dropped_but_slot_switch_still_publishes(
+        tmp_path, monkeypatch):
+    """★ 退出后丢弃过期正档快照；同帧伺服档互切仍按快照发图。
+
+    现场：`call slot=-1` 已补发 clean，工作线程若还攥着旧 `slot=9` 再发一张脏图，
+    残留又回来。守卫只在 `_active_slot < 0` 时丢弃，不能拦 2→1 这类互切
+    （否则参考边标签用例会红）。
+    """
+    _fake_ros_modules(monkeypatch)
+    import skills.atomic.perception.pallet_servo_v2.render as render
+
+    monkeypatch.setattr(
+        render, "render_servo_overlay",
+        lambda *a, **k: (np.zeros((8, 8, 3), np.uint8), []))
+    monkeypatch.setattr(
+        render, "numeric_self_check",
+        lambda canvas, probes, tolerance=8: [])
+
+    node = make_node(tmp_path, overlay_period_s=0.0,
+                     ref_edges=[["y=0", "x=W"], ["y=H", "x=W"]])
+    pub = _FakePublisher()
+    node._overlay_pub = pub
+    node._on_color(_fake_color_msg(8, 8))
+
+    assert node._activate_slot(1)[0] is True
+    node._maybe_publish_overlay(None, 1, reason="unit")
+    assert pub.n == 1, "激活档应能发图"
+
+    assert node._activate_slot(-1)[0] is True
+    # `_activate_slot(-1)` 自身会 force+clean 再发一张；记下基准。
+    after_exit = pub.n
+    assert after_exit >= 2, "退出应补发 clean 图"
+
+    node._maybe_publish_overlay(None, 1, reason="stale-after-exit")
+    assert pub.n == after_exit, "退出后非强制旧正档快照必须丢掉"
+
+    assert node._activate_slot(2)[0] is True
+    # 模拟同帧互切：快照仍是 2，回调已把 active 改回 1 —— 仍应发图。
+    node._active_slot = 1
+    before_switch = pub.n
+    node._maybe_publish_overlay(None, 2, reason="slot-switch-snapshot")
+    assert pub.n == before_switch + 1, "伺服档互切时快照图不能被丢掉"
+
+
 def test_the_overlay_draws_when_only_one_detector_has_a_result(
         tmp_path, monkeypatch, caplog):
     """★★ **只有一路检测出结果时也要出图** —— 这正是排查时最需要看的帧。

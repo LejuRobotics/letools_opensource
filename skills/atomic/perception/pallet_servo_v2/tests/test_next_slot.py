@@ -60,6 +60,24 @@ def test_vertical_sequence(placed, want):
     assert next_slot("竖", placed) == want
 
 
+_TYPE6_ORDERS = {
+    "horizontal": (2, 1, 4, 3, 5, 6, 8, 7, 10, 9, 11, 12),
+}
+
+
+@pytest.mark.parametrize("placed, want", [
+    (set(), 2), ({2}, 1), ({2, 1}, 4), ({2, 1, 4, 3, 5}, 6),
+    ({2, 1, 4, 3, 5, 6, 8, 7, 10, 9, 11}, 12),
+])
+def test_custom_orders_follow_profile_table(placed, want):
+    assert next_slot("横", placed, orders=_TYPE6_ORDERS) == want
+
+
+def test_custom_orders_reject_missing_direction():
+    with pytest.raises(ValueError, match="vertical"):
+        next_slot("竖", set(), orders=_TYPE6_ORDERS)
+
+
 def test_full_direction_raises_with_clear_message():
     with pytest.raises(SlotFullError) as exc:
         next_slot("横", {3, 2, 5, 8, 7, 10})

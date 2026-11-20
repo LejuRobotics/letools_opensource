@@ -4052,6 +4052,16 @@ class NodePalletServoV2(BaseAction):
         plan = plan if plan is not None else self._active_plan
         if self._overlay_pub is None:
             return
+        # ★ 2026-11-20 「退出后残留」的真正原因：**这一帧的 slot 快照已经过期**。
+        #   `update()` 可能跑在 `Async` 装饰器的工作线程里（50 Hz），而服务回调
+        #   在 ROS 线程里执行 —— 现场 `call slot=-1` 时，工作线程手里还攥着
+        #   `slot=9` 的快照，等它渲染完就把**带台面/箱子框的图**发到了我们刚刚
+        #   补发的 clean 帧**之后**，残留又回来了。
+        #   规则：**只在已经退出（`_active_slot < 0`）时丢弃非强制的旧正档快照**；
+        #   同帧内伺服档互切（如 2→1）仍要按快照发图，否则参考边标签会跟
+        #   `_active_slot` 分家。退出清屏走 `force=True`。
+        if not force and self._active_slot < 0 and slot >= 0:
+            return
         now = time.time()
         if not force and self._overlay_period_s > 0.0 and \
                 now - self._last_overlay_t < self._overlay_period_s:
