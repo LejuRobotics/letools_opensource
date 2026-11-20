@@ -43,7 +43,15 @@ def main():
         show("enable_async(false)", hw.set_async_exec(False))
 
         r = hw.send_arm_action(args.action)
-        show(f"execute_arm_action({args.action})", r)
+        detail = (r.message or "").lower()
+        if not r.success and ("dexterous hand feedback" in detail
+                              or "end effector" in detail
+                              or "末端执行器" in (r.message or "")):
+            # 无末端执行器的机型：运控在播放前就拒绝，属环境不适用，不是接口故障。
+            skip(f"execute_arm_action({args.action})",
+                 r.message + "（本机型无末端执行器，动作不可用）")
+        else:
+            show(f"execute_arm_action({args.action})", r)
         hw.spin_for(1.0)
         show("interrupt_arm_traj", hw.interrupt_arm_action())
 

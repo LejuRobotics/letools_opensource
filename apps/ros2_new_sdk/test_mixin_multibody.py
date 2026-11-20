@@ -74,8 +74,8 @@ def main():
 
         commands = [
             {"planner_index": 2, "desire_time": 2.0, "cmd_vec": target_torso},
-            # {"planner_index": 8, "desire_time": 2.0, "cmd_vec": left},
-            # {"planner_index": 9, "desire_time": 2.0, "cmd_vec": right},
+            {"planner_index": 8, "desire_time": 2.0, "cmd_vec": left},
+            {"planner_index": 9, "desire_time": 2.0, "cmd_vec": right},
         ]
         r = hw.send_multi_body_timed(commands, is_sync=True)
         if show("set_multi_body_timed_target", r, str(r.data)):

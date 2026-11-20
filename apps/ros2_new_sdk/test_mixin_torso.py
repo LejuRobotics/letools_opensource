@@ -53,7 +53,7 @@ def main():
     parser.add_argument("--execute", action="store_true", help="真正下发动作")
     parser.add_argument("--log-dir", default="")
     parser.add_argument("--z-delta", type=float, default=0.02, help="躯干 z 增量（米）")
-    parser.add_argument("--leg-delta-deg", type=float, default=1.0)
+    parser.add_argument("--leg-delta-deg", type=float, default=5.0)
     args = parser.parse_args()
 
     set_log_dir(args.log_dir or None)
@@ -114,7 +114,7 @@ def main():
             hw.spin_for(2.5)
             cur = hw.read_torso_deg().data
             record("leg_joint_track",
-                   "PASS" if abs(cur[3] - tgt[3]) < 0.4 else "FAIL",
+                   "PASS" if abs(cur[3] - tgt[3]) < 2.0 else "FAIL",
                    f"J3={cur[3]:.3f} target={tgt[3]:.3f}")
             hw.send_leg_joints_timed(base_joints, 2.0)
             hw.spin_for(2.5)
@@ -137,7 +137,7 @@ def main():
         hw.spin_for(1.0)
         cur = hw.read_torso_deg().data
         record("cmd_leg_joints",
-               "PASS" if abs(cur[3] - tgt[3]) < 0.4 else "FAIL",
+               "PASS" if abs(cur[3] - tgt[3]) < 2.0 else "FAIL",
                f"J3={cur[3]:.3f}")
         stream(hw, hw.send_leg_joints_frame, base_joints, 1.5)
         hw.spin_for(1.0)

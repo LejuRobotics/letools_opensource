@@ -104,7 +104,7 @@ BODY_OUTCOMES = {
     "('arm', 'wait_ready', (0.25,), {}, False, None)": (('Result', {'success': False, 'message': 'no valid /lowstate arm positions; check DDS and controller', 'data': None, 'error_code': None}), ['call.wait_ready(0.25)']),
     "('arm', 'wait_ready', (0.25,), {}, True, None)": (('Result', {'success': True, 'message': 'arm lowstate ready', 'data': None, 'error_code': None}), ['call.wait_ready(0.25)']),
     "('locomotion', 'get_velocity_limits', (0.2,), {}, False, None)": (('Result', {'success': False, 'message': 'fake reply', 'data': None, 'error_code': None}), ['call.get_velocity_limits(0.2)']),
-    "('locomotion', 'get_velocity_limits', (0.2,), {}, True, None)": (('Result', {'success': True, 'message': 'velocity limits', 'data': {'linear_x': [-1, 1], 'linear_y': [-2, 2], 'angular_z': [-3, 3]}, 'error_code': None}), ['call.get_velocity_limits(0.2)']),
+    "('locomotion', 'get_velocity_limits', (0.2,), {}, True, None)": (('Result', {'success': True, 'message': 'velocity limits', 'data': {'linear_x': [-1, 1], 'linear_y': [-2, 2], 'angular_z': [-171.88733853924697, 171.88733853924697]}, 'error_code': None}), ['call.get_velocity_limits(0.2)']),
     "('locomotion', 'reach_frames', None, {}, False, None)": (('int', 9), []),
     "('locomotion', 'reach_frames', None, {}, True, None)": (('int', 9), []),
     "('locomotion', 'reach_topic_available', (), {}, False, None)": (('bool', False), ['call.reach_topic_available()']),

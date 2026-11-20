@@ -22,7 +22,7 @@ Topic 直连；service 依赖 leju_sdk_ros2_bridge。
           /control/wheel_mpc/check_ee_accessibility
           /control/wheel_mpc/enable_single_timed_target_async_exec
           /control/arm/execute_arm_action
-          /control/arm/interrupt_arm_traj
+          /control/arm/interrupt_arm_action（旧名 interrupt_arm_traj 保留兼容）
           /planning/kinematics/solve_arm_fk        （内部拼 18 维）
           /planning/kinematics/solve_ee_poses_ik   （只解臂，q_torso 原样返回）
 """
@@ -310,6 +310,10 @@ class ArmClient:
             ExecuteArmAction, "/control/arm/execute_arm_action"
         )
         self._interrupt_cli = self.node.create_client(
+            Trigger, "/control/arm/interrupt_arm_action"
+        )
+        # 旧版运控/桥只提供 interrupt_arm_traj，保留作为回退。
+        self._interrupt_legacy_cli = self.node.create_client(
             Trigger, "/control/arm/interrupt_arm_traj"
         )
         self._fk_cli = self.node.create_client(
@@ -342,7 +346,8 @@ class ArmClient:
             "/control/wheel_mpc/check_ee_accessibility": self._access_cli,
             "/control/wheel_mpc/enable_single_timed_target_async_exec": self._async_cli,
             "/control/arm/execute_arm_action": self._arm_action_cli,
-            "/control/arm/interrupt_arm_traj": self._interrupt_cli,
+            "/control/arm/interrupt_arm_action": self._interrupt_cli,
+            "/control/arm/interrupt_arm_traj": self._interrupt_legacy_cli,
             "/planning/kinematics/solve_arm_fk": self._fk_cli,
             "/planning/kinematics/solve_ee_poses_ik": self._ik_cli,
             "/planning/kinematics/solve_ee_poses_ik_multi_refer": self._ik_multi_cli,
@@ -805,9 +810,14 @@ class ArmClient:
         return self._reply(response, success_field="success")
 
     def interrupt_arm_traj(self, timeout: float = 5.0) -> ServiceReply:
-        response = self._call(self._interrupt_cli, Trigger.Request(), timeout)
+        """中断手臂动作；优先 interrupt_arm_action，旧服务名作为回退。"""
+        client = self._interrupt_cli
+        if not client.wait_for_service(timeout_sec=min(1.0, max(0.0, timeout))):
+            client = self._interrupt_legacy_cli
+        response = self._call(client, Trigger.Request(), timeout)
         if response is None:
-            return ServiceReply(False, "interrupt_arm_traj unavailable")
+            return ServiceReply(
+                False, "interrupt_arm_action unavailable (also tried interrupt_arm_traj)")
         return self._reply(response, success_field="success")
 
     # ---------------- FK / IK ----------------
