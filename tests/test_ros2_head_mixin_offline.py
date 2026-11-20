@@ -12,6 +12,8 @@ import types
 import unittest
 from unittest.mock import Mock, call, patch
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1467,7 +1469,7 @@ class Ros2MixinAppOfflineTests(unittest.TestCase):
         expected.update("test_mixin_" + name + ".py" for name in
                         ("readonly", "joint", "ee", "misc", "torso", "multibody",
                          "arm_ik", "base", "chassis", "chassis_readonly",
-                         "chassis_cmdvel"))
+                         "chassis_cmdvel", "camera"))
         self.assertEqual({p.name for p in folder.glob("*.py")}, expected)
         for path in sorted(folder.glob("*.py")):
             with self.subTest(file=path.name):
@@ -1725,6 +1727,167 @@ class JibotChassisMixinTests(unittest.TestCase):
         self.assertIsNone(host._jibot_stream_thread)
         host._jibot_close()  # 幂等
         client.close.assert_called_once()
+
+
+
+
+# ---------------------------------------------------------------------------
+# 相机适配器：腕部双相机（16bit 深度 mm）+ 多设备订阅（离线，fake node）
+# ---------------------------------------------------------------------------
+try:
+    from adapters.hardware_ros2.camera_adapter import CameraAdapter as _CameraAdapterProbe
+    from sensor_msgs.msg import CameraInfo as _RosCameraInfo
+    from sensor_msgs.msg import Image as _RosImage
+    _CAMERA_ADAPTER_OK = True
+except Exception:  # pragma: no cover - 无 ROS 2 (rclpy) 的环境整体跳过
+    _CAMERA_ADAPTER_OK = False
+
+
+class _FakeCameraNode:
+    """记录订阅话题；时钟固定，供 _frame_time 的设备时基回退路径使用。"""
+
+    def __init__(self):
+        self.topics = []
+
+    def create_subscription(self, msg_type, topic, callback, qos):
+        self.topics.append(topic)
+        return ("sub", topic)
+
+    def destroy_subscription(self, sub):
+        pass
+
+    class _Clock:
+        class _Now:
+            nanoseconds = 1_700_000_000_000_000_000
+
+        @staticmethod
+        def now():
+            return _FakeCameraNode._Clock._Now()
+
+    def get_clock(self):
+        return _FakeCameraNode._Clock()
+
+
+def _make_image(width, height, encoding, stamp_sec, frame_id):
+    msg = _RosImage()
+    msg.height = height
+    msg.width = width
+    msg.encoding = encoding
+    msg.header.frame_id = frame_id
+    msg.header.stamp.sec = int(stamp_sec)
+    msg.header.stamp.nanosec = int(round((stamp_sec - int(stamp_sec)) * 1e9))
+    if encoding == "rgb8":
+        msg.step = width * 3
+        msg.data = bytes(bytearray([200] * (width * height * 3)))
+    elif encoding == "16uc1":
+        msg.step = width * 2
+        raw = [1000 + i for i in range(width * height)]
+        msg.data = bytes(np.uint16(raw).tobytes())
+    else:
+        raise ValueError(encoding)
+    return msg
+
+
+@unittest.skipUnless(_CAMERA_ADAPTER_OK, "rclpy/sensor_msgs unavailable (no ROS 2)")
+class CameraAdapterWristTests(unittest.TestCase):
+    """腕部相机：三路设备订阅、深度 16bit 毫米、别名、开关与硬件时间戳。"""
+
+    def _adapter(self, config=None):
+        from adapters.hardware_ros2.camera_adapter import CameraAdapter
+        node = _FakeCameraNode()
+        adapter = CameraAdapter(node=node)
+        result = adapter.initialize(config or {})
+        self.assertTrue(result.success, result.message)
+        return adapter, node
+
+    def test_three_devices_subscribed_with_default_topics(self):
+        adapter, node = self._adapter({})
+        self.assertEqual(len(node.topics), 9)
+        for slot in ("head_camera", "wrist_left_camera", "wrist_right_camera"):
+            for suffix in ("color_image_raw", "color_info", "depth_image_raw"):
+                self.assertIn(f"/sensor/{slot}/{suffix}", node.topics)
+
+    def test_wrist_depth_stays_uint16_mm_and_head_float32_m(self):
+        adapter, _ = self._adapter({})
+        adapter._on_depth("wrist_left_camera",
+                          _make_image(848, 480, "16uc1", 1795162865.5, "wrist_left_camera_optical_link"))
+        adapter._on_depth("head",
+                          _make_image(848, 480, "16uc1", 1795162865.5, "head_camera_optical_link"))
+        wrist = adapter.get_depth_data("wrist_left_camera")
+        head = adapter.get_depth_data("head")
+        self.assertEqual(wrist.depth_image.dtype, np.uint16)
+        self.assertEqual(int(wrist.depth_image[0, 0]), 1000)
+        self.assertAlmostEqual(wrist.scale, 0.001)
+        self.assertEqual(head.depth_image.dtype, np.float32)
+        self.assertAlmostEqual(float(head.depth_image[0, 0]), 1.0)
+        self.assertAlmostEqual(head.scale, 1.0)
+
+    def test_wrist_frame_carries_mm_depth_and_hw_timestamp(self):
+        adapter, _ = self._adapter({})
+        stamp = 1795162867.343643136
+        adapter._on_color("wrist_left_camera",
+                          _make_image(848, 480, "rgb8", stamp, "wrist_left_camera_optical_link"))
+        adapter._on_depth("wrist_left_camera",
+                          _make_image(848, 480, "16uc1", stamp, "wrist_left_camera_optical_link"))
+        frame = adapter.get_camera_frame("wrist_left_camera")
+        self.assertEqual(frame.color_image.shape, (480, 848, 3))
+        self.assertEqual(frame.depth_image.dtype, np.uint16)
+        self.assertEqual(frame.depth_frame_id, "wrist_left_camera_optical_link")
+        self.assertAlmostEqual(frame.timestamp, stamp)
+
+    def test_aliases_and_default_device(self):
+        adapter, _ = self._adapter({})
+        adapter._on_color("wrist_left_camera",
+                          _make_image(8, 4, "rgb8", 1795162865.0, "l"))
+        adapter._on_color("head",
+                          _make_image(8, 4, "rgb8", 1795162865.0, "h"))
+        via_alias = adapter.get_camera_frame("wrist_left")
+        via_full = adapter.get_camera_frame("wrist_left_camera")
+        self.assertEqual(via_alias.color_frame_id, via_full.color_frame_id)
+        self.assertEqual(adapter.get_camera_frame().color_frame_id, "h")
+        self.assertFalse(adapter.is_connected("wrist_right_camera"))
+        # 新鲜度依赖真实时钟，这里只验证别名路径一致（不比较绝对结果）
+        self.assertEqual(adapter.is_connected("wrist_left"),
+                         adapter.is_connected("wrist_left_camera"))
+
+    def test_enable_flags_control_subscriptions(self):
+        from adapters.hardware_ros2.camera_adapter import CameraAdapter
+        node = _FakeCameraNode()
+        adapter = CameraAdapter(node=node)
+        result = adapter.initialize({"enable_wrist_camera": False})
+        self.assertTrue(result.success)
+        self.assertEqual(len(node.topics), 3)
+        self.assertFalse(any("wrist" in t for t in node.topics))
+
+        node2 = _FakeCameraNode()
+        adapter2 = CameraAdapter(node=node2)
+        result2 = adapter2.initialize({"has_left_wrist": False})
+        self.assertTrue(result2.success)
+        self.assertTrue(any("wrist_right_camera" in t for t in node2.topics))
+        self.assertFalse(any("wrist_left_camera" in t for t in node2.topics))
+
+        node3 = _FakeCameraNode()
+        adapter3 = CameraAdapter(node=node3)
+        result3 = adapter3.initialize({"enable_head": False})
+        self.assertFalse(result3.success)
+        self.assertEqual(result3.error_code, "CAMERA_NOT_ENABLED")
+
+    def test_per_slot_topic_override(self):
+        adapter, node = self._adapter({
+            "wrist_left_camera_color_image_topic": "/cam_l/color"})
+        self.assertIn("/cam_l/color", node.topics)
+        self.assertIn("/sensor/wrist_left_camera/color_info", node.topics)
+
+    def test_wrist_info_reports_realsense(self):
+        adapter, _ = self._adapter({})
+        info = _RosCameraInfo()
+        info.header.frame_id = "wrist_left_camera_optical_link"
+        info.width, info.height = 848, 480
+        info.k = [611.0, 0.0, 420.0, 0.0, 611.0, 240.0, 0.0, 0.0, 1.0]
+        adapter._on_info("wrist_left_camera", info)
+        got = adapter.get_camera_info("wrist_left_camera")
+        self.assertEqual(got.camera_type, "realsense")
+        self.assertAlmostEqual(got.intrinsics.fx, 611.0)
 
 
 if __name__ == "__main__":
