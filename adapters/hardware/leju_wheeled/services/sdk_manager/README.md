@@ -329,8 +329,9 @@ manager.shutdown()
 | 方法 | 说明 | MPC 模式 |
 |------|------|---------|
 | `control_arm_joint_positions()` | 手臂关节控制 | ✅ 需要 |
-| `control_arm_joint_trajectory(times, q_frames)` | 原生带时间点双臂轨迹（rad）；只发送，不重采样、不等待、不恢复模式 | SDK内部会检查stance并切换ExternalControl |
 | `control_robot_end_effector_pose()` | 手臂末端控制 | ✅ 需要 |
+| `set_arm_joint_traj(joint_traj, total_time)` | 原生ArmAPI.move_joint_traj同步重采样，关节rad；成功不代表逐帧接收/到位 | SDK准备ExternalControl/ArmOnly，不恢复 |
+| `set_arm_pose_traj(left_traj, right_traj, total_time, frame, direct_to_wbc, back_default)` | 原生ArmAPI.move_eef_traj_wheel_mpc同步执行，米/四元数 | SDK模式/流处理；默认back_default=False |
 | `get_arm_joint()` | 读取14维SDK关节反馈（rad） | ❌ 不切模式 |
 | `get_arm_control_mode()` | SDK查询手臂模式，data为mode/name；服务失败可能回退缓存 | ❌ 不切模式 |
 | `set_arm_control_mode(control_mode)` | 映射0/1/2到原生fixed/auto-swing/external方法；需SDK已初始化，不回退ROS直调 | 不额外切MPC；SDK处理手臂模式和碰撞检查 |

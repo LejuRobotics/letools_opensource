@@ -17,23 +17,37 @@ def validate_arm_joint(joint: Sequence[float]) -> List[float]:
     return values
 
 
-def validate_arm_joint_trajectory(
-    times: Sequence[float], q_frames: Sequence[Sequence[float]],
-) -> Tuple[List[float], List[List[float]]]:
-    """校验原生轨迹：时间点为正、严格递增，与14维关节帧一一对应。"""
-    if not isinstance(times, (list, tuple)) or not isinstance(q_frames, (list, tuple)):
-        raise ValueError("times 和 q_frames 必须是列表")
-    if not times or len(times) != len(q_frames):
-        raise ValueError("times 和 q_frames 必须非空且长度一致")
+def validate_timed_arm_joint_targets(
+    left_arm_joint: Optional[List[float]], right_arm_joint: Optional[List[float]],
+    desire_time: Optional[float], is_sync: bool = True,
+) -> Tuple[Optional[List[float]], Optional[List[float]], float]:
+    """单/双臂multi目标：None表示不提交该臂，空列表是错误，不换算单位。"""
+    if left_arm_joint is None and right_arm_joint is None:
+        raise ValueError("left_arm_joint/right_arm_joint 至少提供一侧")
+    if type(is_sync) is not bool:
+        raise ValueError("is_sync 必须为bool，表示规划器执行时长同步")
     try:
-        time_values = [float(value) for value in times]
+        duration = float(desire_time)
     except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError("times 必须是有限数字（秒）") from exc
-    if not all(math.isfinite(value) and value > 0 for value in time_values):
-        raise ValueError("times 必须是大于0的有限时间点（秒）")
-    if any(current <= previous for previous, current in zip(time_values, time_values[1:])):
-        raise ValueError("times 必须严格递增，表示相对轨迹起点的时间")
-    return time_values, [validate_arm_joint(frame) for frame in q_frames]
+        raise ValueError("desire_time 必须为大于0的有限秒数") from exc
+    if isinstance(desire_time, bool) or not math.isfinite(duration) or duration <= 0:
+        raise ValueError("desire_time 必须为大于0的有限秒数")
+
+    def parse(values, label):
+        if values is None:
+            return None
+        if not isinstance(values, (list, tuple)) or len(values) != 7:
+            raise ValueError(f"{label} 必须为7维关节角，未控制的一侧请传None")
+        try:
+            result = [float(value) for value in values]
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"{label} 必须包含有限数字") from exc
+        if not all(math.isfinite(value) for value in result):
+            raise ValueError(f"{label} 必须包含有限数字")
+        return result
+
+    return parse(left_arm_joint, "left_arm_joint"), parse(right_arm_joint, "right_arm_joint"), duration
+
 
 @dataclass
 class JointState:

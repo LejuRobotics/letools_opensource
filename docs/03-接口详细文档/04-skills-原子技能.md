@@ -86,11 +86,13 @@ class HeadControlSdkSkill(SkillBase):
 | `arm_ee_traj_local_sdk.py` | `ArmEETrajLocalSdkSkill` | `ArmEETrajLocalSdkParams` | `send_arm_ee_traj_sdk(frame='base_link')` | 手臂末端轨迹（本体坐标系） |
 | `arm_ee_traj_world_sdk.py` | `ArmEETrajWorldSdkSkill` | `ArmEETrajWorldSdkParams` | `send_arm_ee_traj_sdk(frame='world')` | 手臂末端轨迹（世界坐标系） |
 | `arm_joint_timed.py` | `ArmJointTimedSkill` | `ArmJointTimedParams` | `send_arm_joint_timed()` | 双臂 14 关节单目标（TimedCmd） |
+| `timed_arm_joint.py` | `TimedArmJointSkill` | `TimedArmJointParams` | `timed_arm_joint()` | 单/双臂 7 维关节目标（固定度，TimedCmd multi planner 8/9），不等待到位 |
 | `multi_timed_command.py` | `MultiTimedCommandSkill` | `MultiTimedCommandParams` | `set_arm_control_mode(2)`（可选） + `set_focus_ee()` + `set_focus_z()` + `send_timed_multi_commands()` | 可配置的多 planner 单次组合控制（如 2/8/9、3/6/7）；`prepare_arm_control=true` 默认在含 planner 2–9 时准备外部控制模式，失败不发令，不复位、不自动切回 0；`focus_ee=true` 专注末端解算，躯干可能随动，`false` 尽可能不动躯干并在手臂工作区间内解算，精度可能降低；`focus_z` 跟随 `focus_ee` |
 | `arm_joint_traj_sdk.py` | `ArmJointTrajSdkSkill` | `ArmJointTrajSdkParams` | `send_arm_joint_traj_sdk()` | 手臂 14 关节多关键点轨迹 |
 | `arm_reset_sdk.py` | `ArmResetSdkSkill` | `ArmResetSdkParams` | `arm_reset()` | 手臂归位 |
 | `set_arm_joint.py` | `SetArmJointSkill` | `SetArmJointParams` | `set_arm_joint()` | 双臂 14 维关节单目标发送（固定度） |
-| `set_arm_joint_trajectory.py` | `SetArmJointTrajectorySkill` | `SetArmJointTrajectoryParams` | `set_arm_joint_trajectory()` | 原生双臂带时间点轨迹发送（固定度，不重采样） |
+| `set_arm_joint_traj.py` | `SetArmJointTrajSkill` | `SetArmJointTrajParams` | `set_arm_joint_traj()` | SDK ArmAPI双臂关节轨迹（固定deg，总时间重采样） |
+| `set_arm_pose_traj.py` | `SetArmPoseTrajSkill` | `SetArmPoseTrajParams` | `set_arm_pose_traj()` | SDK ArmAPI轮式双臂末端轨迹（m/deg） |
 | `get_arm_joint.py` | `GetArmJointSkill` | `GetArmJointParams` | `get_arm_joint()` | 读取双臂 14 维关节反馈（固定度） |
 | `set_arm_control_mode.py` | `SetArmControlModeSkill` | `SetArmControlModeParams` | `set_arm_control_mode()` | 设置手臂模式（整数 0/1/2，无默认模式） |
 | `get_arm_control_mode.py` | `GetArmControlModeSkill` | `GetArmControlModeParams` | `get_arm_control_mode()` | 查询手臂模式及名称，不切换模式 |
@@ -231,9 +233,16 @@ class HeadControlSdkSkill(SkillBase):
 | `ArmJointTimedParams` | `joint_angles` | `List[float]` | 14 个 `0.0` | 单个双臂目标，顺序为 `[左臂 7, 右臂 7]` |
 | | `desire_time` | `float` | `3.0` | TimedCmd 期望执行时间 |
 | | `settle_time` | `float` | `0.0` | 运动完成后的额外等待 |
+| `TimedArmJointParams` | `left_arm_joint` / `right_arm_joint` | `Optional[List[float]]` | `None` | 至少提供一侧，每侧 7 维有限关节角（度）；省略表示不提交，空数组非法 |
+| | `desire_time` | `Optional[float]` | `None` | 必填，大于 0 的有限秒数 |
+| | `is_sync` | `bool` | `True` | 请求内 planner 的执行时长同步，不是到位等待 |
 | `BimanualJointTrajectoryParams` | `left_arm_joint_traj` / `right_arm_joint_traj` | `Optional[List[List[float]]]` | `None` | 单臂轨迹 |
 | | `bimanual_traj_14d` | `Optional[List[List[float]]]` | `None` | 直接给 14 维 |
 | | `total_time` | `float` | `3.0` | |
+
+`TimedArmJointSkill` 使用 TimedCmd multi planner 8/9，而非 SDK ArmAPI 轨迹循环。
+`Result.data` 由适配器透传，可包含 `actual_time`；成功不表示实测到位，也不根据该时长等待。
+技能缓存本次执行结果，重新 `initialize()` 后才会发送下一次请求；dry-run 由对应节点负责。
 
 **新双臂接口（原生 SDK / 反馈 / IK / FK）**
 
@@ -242,7 +251,8 @@ class HeadControlSdkSkill(SkillBase):
 | Params | 字段 | 默认 | 说明 |
 |---|---|---|---|
 | `SetArmJointParams` | `joint` | `[]` | 必填，14 维有限关节角（度） |
-| `SetArmJointTrajectoryParams` | `times` / `q_frames` | `[]` / `[]` | 必填，N 个时间点与 N×14 维关节帧一一对应；时间点为相对起点的秒数，必须大于 0 且严格递增，不是分段时长 |
+| `SetArmJointTrajParams` | `joint_traj` / `total_time` | `[]` / `None` | 至少两帧14维deg，total_time为至少0.01秒的总时间；SDK均匀重采样，同步执行但不保证到位 |
+| `SetArmPoseTrajParams` | `left_traj` / `right_traj` / `total_time` | `[]` / `[]` / `None` | 等长双臂轨迹，每帧[x,y,z,yaw,pitch,roll]（m/deg），至少两帧；frame默认local、direct_to_wbc=True、back_default=False |
 | `GetArmJointParams` | — | 无额外字段 | 返回 `Result.data` 为 14 维反馈角（度） |
 | `SetArmControlModeParams` | `control_mode` | `None` | 必填，只接受整数 0/1/2，不接受布尔值或字符串 |
 | `GetArmControlModeParams` | — | 无额外字段 | 返回 `{"mode": int, "name": str}`：0=`ArmFixed`、1=`AutoSwing`、2=`ExternalControl` |

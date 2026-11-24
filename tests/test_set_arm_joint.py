@@ -1,7 +1,6 @@
 """新双臂关节接口、技能、节点的离线测试；不初始化SDK或发真机指令。"""
 
 import importlib.util
-import json
 import math
 from pathlib import Path
 from unittest.mock import Mock
@@ -9,15 +8,11 @@ from unittest.mock import Mock
 import pytest
 from py_trees.common import Access, Status
 
-from core.domain.joint_state import validate_arm_joint, validate_arm_joint_trajectory
+from core.domain.joint_state import validate_arm_joint
 from core.domain.result import Result
 from core.interfaces.i_hardware import IHardware
 from skills.atomic.refactored_sdk.set_arm_joint import SetArmJointParams, SetArmJointSkill
-from skills.atomic.refactored_sdk.set_arm_joint_trajectory import (
-    SetArmJointTrajectoryParams, SetArmJointTrajectorySkill,
-)
 from orchestration.nodes import set_arm_joint as joints_node
-from orchestration.nodes import set_arm_joint_trajectory as trajectory_node
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -31,8 +26,6 @@ ARM_SPEC.loader.exec_module(ARM_MODULE)
 
 # 仅用于Mock的样本，不是建议真机目标。
 JOINT = [float(index) for index in range(14)]
-TIMES = [0.5, 2.0, 3.25]
-FRAMES = [list(JOINT), [-value for value in JOINT], list(JOINT)]
 
 
 class FakeHardware(ARM_MODULE.ArmMixin, MODULE.SDKControlMixin):
@@ -41,7 +34,6 @@ class FakeHardware(ARM_MODULE.ArmMixin, MODULE.SDKControlMixin):
         self._low_level_sdk_manager = Mock()
         self._arm_sdk_manager = Mock()
         self._low_level_sdk_manager.control_arm_joint_positions.return_value = Result.ok()
-        self._low_level_sdk_manager.control_arm_joint_trajectory.return_value = Result.ok()
 
     def _to_rad(self, value):
         return math.radians(value) if self._angle_unit == "deg" else value
@@ -63,17 +55,8 @@ def test_old_target_still_uses_configured_unit(unit):
     hardware._low_level_sdk_manager.control_arm_joint_positions.assert_called_once_with(joint_positions_rad=expected)
 
 
-def test_trajectory_preserves_all_times_and_does_not_call_old_planner():
-    hardware = FakeHardware("rad")
-    assert hardware.set_arm_joint_trajectory(TIMES, FRAMES).success
-    hardware._low_level_sdk_manager.control_arm_joint_trajectory.assert_called_once_with(
-        times=TIMES, q_frames=[[math.radians(value) for value in frame] for frame in FRAMES])
-    hardware._arm_sdk_manager.move_joint_traj_auto.assert_not_called()
-
-
 @pytest.mark.parametrize("method,kwargs,manager_method", [
     ("set_arm_joint", {"joint": JOINT}, "control_arm_joint_positions"),
-    ("set_arm_joint_trajectory", {"times": TIMES, "q_frames": FRAMES}, "control_arm_joint_trajectory"),
 ])
 def test_failure_result_is_not_treated_as_truthy_success(method, kwargs, manager_method):
     hardware = FakeHardware()
@@ -93,29 +76,8 @@ def test_invalid_joint_fail_before_sending(joint):
         validate_arm_joint(joint)
 
 
-@pytest.mark.parametrize("times,frames", [
-    (None, FRAMES), ([], []), ([1.0], FRAMES), ([0.0], [JOINT]),
-    ([-1.0], [JOINT]), ([math.nan], [JOINT]), ([math.inf], [JOINT]),
-    ([2.0, 1.0], [JOINT, JOINT]), ([1.0, 1.0], [JOINT, JOINT]),
-    ([1.0], [[0.0] * 13]), ([1.0], [[math.nan] * 14]),
-])
-def test_invalid_trajectory_fails_before_sending(times, frames):
-    hardware = FakeHardware()
-    assert not hardware.set_arm_joint_trajectory(times, frames).success
-    hardware._low_level_sdk_manager.control_arm_joint_trajectory.assert_not_called()
-    with pytest.raises(ValueError):
-        validate_arm_joint_trajectory(times, frames)
-
-
-def test_validation_returns_copies_without_mutating_inputs():
-    times, frames = validate_arm_joint_trajectory(TIMES, FRAMES)
-    assert times == TIMES and frames == FRAMES
-    assert times is not TIMES and frames[0] is not FRAMES[0]
-
-
 @pytest.mark.parametrize("skill_class,params,method", [
     (SetArmJointSkill, SetArmJointParams(joint=JOINT), "set_arm_joint"),
-    (SetArmJointTrajectorySkill, SetArmJointTrajectoryParams(times=TIMES, q_frames=FRAMES), "set_arm_joint_trajectory"),
 ])
 @pytest.mark.parametrize("success", [True, False])
 def test_skill_runs_once_and_preserves_result(skill_class, params, method, success):
@@ -135,7 +97,6 @@ def test_skill_runs_once_and_preserves_result(skill_class, params, method, succe
 
 @pytest.mark.parametrize("skill_class,params,method", [
     (SetArmJointSkill, SetArmJointParams(), "set_arm_joint"),
-    (SetArmJointTrajectorySkill, SetArmJointTrajectoryParams(), "set_arm_joint_trajectory"),
 ])
 def test_empty_skill_params_have_no_motion_defaults(skill_class, params, method):
     hardware = Mock()
@@ -147,7 +108,6 @@ def test_empty_skill_params_have_no_motion_defaults(skill_class, params, method)
 
 @pytest.mark.parametrize("module,node_class,params,method", [
     (joints_node, joints_node.SetArmJoint, {"joint": JOINT}, "set_arm_joint"),
-    (trajectory_node, trajectory_node.SetArmJointTrajectory, {"times": TIMES, "q_frames": FRAMES}, "set_arm_joint_trajectory"),
 ])
 @pytest.mark.parametrize("success", [True, False])
 def test_nodes_return_terminal_status_and_send_once(monkeypatch, module, node_class, params, method, success):
@@ -165,7 +125,6 @@ def test_nodes_return_terminal_status_and_send_once(monkeypatch, module, node_cl
 
 @pytest.mark.parametrize("module,node_class,params", [
     (joints_node, joints_node.SetArmJoint, {"joint": JOINT}),
-    (trajectory_node, trajectory_node.SetArmJointTrajectory, {"times": TIMES, "q_frames": FRAMES}),
 ])
 def test_dry_run_checks_params_without_hardware(monkeypatch, module, node_class, params):
     monkeypatch.setenv("STUDIO_DRY_RUN", "1")
@@ -178,20 +137,6 @@ def test_dry_run_checks_params_without_hardware(monkeypatch, module, node_class,
     invalid.initialise()
     assert invalid.update() == Status.FAILURE
     unexpected.assert_not_called()
-
-
-def test_trajectory_node_reads_runtime_board_and_json(monkeypatch):
-    monkeypatch.delenv("STUDIO_DRY_RUN", raising=False)
-    hardware = Mock()
-    hardware.set_arm_joint_trajectory.return_value = Result.ok()
-    monkeypatch.setattr(trajectory_node, "get_shared_hardware", lambda: hardware)
-    node = trajectory_node.SetArmJointTrajectory("arm_board", "arm", "ns", {
-        "times__board_key": "native_arm_times", "q_frames": json.dumps(FRAMES)})
-    node.global_blackboard.register_key("native_arm_times", access=Access.WRITE)
-    node.global_blackboard.set("native_arm_times", TIMES)
-    node.initialise()
-    assert node.update() == Status.SUCCESS
-    hardware.set_arm_joint_trajectory.assert_called_once_with(times=TIMES, q_frames=FRAMES)
 
 
 def test_single_joint_node_reads_renamed_runtime_board_key(monkeypatch):
@@ -209,10 +154,8 @@ def test_single_joint_node_reads_renamed_runtime_board_key(monkeypatch):
 
 def test_new_interfaces_are_optional_and_nodes_are_discovered():
     assert "set_arm_joint" not in IHardware.__abstractmethods__
-    assert "set_arm_joint_trajectory" not in IHardware.__abstractmethods__
     from orchestration.engine.behavior_tree_factory import BehaviorTreeFactory
     factory = object.__new__(BehaviorTreeFactory)
     factory.node_dir = str(ROOT / "orchestration/nodes")
     factory._build_node_index()
     assert factory._node_index["SetArmJoint"] == "orchestration.nodes.set_arm_joint"
-    assert factory._node_index["SetArmJointTrajectory"] == "orchestration.nodes.set_arm_joint_trajectory"

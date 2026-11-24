@@ -65,6 +65,73 @@ def _robot_sdk(sdk_mocks):
     return robot_sdk_cls.return_value
 
 
+class TestTimedArmAPI:
+    def test_lazy_native_api_reuses_robot_sdk_and_is_released(self, sdk_mocks):
+        from unittest.mock import Mock
+        from types import SimpleNamespace
+        import sys
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        factory = Mock()
+        factory.return_value.move_joint_traj.return_value = None
+        with patch.dict(sys.modules, {'kuavo_humanoid_sdk.kuavo_strategy_pytree.nodes.api': SimpleNamespace(ArmAPI=factory)}):
+            assert manager.set_arm_joint_traj([[0.1]*14]*2, 1.0).success
+            assert manager.set_arm_joint_traj([[0.1]*14]*2, 1.0).success
+        factory.assert_called_once_with(_robot_sdk(sdk_mocks))
+        manager.shutdown()
+        factory.return_value._pool.shutdown.assert_called_once_with(wait=True)
+
+    def test_joint_calls_native_arm_api_and_none_is_completion(self, sdk_mocks):
+        from unittest.mock import Mock
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        manager._arm_api = Mock()
+        manager._arm_api.move_joint_traj.return_value = None
+        frames = [[0.1]*14, [-0.2]*14]
+        result = manager.set_arm_joint_traj(frames, 1.0)
+        assert result.success and result.data is None
+        from kuavo_humanoid_sdk.interfaces.data_types import KuavoManipulationMpcCtrlMode
+        manager._arm_api.move_joint_traj.assert_called_once_with(
+            joint_traj=frames, asynchronous=False, total_time=1.0,
+            mpc_ctrl_mode=KuavoManipulationMpcCtrlMode.ArmOnly)
+
+    def test_pose_native_flags_and_quaternion_sign_alignment(self, sdk_mocks):
+        from unittest.mock import Mock
+        from kuavo_humanoid_sdk.interfaces.data_types import KuavoPose, KuavoManipulationMpcFrame, KuavoManipulationMpcCtrlMode
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        manager._arm_api = Mock()
+        manager._arm_api.move_eef_traj_wheel_mpc.return_value = None
+        poses = [KuavoPose((1,0,0), (0,0,0,1)), KuavoPose((2,0,0), (0,0,0,-1))]
+        result = manager.set_arm_pose_traj(poses, poses, 1.0, direct_to_wbc=False, back_default=True)
+        assert result.success
+        args = manager._arm_api.move_eef_traj_wheel_mpc.call_args.kwargs
+        assert args['frame'] == KuavoManipulationMpcFrame.LocalFrame
+        assert args['mpc_ctrl_mode'] == KuavoManipulationMpcCtrlMode.ArmOnly
+        assert args['asynchronous'] is False and args['direct_to_wbc'] is False and args['back_default'] is True
+        assert args['left_traj'][1].orientation == (0,0,0,1)
+        assert poses[1].orientation == (0,0,0,-1)  # 不修改输入。
+
+    def test_sdk_exception_becomes_failure_and_pool_released(self, sdk_mocks):
+        from unittest.mock import Mock
+        manager = LowLevelSDKManager()
+        manager.initialize()
+        api = manager._arm_api = Mock()
+        api.move_joint_traj.side_effect = RuntimeError('native failure')
+        assert not manager.set_arm_joint_traj([[0.1]*14]*2, 1.0).success
+        assert manager.shutdown().success
+        api._pool.shutdown.assert_called_once_with(wait=True)
+        assert manager._arm_api is None
+
+    def test_uninitialized_or_invalid_input_never_creates_api(self, sdk_mocks):
+        manager = LowLevelSDKManager()
+        assert not manager.set_arm_joint_traj([[0.1]*14]*2, 1.0).success
+        manager.initialize()
+        assert not manager.set_arm_joint_traj([[0.1]*14], 1.0).success
+        assert not manager.set_arm_pose_traj([], [], 1.0).success
+        assert manager._arm_api is None
+
+
 class TestArmKinematics:
     def test_fk_given_joint_does_not_read_feedback(self, sdk_mocks):
         from types import SimpleNamespace
@@ -296,69 +363,6 @@ class TestArmFeedbackPose:
         assert not manager.get_arm_pose().success
 
 
-class TestNativeArmTrajectory:
-    def test_sends_original_time_points_once(self, sdk_mocks):
-        sdk = _robot_sdk(sdk_mocks)
-        sdk.control.control_arm_joint_trajectory.return_value = True
-        manager = LowLevelSDKManager()
-        assert manager.initialize().success
-        times, frames = [0.5, 2.0], [[0.1] * 14, [-0.2] * 14]
-        result = manager.control_arm_joint_trajectory(times, frames)
-        assert result.success and result.data is None
-        sdk.control.control_arm_joint_trajectory.assert_called_once_with(times=times, q_frames=frames)
-        sdk.control.set_manipulation_mpc_mode.assert_not_called()
-        sdk.control.control_arm_joint_positions.assert_not_called()
-
-    @pytest.mark.parametrize("sdk_result", [False, None])
-    def test_sdk_failure(self, sdk_mocks, sdk_result):
-        sdk = _robot_sdk(sdk_mocks)
-        sdk.control.control_arm_joint_trajectory.return_value = sdk_result
-        manager = LowLevelSDKManager()
-        manager.initialize()
-        assert not manager.control_arm_joint_trajectory([1.0], [[0.1] * 14]).success
-
-    def test_sdk_exception(self, sdk_mocks):
-        sdk = _robot_sdk(sdk_mocks)
-        sdk.control.control_arm_joint_trajectory.side_effect = ValueError("joint limit")
-        manager = LowLevelSDKManager()
-        manager.initialize()
-        result = manager.control_arm_joint_trajectory([1.0], [[0.1] * 14])
-        assert not result.success and "joint limit" in result.message
-
-    def test_not_initialized(self):
-        manager = LowLevelSDKManager()
-        assert not manager.control_arm_joint_trajectory([1.0], [[0.1] * 14]).success
-
-    @pytest.mark.parametrize("times,frames", [([], []), ([0.0], [[0.1] * 14]),
-                                             ([1.0, 0.5], [[0.1] * 14] * 2),
-                                             ([1.0], [[np.nan] * 14])])
-    def test_invalid_input_never_calls_sdk(self, sdk_mocks, times, frames):
-        sdk = _robot_sdk(sdk_mocks)
-        manager = LowLevelSDKManager()
-        manager.initialize()
-        assert not manager.control_arm_joint_trajectory(times, frames).success
-        sdk.control.control_arm_joint_trajectory.assert_not_called()
-
-    def test_full_hardware_skill_chain_uses_low_manager_only(self, sdk_mocks):
-        from adapters.hardware.leju_wheeled.hardware import LejuWheeledArmHardware
-        from skills.atomic.refactored_sdk.set_arm_joint import SetArmJointParams, SetArmJointSkill
-        from skills.atomic.refactored_sdk.set_arm_joint_trajectory import SetArmJointTrajectoryParams, SetArmJointTrajectorySkill
-        sdk = _robot_sdk(sdk_mocks)
-        sdk.control.control_arm_joint_positions.return_value = True
-        sdk.control.control_arm_joint_trajectory.return_value = True
-        manager = LowLevelSDKManager()
-        manager.initialize()
-        hardware = object.__new__(LejuWheeledArmHardware)
-        hardware._low_level_sdk_manager = manager
-        hardware._angle_unit = "rad"
-        setter = SetArmJointSkill(hardware)
-        assert setter.initialize(SetArmJointParams(joint=[10.0] * 14)).success
-        assert setter.execute().success
-        sdk.control.control_arm_joint_positions.assert_called_once_with(joint_positions=[np.deg2rad(10.0)] * 14)
-        trajectory = SetArmJointTrajectorySkill(hardware)
-        assert trajectory.initialize(SetArmJointTrajectoryParams(times=[1.0, 2.5], q_frames=[[10.0] * 14] * 2)).success
-        assert trajectory.execute().success
-        sdk.control.control_arm_joint_trajectory.assert_called_once_with(times=[1.0, 2.5], q_frames=[[np.deg2rad(10.0)] * 14] * 2)
 
 
 class TestHeadPose:

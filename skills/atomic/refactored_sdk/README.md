@@ -2,7 +2,7 @@
 
 从可跑通测试脚本抽取的 Adapter 原子技能，每个技能封装了 **一个** `hardware.xxx()` 调用。
 
-路径基准：技能清单中的文件名相对 `skills/atomic/refactored_sdk/`；仅写文件名的 `*_mixin.py` 相对 `adapters/hardware/leju_wheeled/mixins/`；节点文件位于 `orchestration/nodes/`。其余带目录的项目路径均相对 LeTools 仓库根目录，命令从仓库根目录执行。人工分层测试入口位于 `apps/internal/{adapters,skills,nodes}/`，不要与框架实现目录混淆。
+路径基准：技能清单中的文件名相对 `skills/atomic/refactored_sdk/`；仅写文件名的 `*_mixin.py` 相对 `adapters/hardware/leju_wheeled/mixins/`；节点文件位于 `orchestration/nodes/`。其余带目录的项目路径均相对 LeTools 仓库根目录，命令从仓库根目录执行。人工分层测试入口位于 `apps/test_internal/{adapters,skills,nodes}/`，不要与框架实现目录混淆。
 
 ## 架构约定
 
@@ -29,7 +29,8 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 | `arm_joint_timed.py` | 双臂 14 关节单目标控制（TimedCmd） | `hardware.send_arm_joint_timed()` | 一次下发 `[左臂 J0-J6, 右臂 J0-J6]`，等待规划运动完成 |
 | `arm_joint_traj_sdk.py` | 手臂 14 关节轨迹（多关键点，自动 MPC） | `hardware.send_arm_joint_traj_sdk()` | `sdk_control_mixin.py` → `ArmSDKManager.move_joint_traj_auto()` → `robot_sdk.control.control_arm_joint_positions()` |
 | `set_arm_joint.py` | 双臂关节单目标发送（固定deg） | `hardware.set_arm_joint(joint)` | `ArmMixin` → 已有 `LowLevelSDKManager.control_arm_joint_positions()` → 原生SDK |
-| `set_arm_joint_trajectory.py` | 原生双臂带时间点轨迹发送（固定deg） | `hardware.set_arm_joint_trajectory(times, q_frames)` | `ArmMixin` → `LowLevelSDKManager.control_arm_joint_trajectory()` → 原生SDK |
+| `set_arm_joint_traj.py` | ArmAPI按总时间重采样双臂关节轨迹（deg） | `hardware.set_arm_joint_traj(joint_traj, total_time)` | `ArmMixin` → LowLevelSDKManager → ArmAPI.move_joint_traj |
+| `set_arm_pose_traj.py` | ArmAPI轮式双臂末端轨迹（m/deg） | `hardware.set_arm_pose_traj(left_traj, right_traj, total_time, ...)` | `ArmMixin` → LowLevelSDKManager → ArmAPI.move_eef_traj_wheel_mpc |
 | `get_arm_joint.py` | 双臂14维关节反馈（固定deg） | `hardware.get_arm_joint()` | `ArmMixin` → `LowLevelSDKManager.get_arm_joint()` → SDK state |
 | `set_arm_control_mode.py` | 设置手臂模式（整数0/1/2） | `hardware.set_arm_control_mode(control_mode)` | `ArmMixin` → `LowLevelSDKManager.set_arm_control_mode()` → SDK control |
 | `get_arm_control_mode.py` | 查询手臂模式及名称 | `hardware.get_arm_control_mode()` | `ArmMixin` → `LowLevelSDKManager.get_arm_control_mode()` → SDK state |
@@ -47,11 +48,10 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 ### 新双臂关节接口
 
 - `SetArmJointParams(joint=...)`：必填14维角度（deg），左臂7个、右臂7个；无默认运动目标。复用现有单目标SDKManager实现，但不复用旧入口的 `angle_unit` 语义。
-- `SetArmJointTrajectoryParams(times=..., q_frames=...)`：必填非空时间点和N×14角度（deg）。`times` 为相对轨迹起点的秒数，必须大于0、严格递增，与每帧一一对应；保留不均匀时间间隔，不将轨迹压缩为 `total_time`。
-- 两个技能正常返回后保存 `Result`，重复 execute 不重复发送。成功表示单次SDK调用成功，`data=None`，不等待到位。`timeout` 是技能执行超时，不是运动时长。
-- Node 为 `SetArmJoint` / `SetArmJointTrajectory`，读取同名参数，支持列表、JSON字符串和 `READ_BOARD` 运行时绑定。dry-run 校验输入但不初始化硬件。示例结构：`{"name": "SetArmJointTrajectory", "params": {"times": ..., "q_frames": ...}}`，省略号需由实际人工确认数据替换。
+- 单目标技能正常返回后保存 `Result`，重复 execute 不重复发送。成功表示单次SDK调用成功，`data=None`，不等待到位。`timeout` 是技能执行超时，不是运动时长。
+- 单目标节点为 `SetArmJoint`，读取joint参数，支持列表、JSON字符串及READ_BOARD运行时绑定；dry-run校验参数但不访问硬件。
 - 独立的 `arm_mixin.py`（`ArmMixin`）通过 `convert_angle` 转换deg到rad，Manager使用rad直调原生SDK。注册到现有Hardware，不更改生命周期或旧SDKControlMixin接口。
-- 原生SDK单目标会裁剪超限角度；原生轨迹会拒绝超限帧，且要求stance状态。SDK内部可能切到ExternalControl，新封装不额外设置/恢复MPC、不插值、不提供到位保证；相应物理限位由SDK处理。
+- 原生SDK单目标会裁剪超限角度。SDK内部可能切到ExternalControl，新封装不额外设置/恢复MPC、不插值、不提供到位保证；相应物理限位由SDK处理。
 - 旧 `send_arm_joint_positions_sdk`、`send_arm_joint_traj_sdk`、旧技能和场景均保留原行为，特别是旧轨迹仍走自动MPC/重采样路径，不能当作新接口的同义方法。
 - Mock验证见 `tests/test_set_arm_joint.py` 和 `adapters/hardware/leju_wheeled/services/sdk_manager/tests/test_low_level_sdk_manager.py`，不下发真机指令。
 
@@ -64,7 +64,7 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 - 不将deg塞进Core的 `Pose6D`；其内部仍使用rad。公开末端接口使用普通6维列表，四元数只在Adapter/Manager边界使用。
 - 对应技能/节点为 `GetArmJoint`、`SetArmPose`、`GetArmPose`。单次执行后缓存结果；getter Node按 `output_key` 写黑板（默认arm_joint/arm_pose），初始化清空输出，失败不留下旧值；dry-run成功不伪造反馈，输出为None。
 - 反馈均不保证首帧或新鲜度；SDK FK需要可用 `/ik/fk_srv`（上游说明涉及WithIK初始化），当前不改全局SDK初始化。新接口不增加自动到位等待、模式恢复、单臂控制或生命周期。
-- 离线验证见 `tests/test_arm_feedback_pose.py` 和low Manager测试。原生joint轨迹在当前轮式仿真的实际执行仍待验证，不能以Mock通过证明物理有效。
+- 离线验证见 `tests/test_arm_feedback_pose.py` 和low Manager测试。Mock通过不证明实际运动或物理解算精度。
 
 ### 双臂IK/FK纯计算
 
@@ -73,7 +73,27 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 - 当前v62上半身模型的内部base_link实际对应整机waist_yaw_link，不能仅看同名base_link就认为坐标相同。模型基准及eef_z_offset工具偏移必须人工确认；local=整机base_link，world=odom。跨系计算使用当前TF，不保证模型结果与实测独立或同步。
 - 新IK通过low Manager调用SDK原生arm_ik，显式传KuavoIKParams（当前SDK下层不能处理params=None）；SDK默认求解参数不等于旧solve_ik的精度、constraint_mode、主备回退、跳变检查和历史yaw补偿。**旧solve_ik/IkSolveRequest/IkSolution保持不动**，码垛调用及rad/四元数契约不改，不能无感替换成新IK。旧SDK直调业务也暂不自动改写。
 - 对应Skill/Node为GetArmIkResult、GetArmFkResult；结果单次缓存，Node写output_key（默认arm_ik_result/arm_fk_result），dry-run仅校验、输出None。原生IK/FK依赖IK服务和模型配置；本次不更改SDK初始化或上游模型。
-- 六个独立计算示例在apps/internal的adapters/skills/nodes下；顶部填写参数，纯计算结果不会自动发送，输入空时不初始化硬件。测试见tests/test_arm_kinematics.py和low Manager测试。
+- 六个独立计算示例在apps/test_internal的adapters/skills/nodes下；顶部填写参数，纯计算结果不会自动发送，输入空时不初始化硬件。测试见tests/test_arm_kinematics.py和low Manager测试。
+
+### 控制器端MultiCmd关节目标
+
+- `timed_arm_joint(left_arm_joint=None, right_arm_joint=None, desire_time=None, is_sync=True)`：左右各7维deg，至少提供一侧；None表示不提交，空列表/错误维度/非有限值失败。desire_time必须为大于0的有限秒数。固定deg，不受旧angle_unit影响。
+- 调用链为Node → Skill → IHardware → 新 `TimedCmdMixin`（timedcmd_mixin.py）→ 已有TimedCmdManager.send_multi_commands → `/mobile_manipulator_timed_multi_cmd`。左臂只发planner8，右臂只发planner9，双臂在同一请求中发8+9，角度在新Mixin中只转换一次到rad。
+- `is_sync=True`统一本次规划器时长，**不是Python等待机械完成**。Result.data透传服务的actual_time；不是到位实测，也不是硬速度上限。服务返回失败不伪装成功。
+- 未提交的另一臂不补零、不读反馈来合成保持指令，不停止或覆盖其已有轨迹；并发/之前未结束的运动仍可继续。控制模式、限速和实际规划能力由调用方与控制器确认，封装不自动切模式或恢复。
+- 与 `set_arm_joint_traj`（原生ArmAPI客户端100Hz重采样）分开；旧send_arm_joint_timed/send_timed_multi_commands行为不变。需timed Manager，只有low白名单不能调用本接口。
+- Skill/Node为TimedArmJoint，参数同名，节点支持JSON及运行时黑板输入，dry-run仅校验不访问硬件。示例在apps/test_internal三层目录，参数留空、无命令行输入，单独启用timed Manager；测试见tests/test_multicmd_arm_joint.py。
+
+### SDK ArmAPI定时执行
+
+- `set_arm_joint_traj(joint_traj, total_time)`：至少两帧14维角度（固定deg），Mixin转rad，LowLevelSDKManager复用RobotSDK惰性创建原生ArmAPI，调用 `move_joint_traj(asynchronous=False, mpc_ctrl_mode=ArmOnly)`。SDK按总时间100Hz重采样关键点，不接收每帧时间；第一帧应由调用方明确提供，不自动读取反馈或插入当前状态。
+- `set_arm_pose_traj(left_traj, right_traj, total_time, frame='local', direct_to_wbc=True, back_default=False)`：双臂必须等长、至少两帧6维`[x,y,z,yaw,pitch,roll]`（m/deg），转换为米/xyzw四元数后调用原生 `move_eef_traj_wheel_mpc(asynchronous=False, mpc_ctrl_mode=ArmOnly)`。默认local，支持world/odom。这里只支持轨迹，不将单个目标自动补成两帧。
+- `total_time` 必填有限且至少0.01秒，避免SDK不足一个100Hz周期仅下发首点。`direct_to_wbc=True`要求SDK切DirectToWbc；False并不主动切回ThroughFullBodyMpc。`back_default=True`结束时请求NoControl/ThroughFullBodyMpc，不是恢复调用前状态，也不切回手臂模式0/1；默认False，异常时不承诺恢复。
+- 两者均由SDK准备ExternalControl/ArmOnly，直接使用原生ArmAPI；不替换旧ArmSDKManager自研重采样和TimedCmd服务。新轨迹不接收每帧times，不调用 `/mobile_manipulator_timed_single_cmd`。旧的本仓原生带时间点轨迹封装已经删除，不保留兼容别名。
+- 同步调用阻塞Adapter/Skill及Node当前tick，节点不适合要求可取消的Parallel。SDK的同步返回值是None，不按bool判断；Result.success仅表示ArmAPI调用未抛异常，不保证模式切换或每帧发送的返回值成功。SDK内部不汇总这些bool，也不保证实测到位，因此不提供arrived或actual_time。SDK重采样实际耗时可能长于total_time。
+- 末端四元数沿用SDK的分量线性插值，不改为SLERP；封装仅对关键点归一化并对齐相邻等价符号，避免q/-q插出零值，不是完整笛卡尔路径或姿态速度规划。
+- 对应Skill/Node为SetArmJointTraj、SetArmPoseTraj，单次执行缓存结果；dry-run仅校验不访问硬件。SkillBase超时只在调用前检查，不能中途取消同步SDK循环。SDK ArmAPI执行池由Manager关闭时释放，不自动复位机器人；同一Manager不要并发执行轨迹或shutdown。
+- 三层人工脚本在 `apps/test_internal/{adapters,skills,nodes}/set_arm_joint_traj.py` 和 `set_arm_pose_traj.py`，顶部参数留空，时长None，无命令行参数。验证见 `tests/test_timed_arm_api.py` 及low Manager测试，仅Mock，不下发指令。
 
 ### 手臂控制模式
 
@@ -82,7 +102,7 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 - `GetArmControlModeSkill` 单次执行后缓存结果，重新initialize再查询；`GetArmControlMode` 节点写入output_key（默认arm_control_mode），初始化清空旧值，dry-run不查询并保持None。
 - `set_arm_control_mode(control_mode)` 统一为 ArmMixin → LowLevelSDKManager → 原生SDK，0调用set_fixed_arm_mode、1调用set_auto_swing_arm_mode、2调用set_external_control_arm_mode。不再直调ROS服务或fallback；上层位置参数/`control_mode=`签名保留，需初始化low Manager（白名单仅arm/timed或skip_sdk_managers的旧配置须相应调整）。SDK带碰撞检查和模式查询，已处于目标模式时可能跳过切换，模式1不承诺重复触发归位。返回仍为Result、成功data=None，但不是原服务超时/重置行为的逐项等价替代。设置/查询不保证到位，不额外切MPC或恢复模式。
 - `SetArmControlModeSkill` / `SetArmControlMode` 复用已有Hardware setter，必填 `control_mode`，只接受整数0/1/2，无默认模式。正常返回后缓存Result、不重复切换，重新initialize后可再次执行；节点支持 `control_mode__board_key` 运行时黑板绑定，dry-run校验参数但不初始化硬件或切换。成功不表示物理归位，不自动恢复模式。
-- 三层设置/查询示例在 `apps/internal/{adapters,skills,nodes}/{set,get}_arm_control_mode.py`。setter顶部 `CONTROL_MODE=None`，由人填写后运行，模式1可能触发运动；示例不额外复位、不切MPC、不自动恢复。测试见 `tests/test_arm_control_mode.py` 及low Manager测试。
+- 三层设置/查询示例在 `apps/test_internal/{adapters,skills,nodes}/{set,get}_arm_control_mode.py`。setter顶部 `CONTROL_MODE=None`，由人填写后运行，模式1可能触发运动；示例不额外复位、不切MPC、不自动恢复。测试见 `tests/test_arm_control_mode.py` 及low Manager测试。
 
 ### 2. 底盘控制
 
@@ -130,7 +150,7 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 
 ## 对应测试脚本
 
-新增/重构的 11 条上肢接口（三层共 33 个脚本）见[双臂接口分层测试](../../../apps/internal/_arm_test.md)（9 条）与[头部接口分层测试](../../../apps/internal/_head_test.md)（2 条）。两份说明中的命令均从仓库根目录执行，目标参数由操作人员填写；不要批量运行或将 Mock 通过视为真机验收。
+新增/重构的 11 条上肢接口（三层共 33 个脚本）见[双臂接口分层测试](../../../apps/test_internal/_arm_test.md)（9 条）与[头部接口分层测试](../../../apps/test_internal/_head_test.md)（2 条）。两份说明中的命令均从仓库根目录执行，目标参数由操作人员填写；不要批量运行或将 Mock 通过视为真机验收。
 
 | 技能 | 测试脚本 |
 |------|---------|

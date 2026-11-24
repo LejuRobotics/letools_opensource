@@ -133,15 +133,37 @@ class IHardware(ABC):
         """
         return Result.fail("当前 Hardware Adapter 不支持 set_arm_joint")
 
-    def set_arm_joint_trajectory(
-        self, times: List[float], q_frames: List[List[float]],
-    ) -> Result:
-        """发送原生双臂轨迹（deg），成功只表示发送成功，不等待到位。
 
-        times 为相对轨迹起点的时间点（秒），大于0且严格递增；
-        q_frames 每帧14维，与 times 一一对应。不重采样、不增加模式恢复。
+    def timed_arm_joint(
+        self, left_arm_joint: Optional[List[float]] = None,
+        right_arm_joint: Optional[List[float]] = None,
+        desire_time: Optional[float] = None, is_sync: bool = True,
+    ) -> Result:
+        """控制器端multi关节目标，左右各7维deg，至少提供一侧，时长必填。
+
+        左/右分别planner8/9；未提供不下发、不补零、不停止该侧已有运动。
+        is_sync表示统一规划时长，不是等待物理完成；返回actual_time。
         """
-        return Result.fail("当前 Hardware Adapter 不支持 set_arm_joint_trajectory")
+        return Result.fail("当前 Hardware Adapter 不支持 timed_arm_joint")
+
+    def set_arm_joint_traj(self, joint_traj: List[List[float]], total_time: float) -> Result:
+        """至少两帧14维deg轨迹，SDK按总秒数重采样同步下发。
+
+        返回只表示ArmAPI调用未抛异常，不保证逐帧接收或实测到位。
+        不接收每帧时间点，不是控制器端TimedCmd服务。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 set_arm_joint_traj")
+
+    def set_arm_pose_traj(
+        self, left_traj: List[List[float]], right_traj: List[List[float]], total_time: float,
+        frame: str = "local", direct_to_wbc: bool = True, back_default: bool = False,
+    ) -> Result:
+        """双臂等长6维m/deg轨迹，同步ArmAPI轮式执行，默认local。
+
+        direct_to_wbc=True要求SDK切控制流；False不主动设置控制流。
+        back_default=True恢复NoControl/ThroughFullBodyMpc，并非恢复原状态。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 set_arm_pose_traj")
 
     def set_arm_control_mode(self, control_mode: int) -> Result:
         """设置手臂模式：0固定、1AutoSwing、2外部控制。
