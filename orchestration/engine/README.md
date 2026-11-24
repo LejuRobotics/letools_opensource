@@ -42,6 +42,36 @@ run_behavior_tree_json.py
 - **并行加载**：`enable_parallel_loading=True` 时用 ThreadPoolExecutor 并行构建子节点
 - **黑板**：通过 `py_trees.blackboard.Client` 在主树加载前写入 board.json，叶子节点通过 `self.global_blackboard` 读写
 
+## READ_BOARD 嵌套路径
+
+`board_key` 支持普通根键、字典字段、Studio `[{key, value}]` 参数数组和对象属性：
+
+```json
+{
+  "yaw": {
+    "source": "READ_BOARD",
+    "board_key": "pick_scene_config.head_pick_observe.yaw",
+    "data_type": "float"
+  }
+}
+```
+
+动态选择使用完整路径段 `{黑板键}`，例如
+`place_scene_config.{place_scene}.head_place_observe.yaw`。
+选择键必须是非空字符串，不能包含点号或花括号；不执行表达式或递归插值。
+数组只支持按 Studio 条目的 `key` 查找，不支持数值下标；重复条目和缺失字段明确报错。
+不解析 JSON 字符串，根值应由 board 加载器写入为对象或参数数组。
+
+公共工具为 `orchestration.utils.blackboard_path.read_blackboard_path(client, path)`。
+工具仅注册根键和动态选择键的 READ 权限，不创建或修改数据。
+工厂在构树时使用该工具，同时保留原始 `参数名__board_key` 路径绑定。
+构树时路径不存在会告警并保留绑定，以兼容运行时才创建的黑板数据。
+
+**运行时接入：**目前公共 `SetHeadPose` 已使用该工具，每次 `initialise()` 重新读取，
+缺失路径会返回 FAILURE，不回退到构树快照。其他节点若自行使用 `client.get()` 重新读取
+`__board_key`，需改用同一工具才能支持嵌套/动态路径；本次没有批量改动所有节点。
+普通不带点号的键读取行为不变，原有对象点号属性访问也保留。
+
 ## 通用循环装饰器
 
 `RepeatUntil` 是 Factory 支持的通用装饰器。它重复执行成功的子树，直到黑板

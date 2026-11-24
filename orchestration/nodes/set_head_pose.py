@@ -1,14 +1,15 @@
-"""SetHeadPose：获取头部姿态。"""
+"""SetHeadPose：设置头部姿态。"""
 
 import os
 from typing import Optional
 
-from py_trees.common import Access, Status
+from py_trees.common import Status
 
 from core.common.logger import get_logger
 from core.domain.result import Result
 from orchestration.nodes.base_node import BaseAction
 from orchestration.shared_hardware import get_shared_hardware
+from orchestration.utils.blackboard_path import read_blackboard_path
 from orchestration.utils.manifest_decorators import define_manifest
 from skills.atomic.refactored_sdk.set_head_pose import SetHeadPoseParams, SetHeadPoseSkill
 
@@ -43,8 +44,7 @@ class SetHeadPose(BaseAction):
             for key in ("yaw", "pitch"):
                 board_key = self.params.get(f"{key}__board_key")
                 if board_key:
-                    self.global_blackboard.register_key(key=board_key, access=Access.READ)
-                    values[key] = self.global_blackboard.get(board_key)
+                    values[key] = read_blackboard_path(self.global_blackboard, board_key)
                 else:
                     values[key] = self.params.get(key)
             # dry-run 仍校验参数，但不创建共享硬件。

@@ -11,6 +11,7 @@ from py_trees.common import ParallelPolicy
 from typing import Dict, Any, Optional, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from core.common.logger import get_logger
+from orchestration.utils.blackboard_path import read_blackboard_path
 
 logger = get_logger(__name__)
 
@@ -913,13 +914,11 @@ class BehaviorTreeFactory:
                     # 从全局黑板读取
                     # 支持 board_key 字段：当参数名与黑板键不同时，用 board_key 指定黑板键
                     board_key = value.get("board_key", key)
-                    self.global_blackboard.register_key(key=board_key, access=py_trees.common.Access.READ)
-                    # 始终保留绑定关系。ForEach 等前置节点可能在运行时才创建
-                    # 目标键，此时构树阶段黑板上还没有对应值。
+                    # 保留原始路径，节点运行时可重新解析动态选择与最新字段值。
                     parsed_params[f"{key}__board_key"] = board_key
-                    if self.global_blackboard.exists(board_key):
-                        parsed_params[key] = self.global_blackboard.get(board_key)
-                    else:
+                    try:
+                        parsed_params[key] = read_blackboard_path(self.global_blackboard, board_key)
+                    except KeyError as exc:
                         # 缺键**必须说出来**：原先静默跳过，节点用代码默认值，而现场
                         # 以为在用板子上的值 —— 板子上少一行、行为悄悄变了。
                         # 这里**不抛**：`ForEach` 等前置节点会在运行时才创建键，
@@ -930,7 +929,7 @@ class BehaviorTreeFactory:
                         logger.warning(
                             "[TreeFactory] READ_BOARD 缺键 %r（节点 %r 的参数 %r）"
                             " —— 回退到**代码里的默认值**。板子上没有这个键，"
-                            "或者键名拼错了", board_key, namespace or "-", key)
+                            "或者路径尚不可用：%s", board_key, namespace or "-", key, exc)
                 else:
                     # 不识别的source或没有source，当作静态值处理
                     parsed_params[key] = value
