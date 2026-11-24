@@ -26,10 +26,11 @@ STAGE_INITIAL = 1
 _STAGE_NAMES = {STAGE_FINAL: "final", STAGE_INITIAL: "initial"}
 
 #: 槽位/箱型级允许的字段。
+#: ``enable_initial`` 仅供编排层（初伺服开关）读取，检测器解析时忽略。
 _SLOT_KEYS = {
     "slot", "mode", "side", "ref_edges", "box_plane_height_mm",
     "e_right_bias_px", "e_bottom_bias_px", "normal_rot_deg",
-    "initial", "final",
+    "initial", "final", "enable_initial",
 }
 #: 阶段覆盖只允许改「随阶段变化」的量；路线（mode/side）与法向旋转是槽位属性。
 _STAGE_KEYS = {
