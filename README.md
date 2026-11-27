@@ -1,17 +1,12 @@
-<div align="center">
+# LeTools
 
-<h1 align="center">LeTools</h1>
+![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![ROS](https://img.shields.io/badge/ROS-Noetic-22314E.svg)
+![Leju](https://img.shields.io/badge/Leju-Robotics-orange)
 
-[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
-[![ROS](https://img.shields.io/badge/ROS-Noetic-22314E.svg)](http://wiki.ros.org/noetic)
-[![Leju](https://img.shields.io/badge/Leju-Robotics-orange)](https://www.lejurobot.com/zh)
+📖 乐聚Kuavo机器人上位机侧Python技能工具链框架
 
-📖 乐聚 Kuavo 机器人上位机侧 Python 技能工具链框架
-
-</div>
-
-本文中的相对路径（如 `apps/`、`orchestration/main.py`）
-一律相对 **LeTools 仓库根目录**；各命令需在仓库根目录下执行。
+本文中的相对路径一律以**仓库根目录**为基准，若代码块另有`cd`，则以切换后的目录为准。
 
 > ## 📚 文档导航
 >
@@ -75,12 +70,12 @@ drivers + infrastructure 底层 SDK / ROS / 相机 / 消息包
 ***
 
 ## 🛠️ 安装
+
 详细部署安装步骤请参考[03-安装步骤.md](docs/02-环境安装/03-安装步骤.md)
 
 **1. 安装 Python 依赖**
 
 ```bash
-cd ~/letools_opensource
 pip3 install -r requirements.txt                       # colorlog、py_trees、scipy>=1.4
 python3 -m pip install --upgrade "numpy>=1.19.5,<1.27.0"   # 保持 NumPy 1.x，原因见依赖版本清单
 ```
@@ -88,75 +83,46 @@ python3 -m pip install --upgrade "numpy>=1.19.5,<1.27.0"   # 保持 NumPy 1.x，
 **2. 编译 ROS 工作空间**
 
 ```bash
-cd ~/letools_opensource/infrastructure/ros_packages
-source /opt/ros/noetic/setup.bash
-catkin build
-source devel/setup.bash
+cd infrastructure/ros_packages
 ```
 
-> 如果暂时不需要 RealSense 相机，且视觉相关模块编译失败，可以先跳过：
->
-> ```bash
-> catkin config --skiplist \
-    detection_yolo_v8 \
-    ar_control \
-    kuavo_vision_object \
-    kuavo_yolo_point2d \
-    yolo_box_object_detection \
-    yolo_button_object_detection \
-    yolo_valve_object_detection \
-    orbbec_camera \
-    realsense2_camera \
-    kuavo_camera
-> catkin build
-> ```
+如果暂时不需要RealSense相机，且视觉相关模块编译失败，可以先跳过：
+
+```bash
+catkin config --skiplist \
+  detection_yolo_v8 \
+  ar_control \
+  kuavo_vision_object \
+  kuavo_yolo_point2d \
+  yolo_box_object_detection \
+  yolo_button_object_detection \
+  yolo_valve_object_detection \
+  orbbec_camera \
+  realsense2_camera \
+  kuavo_camera
+```
+
+编译
+
+```bash
+catkin build
+source devel/setup.bash
+cd ../..
+```
 
 **3. 安装 SDK**
 
 ```bash
-cd ~/letools_opensource
-chmod +x scripts/sdk_tools/install.sh
 ./scripts/sdk_tools/install.sh
 ```
 
-> 📌 SDK 版本由仓库自带的 `scripts/sdk_tools/sdk_version.env` 锁定，
-> 记录当前 LeTools 配套的 kuavo-ros-opensource 分支与 tag（如 `master` / `1.4.5`），
-> 每次 LeTools 发版时同步更新，确保用户安装到与当前版本匹配的 SDK。
+> 📌 SDK 版本由仓库自带的`scripts/sdk_tools/sdk_version.env`锁定，记录当前仓库配套的`kuavo-ros-opensource`仓库分支与tag（如`master`/`1.4.5`），也可按照`scripts/sdk_tools/sdk_config.sh.example`模板自行设定覆盖版本，前提是确保与`kuavo-ros-opensource`仓库保持一致。
 
 SDK 安装成功后验证：
 
 ```bash
 python3 -c 'from kuavo_humanoid_sdk import KuavoRobot; print("SDK Ready")'
 ```
-
-<details>
-<summary>📖 ROS 工作空间说明</summary>
-
-ROS 相关内容在 `infrastructure/ros_packages/`，典型 catkin 工作空间结构：
-
-```text
-ros_packages/
-├── src/       # ROS package 源码
-├── build/     # 编译中间文件
-├── devel/     # 编译产物和 setup.bash
-└── logs/      # 编译日志
-```
-
-ROS 中常见概念：
-
-| 概念      | 说明             | 常用命令                                      |
-| ------- | -------------- | ----------------------------------------- |
-| Node    | 独立运行的 ROS 程序   | `rosnode list`                            |
-| Topic   | 持续发布/订阅的数据通道   | `rostopic list`, `rostopic echo /topic`   |
-| Message | Topic 中传输的数据结构 | `rosmsg show <type>`                      |
-| Service | 一次请求一次响应的接口    | `rosservice list`, `rosservice call /srv` |
-| Action  | 带目标、反馈、结果的长任务  | `rostopic list` 查看 action 相关 topic        |
-| TF      | 坐标变换系统         | `rosrun tf tf_echo base_link camera_link` |
-| Launch  | 一次启动多个节点       | `roslaunch pkg file.launch`               |
-
-</details>
-
-> 🚀 仿真环境部署与运行见 [安装步骤](docs/02-环境安装/03-安装步骤.md)
 
 ***
 
@@ -168,12 +134,11 @@ ROS 中常见概念：
 
 ```bash
 python3 apps/test_upper_init/run_behavior_tree_json.py \
-  --scenario orchestration/scenarios/scenarios_internal/refactored_sdk_atomic_v1 \
+  --scenario orchestration/scenarios/instructional_case_01 \
   --dry-run --tick-once
 ```
 
-成功时输出末尾包含 `[apps][dry-run] tick 后根状态: Status.SUCCESS`（dry-run 的退出码只反映加载是否成功，不反映 tick 结果）。dry-run 只验证 import、JSON 结构和节点加载，不验证 ROS 服务与实际运动，
-详见 [01-最小可运行示例.md](docs/04-简单案例运行/01-最小可运行示例.md)。
+成功时输出末尾包含`[apps][dry-run] tick 后根状态: Status.SUCCESS`。
 
 ***
 
@@ -194,8 +159,7 @@ python3 apps/test_kuavo_5w_sdk_adapter/sdk/01_head/test_head_control.py
 
 ### 🔗 Step 3 — 理解调用链路
 
-<details>
-<summary>📝 单个动作如何被执行</summary>
+📝 单个动作如何被执行
 
 以"头部转动"为例：
 
@@ -211,10 +175,7 @@ adapters/hardware/leju_wheeled/services/sdk_manager/low_level_sdk_manager.py
 机器人仿真或真机头部执行动作
 ```
 
-</details>
-
-<details>
-<summary>📝 行为树任务如何执行</summary>
+📝 行为树任务如何执行
 
 以 `refactored_sdk_atomic_v1` 场景为例：
 
@@ -234,10 +195,7 @@ adapters/hardware/leju_wheeled/*.py
 机器人执行动作
 ```
 
-</details>
-
-<details>
-<summary>📝 三种硬件控制路径</summary>
+📝 三种硬件控制路径
 
 `LejuWheeledArmHardware` 支持三类控制方式：
 
@@ -246,8 +204,6 @@ adapters/hardware/leju_wheeled/*.py
 | 标准接口     | `send_base_pose`, `control_head`, `arm_reset` | ROS 话题/服务或封装后的 SDK                       | 普通应用、Skill、行为树         |
 | SDK 直调   | `*_sdk`，如 `control_head_sdk`                  | Adapter 内部 SDK 管理服务 → `kuavo_humanoid_sdk` | 高频控制、SDK 示例、底层验证       |
 | TimedCmd | `*_timed`, `send_timed_*`                     | TimedCmdManager -> ROS 服务                | 带时间规划、多规划器、Ruckig、离线轨迹 |
-
-</details>
 
 > 📘 **推荐阅读顺序：** 新手建议按以下顺序阅读和运行：
 >
@@ -313,8 +269,7 @@ LeTools
 
 > 📘 小结：`core` 定规则，`adapters` 接硬件，`drivers/infrastructure` 管底层通信，`skills` 封动作，`orchestration` 排任务，`apps` 负责把这些能力跑起来。
 
-<details>
-<summary>📖 目录与关键文件说明</summary>
+📖 目录与关键文件说明
 
 ### `core/` 核心领域层
 
@@ -413,15 +368,15 @@ LeTools
 | `orchestration/engine/behavior_tree_factory.py`            | JSON -> PyTrees 的核心工厂，负责子树、参数、动态导入节点                              |
 | `orchestration/engine/behavior_tree_controller.py`         | 行为树控制器，负责加载树、tick、终态和服务                                           |
 | `orchestration/engine/behavior_tree_engine.py`             | 较基础的行为树运行封装                                                       |
-| `orchestration/engine/py_trees_compat.py`                  | 兼容不同 py\_trees 版本差异                                               |
+| `orchestration/engine/py_trees_compat.py`                  | 兼容不同 pytrees 版本差异                                                 |
 | `orchestration/nodes/base_node.py`                         | 行为节点基类，保存 label、params、blackboard 等                               |
 | `orchestration/nodes/*_sdk_move.py`                        | 新版 SDK 原子节点，通常一个节点对应一个 `refactored_sdk` 技能                        |
 | `orchestration/nodes/async_decorator.py`                   | 异步装饰器，让节点可在线程中执行，配合 Parallel 做真实并行                                |
 | `orchestration/nodes/wait_seconds.py`, `wait_for_enter.py` | 等待节点                                                              |
 | `orchestration/scenarios/`                                 | 行为树场景目录，每个场景包含 `py_tree.json`, `py_tree_child.json`, `board.json` |
-| `orchestration/tasks/`                                     | 任务级 YAML 配置，如 arm\_test、arm\_trajectory、smt\_tray                 |
+| `orchestration/tasks/`                                     | 任务级 YAML 配置，如 armtest、armtrajectory、smttray                       |
 | `orchestration/services/blackboard_service.py`             | 黑板读写服务封装                                                          |
-| `orchestration/utils/blackboard_utils.py`                  | JSON 黑板参数写入 py\_trees blackboard                                  |
+| `orchestration/utils/blackboard_utils.py`                  | JSON 黑板参数写入 pytrees blackboard                                    |
 | `orchestration/utils/manifest_decorators.py`               | 节点元数据装饰器，给前端/节点库使用                                                |
 | `orchestration/utils/node_utils.py`                        | 节点库、参数、类型、manifest 工具函数                                           |
 | `orchestration/web_ui/`                                    | 前端/Studio 使用的树和节点 JSON 数据                                         |
@@ -485,8 +440,6 @@ LeTools
 
 文档首页见 [`docs/README.md`](docs/README.md)（按 01–07 章组织，首页提供快速开始与二次开发两条阅读路线）。
 
-</details>
-
 ***
 
 ## 📚 功能模块导航
@@ -505,8 +458,7 @@ LeTools
 |   🌳 **行为树任务**  | 从 JSON 加载动作流程，支持顺序、并行、等待、黑板参数、子树复用                | `apps/test_upper_init/run_behavior_tree_json.py`               |
 | 📦 **ROS 基础设施** | 消息定义、相机驱动、TF 转发、YOLO/AprilTag、ROS 包编译             | `infrastructure/ros_packages/`                                 |
 
-<details>
-<summary>🔧 底盘运动 — 代码位置</summary>
+🔧 底盘运动 — 代码位置
 
 | 层级 | 文件/目录                                                                  | 作用                                                                      |
 | -- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
@@ -521,10 +473,7 @@ LeTools
 | 示例 | `apps/test_kuavo_5w_sdk_adapter/sdk/04_base/`                           | 底盘 SDK 验证脚本                                                             |
 | 示例 | `apps/jibot_adapter/`                                                          | JiBot 上位机服务迁移测试                                                         |
 
-</details>
-
-<details>
-<summary>🔧 手臂控制 — 代码位置</summary>
+🔧 手臂控制 — 代码位置
 
 | 层级     | 文件/目录                                                                      | 作用                                                   |
 | ------ | -------------------------------------------------------------------------- | ---------------------------------------------------- |
@@ -541,10 +490,7 @@ LeTools
 | 节点     | `orchestration/nodes/arm_*_sdk_move.py`                                    | 行为树手臂节点                                              |
 | 示例     | `apps/test_kuavo_5w_sdk_adapter/sdk/02_arm/`                                | 手臂关节/末端/复位示例                                         |
 
-</details>
-
-<details>
-<summary>🔧 腿部和躯干 — 代码位置</summary>
+🔧 腿部和躯干 — 代码位置
 
 | 层级     | 文件/目录                                                                          | 作用                                            |
 | ------ | ------------------------------------------------------------------------------ | --------------------------------------------- |
@@ -557,10 +503,7 @@ LeTools
 | 节点     | `orchestration/nodes/leg_joint_sdk_move.py`, `torso_reset_sdk_move.py`         | 行为树腿部/躯干节点                                    |
 | 示例     | `apps/test_kuavo_5w_sdk_adapter/sdk/03_lower_body/`                             | 腿部和躯干示例                                       |
 
-</details>
-
-<details>
-<summary>🔧 头部控制 — 代码位置</summary>
+🔧 头部控制 — 代码位置
 
 | 层级 | 文件/目录                                                          | 作用                            |
 | -- | -------------------------------------------------------------- | ----------------------------- |
@@ -570,10 +513,7 @@ LeTools
 | 节点 | `orchestration/nodes/head_control_sdk_move.py`, `move_head.py` | 行为树头部节点                       |
 | 示例 | `apps/test_kuavo_5w_sdk_adapter/sdk/01_head/`                   | 头部控制示例                        |
 
-</details>
-
-<details>
-<summary>🔧 相机和视觉 — 代码位置</summary>
+🔧 相机和视觉 — 代码位置
 
 | 层级    | 文件/目录                                                                   | 作用                    |
 | ----- | ----------------------------------------------------------------------- | --------------------- |
@@ -588,10 +528,7 @@ LeTools
 | ROS 包 | `infrastructure/ros_packages/src/ros_vision/`                           | AprilTag、YOLO、工业检测节点  |
 | 示例    | `apps/test_camera_adapter/`                                             | 相机适配层测试               |
 
-</details>
-
-<details>
-<summary>🔧 末端执行器、抓取和力控 — 代码位置</summary>
+🔧 末端执行器、抓取和力控 — 代码位置
 
 | 层级 | 文件/目录                                                                        | 作用                           |
 | -- | ---------------------------------------------------------------------------- | ---------------------------- |
@@ -601,10 +538,7 @@ LeTools
 | 适配 | `adapters/hardware/leju_wheeled/mixins/force_control_mixin.py`               | 末端期望力、外力、挥空检测、接触力参数          |
 | 技能 | `skills/atomic/grasp_skill.py`, `skills/atomic/manipulation/pick/`, `place/` | 抓取/放置相关技能                    |
 
-</details>
-
-<details>
-<summary>🔧 模式切换和状态反馈 — 代码位置</summary>
+🔧 模式切换和状态反馈 — 代码位置
 
 | 层级   | 文件/目录                                                           | 作用                                           |
 | ---- | --------------------------------------------------------------- | -------------------------------------------- |
@@ -615,14 +549,11 @@ LeTools
 | 示例   | `apps/test_kuavo_5w_sdk_adapter/sdk/05_mode/`                    | 控制模式测试                                       |
 | 示例   | `apps/test_kuavo_5w_sdk_adapter/sdk/06_feedback/`                | 状态反馈测试                                       |
 
-</details>
-
 ***
 
 ## 🌳 行为树与扩展
 
-<details>
-<summary>📖 行为树 JSON 如何工作</summary>
+📖 行为树 JSON 如何工作
 
 一个标准场景目录通常包含：
 
@@ -671,10 +602,7 @@ adapters/hardware/leju_wheeled/services/sdk_manager/low_level_sdk_manager.py
 机器人执行头部动作
 ```
 
-</details>
-
-<details>
-<summary>📖 如何新增一个动作或任务</summary>
+📖 如何新增一个动作或任务
 
 ### 只新增任务流程
 
@@ -715,8 +643,6 @@ skills/atomic/refactored_sdk/my_action.py       # MyActionSkill
 orchestration/nodes/my_action_move.py           # MyActionMove
 ```
 
-</details>
-
 ***
 
 ## 💬 常见问题
@@ -725,8 +651,7 @@ orchestration/nodes/my_action_move.py           # MyActionMove
 
 以下是几个最常见的快速解决：
 
-<details>
-<summary>❓ catkin build 报找不到 empy</summary>
+❓ catkin build 报找不到 empy
 
 ```text
 Unable to find either executable 'empy' or Python module 'em'
@@ -742,10 +667,7 @@ catkin config --cmake-args -DEMPY_EXECUTABLE=/usr/bin/empy3
 catkin build
 ```
 
-</details>
-
-<details>
-<summary>❓ 已安装 python3-empy，但报 No module named 'catkin_pkg'</summary>
+❓ 已安装 python3-empy，但报 No module named 'catkin_pkg'
 
 如果日志中出现 `/home/<用户名>/anaconda3/bin/python3`，说明 conda Python 抢占了 ROS 编译环境。
 
@@ -759,10 +681,7 @@ catkin config --cmake-args -DPYTHON_EXECUTABLE=/usr/bin/python3 -DEMPY_EXECUTABL
 catkin build
 ```
 
-</details>
-
-<details>
-<summary>❓ realsense2_camera 编译失败</summary>
+❓ realsense2_camera 编译失败
 
 如果暂时不用 RealSense：
 
@@ -773,10 +692,7 @@ catkin build
 
 需要 RealSense 时再安装 `librealsense2-dev librealsense2-utils`，如果 apt 找不到包，需要先配置 Intel RealSense 源。
 
-</details>
-
-<details>
-<summary>❓ scripts/sdk_tools/install.sh 找不到</summary>
+❓ scripts/sdk_tools/install.sh 找不到
 
 `scripts/sdk_tools/install.sh` 在项目根目录下，不在 ROS 工作空间里。
 
@@ -786,10 +702,7 @@ chmod +x scripts/sdk_tools/install.sh
 ./scripts/sdk_tools/install.sh
 ```
 
-</details>
-
-<details>
-<summary>❓ SDK submodule 克隆超时</summary>
+❓ SDK submodule 克隆超时
 
 典型错误：
 
@@ -812,8 +725,6 @@ cd ~/LeTools
 ./scripts/sdk_tools/remove.sh --purge
 ./scripts/sdk_tools/install.sh
 ```
-
-</details>
 
 ***
 
