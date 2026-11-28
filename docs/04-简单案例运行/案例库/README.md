@@ -9,7 +9,7 @@
 | 学会加载、读树与看输出 | [最小可运行示例](../01-最小可运行示例.md)、[行为树最小示例](../03-行为树最小示例.md) | `studio_smoke_v1` 等教学配置 | 干跑只检查加载和 tick，不验证实体动作 |
 | 单部位顺序动作 | [头部顺序动作](../06-头部顺序动作-instructional_case_01.md) | `instructional_case_01`，`Sequence` + 等待节点 | 仿真 / 真机须先启动控制器与 TF 转发 |
 | 头部与双臂并行动作 | [手臂与头部并行](../07-手臂与头部并行-instructional_case_02.md) | `instructional_case_02`，阶段 1 为 TimedCmd 单目标，其余 4 段为 SDK 两关键点轨迹 | 先确认外部模式及轨迹起点；节点不验收到位 |
-| 头部、躯干与双臂串行 | [头手躯干串行](../08-头手躯干串行-instructional_case_03.md) | `instructional_case_03`，每阶段 `HeadControlSdkMove → MultiTimedCommandMove`（planner 2 位姿）`→ ArmJointTimedMove`（14D 关节） | 两次 TimedCmd 按规划时长等待，非实测到位；结束不自动恢复模式 |
+| 头部、躯干与双臂串行 | [头手躯干串行](../08-头手躯干串行-instructional_case_03.md) | `instructional_case_03`，每阶段 `HeadControlSdkMove → MultiTimedCommandMove`（planner 2 位姿）`→ TimedArmJoint`（14D 关节） | 两次 TimedCmd 按规划时长等待，非实测到位；结束不自动恢复模式 |
 | 底盘与上身并行 | [头手躯干与底盘并行](../09-头手躯干与底盘并行-instructional_case_04.md) | `instructional_case_04`，JiBot 底盘相对旋转 | 需真机 JiBot 底盘；底盘任务只提交不检查到达 |
 | 测试部门 01→04 顺序联测 | [case05 运行说明](../../../orchestration/scenarios/instructional_case_05/README.md) | `instructional_case_05`，顺序执行 01–04 子树，相邻案例间用公共 `WaitSeconds` 等待 2 秒，board 键按案例加前缀隔离 | 非 dry-run 包含 JiBot 真机动作；成功仅表示现有节点返回，不新增到达等待、模式恢复或复位 |
 | Tag 与搬箱 | [搬箱场景](../10-搬箱场景-grasp_mtbf.md) | `grasp_mtbf` | 需要地图导航与真实 Tag；虚拟 Tag 只用于干跑和仿真 |

@@ -3,7 +3,7 @@
 被测对象: orchestration.nodes.torso_reset_sdk_move.TorsoResetSdkMove
 节点生命周期: initialise() → 循环 update() → SUCCESS/FAILURE
 底层路径: 节点 get_shared_hardware() → TorsoResetSdkSkill → hardware.reset_torso_to_initial()
-         → torso_control_mixin（ROS 服务 /mobile_manipulator_reset_torso，无 SDK 管理器）→ whitelist=[]
+         → torso_mixin（ROS 服务 /mobile_manipulator_reset_torso，无 SDK 管理器）→ whitelist=[]
 STUDIO_DRY_RUN=1 时节点在 initialise() 短路，update() 直接返 SUCCESS。
 
 测试用例说明:
@@ -32,7 +32,7 @@ def test_reset():
 
 
 def main():
-    # torso_control_mixin 走 ROS 服务，无 SDK 管理器
+    # torso_mixin 走 ROS 服务，无 SDK 管理器
     set_hardware_config(whitelist=[])
     try:
         node_setup(need_arm=False)

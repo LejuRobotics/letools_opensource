@@ -297,7 +297,7 @@ python3 orchestration/main.py \
 
 ### 新建场景标准流程
 
-1. **复制基础模板**：复制 `studio_smoke_v1` 或 `refactored_sdk_single_tag_pick_v0`，不要直接改产线真机树。
+1. **复制基础模板**：复制 `studio_smoke_v1` 或 `refactored_sdk_atomic_v1`，不要直接改产线真机树。
 2. **配置黑板参数**：改 `board.json` 的 Tag ID、位姿目标、几何尺寸。
 3. **编排主树**：调整 `py_tree.json` 的 `childs` 顺序，确认每个 `name` 都已实现。
 4. **抽离重复逻辑**：多次复用的段落写进 `py_tree_child.json`。
@@ -427,7 +427,7 @@ grep -rho '"name"[[:space:]]*:[[:space:]]*"[^"]*"' \
 - 只有 `*SdkMove` → 仿真 / 真机均可；
 - 任意组合 → 均可干跑。
 
-`dismantle_box_demo_action` 的子树叫 `demo_jibot_nav.json`，但里面全是纯 SDK 节点，实际不依赖 JiBot——这就是「按类名判」的反例。
+子树名称不能证明其硬件依赖；应按实际节点类及其调用路径判断。
 
 ## 05.07 节点清单与口径说明
 

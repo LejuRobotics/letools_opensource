@@ -4,6 +4,7 @@ Ruckig规划器参数数据结构
 用于配置运动规划器的速度、加速度、急动度限制。
 """
 
+import math
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -178,3 +179,40 @@ class RuckigParams:
             acceleration_max=[acc_xyz, acc_xyz, acc_xyz, acc_rpy, acc_rpy, acc_rpy],
             jerk_max=[jerk_xyz, jerk_xyz, jerk_xyz, jerk_rpy, jerk_rpy, jerk_rpy],
         )
+
+
+def validate_torso_ruckig_params(
+    mode: str, velocity_max: List[float], acceleration_max: List[float],
+    jerk_max: List[float], velocity_min: Optional[List[float]] = None,
+    acceleration_min: Optional[List[float]] = None, is_sync: bool = True,
+) -> dict:
+    """四维躯干规划限制，返回副本；单位由调用边界定义，本函数不换单位。
+
+    最大值严格正，下界严格负且小于对应上界；None下界显式取-max。
+    不限制正负方向幅值对称，允许人工指定不对称约束。不改变旧RuckigParams。
+    """
+    if mode not in ("pose", "joint"):
+        raise ValueError("mode 必须为pose或joint")
+    if type(is_sync) is not bool:
+        raise ValueError("is_sync 必须为bool")
+
+    def vector(value, name, positive):
+        if not isinstance(value, (list, tuple)) or len(value) != 4:
+            raise ValueError(f"{name} 必须为4维列表")
+        if any(isinstance(v, bool) for v in value):
+            raise ValueError(f"{name} 不接受bool")
+        try:
+            values = [float(v) for v in value]
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"{name} 必须为有限数字") from exc
+        if not all(math.isfinite(v) and (v > 0 if positive else v < 0) for v in values):
+            raise ValueError(f"{name} 必须为有限{'正' if positive else '负'}数")
+        return values
+
+    vmax = vector(velocity_max, "velocity_max", True)
+    amax = vector(acceleration_max, "acceleration_max", True)
+    jmax = vector(jerk_max, "jerk_max", True)
+    vmin = [-v for v in vmax] if velocity_min is None else vector(velocity_min, "velocity_min", False)
+    amin = [-v for v in amax] if acceleration_min is None else vector(acceleration_min, "acceleration_min", False)
+    return dict(mode=mode, velocity_max=vmax, acceleration_max=amax, jerk_max=jmax,
+                velocity_min=vmin, acceleration_min=amin, is_sync=is_sync)

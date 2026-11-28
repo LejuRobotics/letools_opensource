@@ -1,6 +1,6 @@
 # refactored_sdk 原子技能集合
 
-从可跑通测试脚本抽取的 Adapter 原子技能，每个技能封装了 **一个** `hardware.xxx()` 调用。
+从测试脚本抽取的原子技能，基于 `IHardware` 组合发令和模式准备；具体副作用以各技能参数为准。
 
 路径基准：技能清单中的文件名相对 `skills/atomic/refactored_sdk/`；仅写文件名的 `*_mixin.py` 相对 `adapters/hardware/leju_wheeled/mixins/`；节点文件位于 `orchestration/nodes/`。其余带目录的项目路径均相对 LeTools 仓库根目录，命令从仓库根目录执行。人工分层测试入口位于 `apps/test_internal/{adapters,skills,nodes}/`，不要与框架实现目录混淆。
 
@@ -22,11 +22,14 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 
 ### 1. 手臂控制
 
+#### 六种新控制技能的完成语义
+
+`set_arm_joint/pose`、`set_arm_joint_traj/pose_traj`、`timed_arm_joint/pose` 及对应 Node 只执行一次发送调用并缓存结果，不包含反馈到位检查。`is_finished()` 表示已有调用结果，节点 SUCCESS 不保证机械臂到位；不会自动调用 `get_arm_joint()` / `get_arm_pose()` 轮询反馈。
+
+Timed 技能透传服务结果，不根据 `actual_time` 等待机械运动完成；同步 SDK 轨迹仍阻塞当前 tick，发送调用返回后即完成技能，不追加末帧验收。`timeout` 仍为技能生命周期超时，不是运动时长或到位等待时长。既有模式准备、focus 设置及 Adapter 反馈查询接口保持不变，详见下文各接口说明。
+
 | 技能文件 | 功能 | 调用的 Adapter 方法 | 底层链路 |
 |---------|------|-------------------|---------|
-| `arm_ee_traj_local_sdk.py` | 手臂末端轨迹（本体坐标系 `base_link`） | `hardware.send_arm_ee_traj_sdk(frame='base_link')` | `sdk_control_mixin.py` → `ArmSDKManager.move_eef_traj_auto()` → `robot_sdk.control.control_robot_end_effector_pose()` |
-| `arm_ee_traj_world_sdk.py` | 手臂末端轨迹（世界坐标系 `world`） | `hardware.send_arm_ee_traj_sdk(frame='world')` | 同上 |
-| `arm_joint_timed.py` | 双臂 14 关节单目标控制（TimedCmd） | `hardware.send_arm_joint_timed()` | 一次下发 `[左臂 J0-J6, 右臂 J0-J6]`，等待规划运动完成 |
 | `arm_joint_traj_sdk.py` | 手臂 14 关节轨迹（多关键点，自动 MPC） | `hardware.send_arm_joint_traj_sdk()` | `sdk_control_mixin.py` → `ArmSDKManager.move_joint_traj_auto()` → `robot_sdk.control.control_arm_joint_positions()` |
 | `set_arm_joint.py` | 双臂关节单目标发送（固定deg） | `hardware.set_arm_joint(joint)` | `ArmMixin` → 已有 `LowLevelSDKManager.control_arm_joint_positions()` → 原生SDK |
 | `set_arm_joint_traj.py` | ArmAPI按总时间重采样双臂关节轨迹（deg） | `hardware.set_arm_joint_traj(joint_traj, total_time)` | `ArmMixin` → LowLevelSDKManager → ArmAPI.move_joint_traj |
@@ -43,7 +46,6 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 **参数说明**：
 - 末端轨迹点格式：`[x, y, z, qx, qy, qz, qw]`（位置 + 四元数）
 - 关节角度格式：14 个 float，顺序 `[左臂J0-J6, 右臂J0-J6]`（用户角度单位），镜像规则 J0/J3/J6 保持原值，J1/J2/J4/J5 取反
-- `arm_joint_timed.py` 接收一个 14 维目标姿态，不是多关键点轨迹；角度遵循 Adapter 的 `angle_unit`，默认是度
 
 ### 新双臂关节接口
 
@@ -78,11 +80,20 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 ### 控制器端MultiCmd关节目标
 
 - `timed_arm_joint(left_arm_joint=None, right_arm_joint=None, desire_time=None, is_sync=True)`：左右各7维deg，至少提供一侧；None表示不提交，空列表/错误维度/非有限值失败。desire_time必须为大于0的有限秒数。固定deg，不受旧angle_unit影响。
-- 调用链为Node → Skill → IHardware → 新 `TimedCmdMixin`（timedcmd_mixin.py）→ 已有TimedCmdManager.send_multi_commands → `/mobile_manipulator_timed_multi_cmd`。左臂只发planner8，右臂只发planner9，双臂在同一请求中发8+9，角度在新Mixin中只转换一次到rad。
+- 调用链为Node → Skill → IHardware → 新 `TimedCmdMixin`（timedcmd_mixin.py）→ 已有TimedRosManager.send_multi_commands → `/mobile_manipulator_timed_multi_cmd`。左臂只发planner8，右臂只发planner9，双臂在同一请求中发8+9，角度在新Mixin中只转换一次到rad。
 - `is_sync=True`统一本次规划器时长，**不是Python等待机械完成**。Result.data透传服务的actual_time；不是到位实测，也不是硬速度上限。服务返回失败不伪装成功。
-- 未提交的另一臂不补零、不读反馈来合成保持指令，不停止或覆盖其已有轨迹；并发/之前未结束的运动仍可继续。控制模式、限速和实际规划能力由调用方与控制器确认，封装不自动切模式或恢复。
-- 与 `set_arm_joint_traj`（原生ArmAPI客户端100Hz重采样）分开；旧send_arm_joint_timed/send_timed_multi_commands行为不变。需timed Manager，只有low白名单不能调用本接口。
-- Skill/Node为TimedArmJoint，参数同名，节点支持JSON及运行时黑板输入，dry-run仅校验不访问硬件。示例在apps/test_internal三层目录，参数留空、无命令行输入，单独启用timed Manager；测试见tests/test_multicmd_arm_joint.py。
+- 未提交的另一臂不补零、不读反馈来合成保持指令，不停止或覆盖其已有轨迹；并发/之前未结束的运动仍可继续。运动Adapter不切模式；Skill/Node默认 `prepare_arm_control=True`，先请求 `set_arm_control_mode(2)` 成功后提交目标，False时跳过。失败/异常缓存且不发令，不经模式1、不自动恢复或重试。切2可能激活残留目标，调用前须确认控制器状态，不能当作清空、停止或实时模式确认。
+- 与 `set_arm_joint_traj`（原生ArmAPI客户端100Hz重采样）分开；ROS1 旧双臂 send_arm_joint_timed 已退役，send_timed_multi_commands 保留；ROS2 同名兼容接口保留。需ROS timed Manager；SDK low仅用于模式准备。
+- Skill/Node为TimedArmJoint；节点还支持互斥的14D `joint_angles` 输入（运行时拆分），以及 `actual_time_output_key` 输出时长（字段缺失（含无返回数据）回退本次desire_time），供独立WaitSeconds读取。发送技能不等待。其他参数同名，节点支持JSON及运行时黑板输入，dry-run仅校验不访问硬件。示例在apps/test_internal三层目录，现场参数以脚本为准；Adapter仅需ROS timed，Skill/Node默认模式准备另需low Manager。不提供focus参数。离线测试见tests/test_timed_arm_joint.py。
+
+### 控制器端MultiCmd末端目标
+
+- `timed_arm_pose(left_pose=None, right_pose=None, desire_time=None, frame='local', is_sync=True)`：至少提供一侧6维 `[x,y,z,yaw,pitch,roll]`，固定m/deg；时长必填大于0。None表示不提交该臂，不补默认位姿、不停止其既有运动。
+- `local/base_link`对应左planner6右planner7；`world/odom`对应左4右5。未知frame直接失败。位置保持米，只有姿态deg→rad，独立于旧angle_unit配置。
+- 复用TimedRosManager的multi服务，双臂仅一次请求；is_sync仅表示规划时长同步，返回actual_time但不等待到位。运动Adapter不切模式、不改控制流、不自动归位或停止。
+- Skill/Node默认 `prepare_arm_control=True`，先调用 `set_arm_control_mode(2)`，返回成功后才设置focus并提交目标；设False可跳过，由调用方负责准备。模式准备失败/异常会缓存失败，不设置focus、不提交目标，不经模式1、不自动切回或重试。Skill/Node示例启用ROS timed + SDK low Manager（模式入口需low），Adapter仍只需ROS timed。切2可能激活控制器已有目标，调用前必须人工确认无危险残留；此选项不是清空/停止机制，也不保证SDK缓存与实机模式一致。
+- `TimedArmPoseParams` 中的 `focus_ee`、`focus_z` 分别接受bool或None，默认None不修改已有焦点；显式值由Skill按ee→z调用独立Adapter话题封装，再调用纯运动 `timed_arm_pose`，不作为MultiCmd请求参数。ee=True末端优先（躯干可能参与）、False躯干优先；z为Z焦点跟随开关。设置失败不发令，失败Result原样透传；已生效的设置不回滚、结束不恢复，两次发布与服务请求非原子，也不保证控制器已应用。focus是全局持久状态，单臂请求也可能影响全身，False/False不保证躯干绝对不动。不新增独立focus Skill/Node。
+- 对应 `TimedArmPoseSkill` / `TimedArmPose`，支持运行时黑板输入与dry-run校验。旧末端Timed接口保留，不改写旧场景。三层人工示例为 `apps/test_internal/{adapters,skills,nodes}/timed_arm_pose.py`，Adapter示例只发目标，Skill/Node示例支持focus；现场已填写的目标与时长以文件为准；测试见 `tests/test_timed_arm_pose.py`。
 
 ### SDK ArmAPI定时执行
 
@@ -129,6 +140,20 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 - 旧接口、旧技能节点和场景保留；IHardware 新方法默认返回不支持，不增加抽象方法要求。
 - 离线测试见 tests/test_head_pose.py、tests/test_head_pose_app_scripts.py 和 LowLevelSDKManager 的测试，不发送真机指令。
 
+### 躯干单帧输入（新增，不替换旧路径）
+
+| Skill / Node | 必填输入 | SDK 链路 |
+|---|---|---|
+| `SetTorsoJointSkill` / `SetTorsoJoint` | `joint=[knee,leg,waist_pitch,waist_yaw]`，4维deg | `TorsoMixin` → `LowLevelSDKManager.control_wheel_lower_joint` → SDK同名方法 |
+| `SetTorsoPoseSkill` / `SetTorsoPose` | `pose=[x,z,yaw,pitch]`，4维m/deg | `TorsoMixin` → `LowLevelSDKManager.control_torso_6dof` → SDK `control_torso_pose` |
+
+- 参数默认空，不提供默认物理目标；拒绝维度错误、bool、NaN/inf。公共单位不受 `angle_unit` 影响。
+- 关节保持deg下发；位姿映射SDK `(x,0,z,0,pitch_rad,yaw_rad)`，固定y/roll为0并将角度转rad。参考语义沿用控制器当前配置，不提供frame切换或TF变换。
+- 使用已初始化的 `low` Manager。只调用一次并缓存Result（包括失败/异常）；成功data=None，仅表示SDK报告发送成功。Skill不自动切模式/focus、不插值、不sleep、不查询反馈、不保证单帧能完成运动。取消不撤销已发送目标。
+- Node支持JSON数组与运行时READ_BOARD；dry-run只校验，不获取硬件。已有SDK/Timed/ROS接口、Skill和场景均保留，不能将带插值的旧动作直接换成单帧节点。
+- 离线回归：`tests/test_set_torso.py`，全部使用Mock，不下发真机指令。
+- 三层人工入口：`apps/test_internal/{adapters,skills,nodes}/set_torso_joint.py` 和 `set_torso_pose.py`，目标默认空，先校验后初始化硬件，仅启用low Manager；说明见 `apps/test_internal/_torso_test.md`。
+
 ### 4. 通用 TimedCmd
 
 | 技能文件 | 功能 | 调用的 Adapter 方法 | 底层链路 |
@@ -154,8 +179,6 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 
 | 技能 | 测试脚本 |
 |------|---------|
-| `arm_ee_traj_local_sdk` | `apps/test_kuavo_5w_refactored/sdk/02_arm/test_arm_ee_traj_local.py` |
-| `arm_ee_traj_world_sdk` | `apps/test_kuavo_5w_refactored/sdk/02_arm/test_arm_ee_traj_world.py` |
 | `arm_joint_traj_sdk` | `apps/test_kuavo_5w_refactored/sdk/02_arm/test_arm_joint_traj.py` |
 | `arm_reset_sdk` | `apps/test_kuavo_5w_refactored/sdk/02_arm/test_arm_reset.py` |
 | `base_pose_local` | `apps/test_kuavo_5w_refactored/sdk/01_base_control/test_cmd_pose_base.py` |
@@ -177,4 +200,83 @@ Skill (本层)         →  Node (orchestration/nodes/)  →  JSON 行为树
 | 硬件工厂 | `adapters/hardware/factory.py` |
 | 共享硬件单例 | `orchestration/shared_hardware.py` |
 | 编排节点（薄封装） | `orchestration/nodes/` |
-| 行为树场景 | `orchestration/scenarios/scenarios_internal/refactored_sdk_arm_v1/` |
+| 行为树场景 | `orchestration/scenarios/scenarios_internal/refactored_sdk_atomic_v1/` |
+
+## 躯干 Timed 控制补充
+
+| IHardware方法 | Skill / Node | 必填目标 | planner |
+|---|---|---|---|
+| `timed_torso_joint(joint, desire_time, is_sync=True)` | `TimedTorsoJointSkill` / `TimedTorsoJoint` | `[knee,leg,waist_pitch,waist_yaw]`，4维deg | 3 |
+| `timed_torso_pose(pose, desire_time, is_sync=True)` | `TimedTorsoPoseSkill` / `TimedTorsoPose` | `[x,z,yaw,pitch]`，4维m/deg | 2 |
+
+- 均由 `TimedCmdMixin` → `TimedRosManager.send_multi_commands()` 发一次MultiCmd请求（即便只有一个planner），不经旧的全局angle_unit换算路径。关节4维全部转rad，位姿只转换yaw/pitch；pose不暴露y/roll、不做TF变换。
+- `desire_time` 必填大于0有限秒数，`is_sync` 必须为bool，仅表示规划时长同步；目标默认空。Adapter不切模式/focus，不等待，不使用LowLevelSDKManager发送运动目标。
+- Skill与Timed手臂保持一致：`prepare_arm_control=True` 默认先通过现有模式接口请求模式2（需要low Manager），失败不发目标；False跳过准备。切2可能激活控制器残留手臂目标，操作者须先确认安全。不自动清空目标、改focus/MPC或恢复模式。
+- Skill缓存完整Result及异常失败，不重复发令、不sleep、不检查到位；服务返回 `actual_time` 是规划时长，不是实际反馈或停止证明。
+- Node支持运行期READ_BOARD与dry-run参数校验，可选 `actual_time_output_key` 将规划时长写黑板供独立WaitSeconds使用。初始化清空旧输出，只有缺字段时回退desire_time，显式null/bool/负数/非有限值失败；节点自身不等待。dry-run不获取硬件，输出请求时长仅供编排干跑，不伪造实测反馈。
+- 人工脚本按Adapter/Skill/Node三层放在 `apps/test_internal/` 对应子目录，公共配置与结果校验统一为 `_timed_test.py`，说明见 `apps/test_internal/_timed_test.md`；两个手臂Timed入口也使用该公共模块。旧SDK/Timed接口和场景不删除、不迁移。
+
+## 躯干反馈与SDK关节轨迹
+
+- `get_torso_joint()`：经 `TorsoMixin → LowLevelSDKManager` 读取SDK `joint_state.position[:4]`（rad），Adapter转换为固定deg的 `[knee,leg,waist_pitch,waist_yaw]`。不受angle_unit影响。缺失、短数组或非法值失败，不补零；缓存不保证首帧/新鲜度，不用于证明到位。
+- `set_torso_joint_traj(joint_traj, total_time)`：每帧4维deg，必须是嵌套列表，至少一个关键帧；total_time必填有限数且至少0.01秒（SDK 100Hz采样间隔，非物理限值）。没有默认目标或时长。
+- 链路为 `TorsoMixin → LowLevelSDKManager → TorsoAPI.move_wheel_lower_joint(asynchronous=False)`。Manager先校验参数/反馈，再调用SDK。SDK会再次读取状态、自动插入当前起点、请求MPC ArmOnly、均匀分配关键帧并100Hz重采样发送。不额外切手臂模式或focus，也不自动恢复MPC。前置反馈检查不提供原子快照或新鲜度保证。
+- SDK同步返回None，Result.success仅表示调用未抛异常，data=None。SDK内部不汇总模式切换和逐帧发送的bool，因此不能保证逐帧接收或实测到位。不提供actual_time；阻塞当前tick，Skill超时/cancel无法中断同步SDK循环，不适合要求可取消的Parallel。
+- Skill缓存完整成功或失败结果，重新初始化后才再次读取/执行。`GetTorsoJoint` 的output_key默认torso_joint，初始化先清空旧输出，失败或dry-run保持None。`SetTorsoJointTraj` 支持运行期黑板轨迹/时长与dry-run校验；干跑不访问硬件。
+- TorsoAPI使用原有low Manager的RobotSDK，惰性创建；shutdown释放其线程池，不与同步执行并行调用。新接口为IHardware可选方法，旧控制链和场景均保留。
+- 人工入口在 `apps/test_internal/{adapters,skills,nodes}/get_torso_joint.py` 与 `set_torso_joint_traj.py`；只启用low Manager，具体见 `apps/test_internal/_torso_test.md`。自动化回归均使用Mock，不执行真机入口。
+
+## MultiCmd ROS管理器迁移
+
+四个新 `timed_arm_joint/pose`、`timed_torso_joint/pose` 及共用 `send_timed_multi_commands` 均由 `TimedRosManager` 直接调用 `/mobile_manipulator_timed_multi_cmd`。新管理器位于 `services/ros_manager/timed_ros_manager.py`，不继承BaseSDKManager、不构造SDK。ROS节点仍由Hardware初始化；Manager初始化只检查ROS就绪，服务发现发生在发送时（5秒，不是整个调用硬截止）。每次调用只发一次，不自动重试、不sleep或切模式。
+
+配置分离：`ros_managers_whitelist=["timed"]` 开启Timed ROS后端（默认同时启用timed、torso、mpc），`skip_ros_managers=True` 或空ROS白名单关闭。`skip_sdk_managers` 仅跳过SDK，不再代表禁用ROS Manager。纯Timed Adapter使用 `sdk_managers_whitelist=[]`；带模式准备的Skill/Node使用 `["low"]`。ROS与SDK白名单中的timed不是同一个管理器。
+
+旧TimedCmdManager的SDK SingleCmd、Ruckig/离线轨迹/IK可达性路径本次保留，其send_multi_commands仅兼容转发到TimedRosManager，协议构造不再重复。旧sdk白名单仍可使用，不强迫旧场景迁移；已有默认硬件配置会同时保留旧SDK能力并初始化新ROS后端。旧共用入口仍按angle_unit转换，新四接口固定m/deg；Result/actual_time、planner与is_sync语义不变。关闭Manager不停止或撤销控制器目标。
+
+## 躯干当前姿态、初始姿态与复位
+
+| 接口 | 后端 | 成功data |
+|---|---|---|
+| `get_torso_pose()` | TorsoMixin → LowLevelSDKManager → SDK TF查询 | `{pose:[x,z,yaw,pitch],frame:'base_link',link:'waist_yaw_link',source:'tf'}` |
+| `get_torso_pose_initial()` | TorsoMixin → TorsoRosManager → 初始姿态服务 | `{pose:[x,z,yaw,pitch],frame:None,source:'initial_service'}` |
+| `reset_torso()` | TorsoMixin → TorsoRosManager → 复位服务 | `{accepted:True,estimated_time:float或None}` |
+
+两种pose公开单位m/deg。当前位姿只查waist_yaw_link相对base_link，不用目标或初始姿态作fallback，不保证TF缓存新鲜度；忽略反馈y/roll只返回四分量，并非将原始TF强制置零。初始服务响应无frame字段，保留来源信息，不伪称做过base_link变换或读取当前实测；服务angular按ROS角度rad转换为公共deg。
+
+复位通过 `/mobile_manipulator_reset_torso` 的SetBool(True)提交，初始查询通过 `/mobile_manipulator_get_torso_initial_pose` 的getLbTorsoInitialPose(isNeed=True)。TorsoRosManager不依赖SDK、不自行init_node，服务发现5秒不代表整调用硬超时，无自动重试。复位成功只代表接受；服务message可解析为非负有限时间时填estimated_time，否则None，不将已接受误报为失败。
+
+两个查询Node的output_key默认torso_pose/torso_pose_initial，初始化清空、失败/dry-run保持None；Skill单次缓存Result，重复tick不重复查询/复位。ResetTorso不切额外模式，不等待或检查到位。旧命名get_torso_initial_pose/reset_torso_to_initial及旧技能均保留。
+
+配置：get_torso_pose需SDK low；初始查询/复位仅需 `ros_managers_whitelist=["torso"]` 且SDK白名单可为空。ROS管理器默认启用timed+torso+mpc，空白名单/skip_ros_managers可禁用。三层人工脚本在apps/test_internal对应目录，reset_torso.py默认CONFIRM_RESET=False，在初始化硬件前拦截，必须人工确认现场安全；关闭硬件不等于撤销已接受的复位。
+
+## 躯干Ruckig持久规划限制
+
+`timed_torso_ruckig_params(mode, velocity_max, acceleration_max, jerk_max, velocity_min=None, acceleration_min=None, is_sync=True)` 经 `TorsoMixin → TimedRosManager` 调用 `/mobile_manipulator_set_ruckig_planner_params`，不初始化SDK。
+
+- mode必填：pose对应planner2，四维[x,z,yaw,pitch]；joint对应planner3，四维[knee,leg,waist_pitch,waist_yaw]。不接受其他planner，不按Timed手臂编号套用。
+- 三个max均必填4维正有限数，两个min若显式填写必须为4维负有限数；省略时明确取对应-max，允许不对称幅值。拒绝bool、NaN/inf、零、错维度，不提供默认物理限制。
+- 公开速度/加速度/jerk单位依次为m/s、m/s²、m/s³或deg/s、deg/s²、deg/s³；pose前两维为线量、后两维角量，joint全为角量。Adapter将所有角量导数统一转rad制，包括下界，不受angle_unit影响。
+- is_sync为规划同步配置，不是Python等待运动完成。服务成功消息透传，data=None；失败/异常返回失败，不自动重试。服务发现5秒不代表整个调用硬超时。
+- 参数会持续影响后续规划，不仅当前动作；这是规划限制，不是硬件安全限值。不发送目标、不切模式/focus、不自动恢复。Skill每次初始化仅设置一次并缓存成功或失败；Node支持运行期黑板和dry-run校验，不增加输出键。
+- 三层人工入口：`apps/test_internal/{adapters,skills,nodes}/timed_torso_ruckig_params.py`。MODE默认空，三个max默认空，先校验再初始化硬件；仅启用ROS timed，SDK白名单为空。操作者确认物理限制后手动执行，不自动配置真机。旧Ruckig接口不改动。
+
+## 独立MPC ROS接口
+
+六接口通过MpcMixin → MpcRosManager，不依赖SDK：
+
+| 设置/查询 | 输入/返回字段 | 值与名称 |
+|---|---|---|
+| set/get_mpc_control_mode | mode | 0 NoControl、1 ArmOnly、2 BaseOnly、3 BaseArm |
+| set/get_mpc_control_flow | flow | 0 ThroughFullBodyMpc、1 DirectToWbc |
+| set/get_mpc_frame | frame | 0 KeepCurrentFrame、1 WorldFrame、2 LocalFrame、3 VRFrame、4 ManipulationWorldFrame |
+
+setter只接受严格整数（不接受bool/浮点/字符串，Node JSON解析后再校验），不接受旧ARM_EE_ONLY=4作为mode。旧Core枚举与旧set_mpc_mode保持不变。新setter成功data=None，仅表示服务接受，不额外查询、切手臂模式、改变其他项或恢复。frame=0表示保持当前，不要求回显为0。
+
+getter每次Skill初始化只调用一次查询服务，成功data为对应字段与name的字典，如 `{mode:1,name:'ArmOnly'}`。服务拒绝/异常/非法返回值直接失败，不回退本地缓存。Node输出键默认mpc_control_mode/mpc_control_flow/mpc_frame，初始化清空，失败/dry-run保持None。重复execute/tick缓存完整Result，不重发；服务发现5秒不代表整个调用硬截止。
+
+按用户确认，旧 `get_mpc_control_mode()->Optional[int]` 改名为 `get_mpc_control_mode_cached()`，保留旧缓存/ROS2查询行为并更新调试脚本。新的同名getter返回Result；ROS2目前明确返回不支持新ROS1服务契约，其他旧能力不变。外部未纳入仓库的旧调用者需自行改用cached名称。
+
+ROS管理器默认启用timed、torso、mpc；可用ros_managers_whitelist=["mpc"]只启用本组，sdk_managers_whitelist=[]。不会自行init_node或初始化SDK。当前固件对模式的实际消费能力须现场确认，服务接受/回显不是安全隔离、停止或控制行为生效证明。SDK已有模式调用路径不被此次替换，旧场景保留。
+
+人工入口在apps/test_internal的adapters/skills/nodes下，六个同名脚本。setter TARGET_MODE/TARGET_FLOW/TARGET_FRAME默认None，必须人工确认后填写；getter不发送设置请求；Node人工入口拒绝dry-run。公共配置与校验见apps/test_internal/_mpc_test.py。

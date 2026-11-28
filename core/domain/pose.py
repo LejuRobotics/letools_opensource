@@ -1,6 +1,6 @@
 # LeTools/core/domain/pose.py
 from dataclasses import dataclass, field
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 import numpy as np
 import math
 
@@ -86,6 +86,28 @@ def validate_arm_frame(frame: str) -> str:
     if not isinstance(frame, str) or frame not in frames:
         raise ValueError("frame 必须为 local/base_link 或 world/odom")
     return frames[frame]
+
+
+def validate_timed_arm_pose_targets(
+    left_pose: Optional[List[float]], right_pose: Optional[List[float]],
+    desire_time: Optional[float], frame: str = "local", is_sync: bool = True,
+) -> Tuple[Optional[List[float]], Optional[List[float]], float, str]:
+    """校验单/双臂定时位姿；None为不提交，返回m/deg副本与规范坐标系。"""
+    if left_pose is None and right_pose is None:
+        raise ValueError("left_pose/right_pose 至少提供一侧")
+    if type(is_sync) is not bool:
+        raise ValueError("is_sync 必须为bool，表示规划器执行时长同步")
+    if isinstance(desire_time, bool):
+        raise ValueError("desire_time 必须为大于0的有限秒数")
+    try:
+        duration = float(desire_time)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("desire_time 必须为大于0的有限秒数") from exc
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("desire_time 必须为大于0的有限秒数")
+    left = None if left_pose is None else validate_arm_pose(left_pose)
+    right = None if right_pose is None else validate_arm_pose(right_pose)
+    return left, right, duration, validate_arm_frame(frame)
 
 
 @dataclass

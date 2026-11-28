@@ -1,7 +1,7 @@
 """
 状态反馈测试
 
-使用的 Adapter 方法: hardware.get_reach_time() / get_mpc_observation() / get_mpc_control_mode()
+使用的 Adapter 方法: hardware.get_reach_time() / get_mpc_observation() / get_mpc_control_mode_cached()
     get_body_acceleration() / get_joint_torque() / get_ee_poses()
 底层路径: StateFeedbackMixin 中的状态查询方法
 
@@ -64,7 +64,7 @@ def test_get_mpc_observation(hardware):
 def test_get_mpc_control_mode(hardware):
     """获取 MPC 控制模式"""
     logger.info("=== 测试：获取 MPC 控制模式 ===")
-    mode = hardware.get_mpc_control_mode()
+    mode = hardware.get_mpc_control_mode_cached()
     if mode is not None:
         mode_names = {
             0: "NO_CONTROL",

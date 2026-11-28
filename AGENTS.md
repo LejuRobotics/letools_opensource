@@ -72,7 +72,7 @@ adapters/          硬件适配器层 — 按机器人平台实现 IHardware
   hardware/
     factory.py       HardwareFactory：根据 config['robot_type'] 创建适配器
     leju_wheeled/    LejuWheeledArmHardware（主力适配器，基于 mixin 组合）
-      mixins/        12 个 mixin：base_control, arm_control, torso_control,
+      mixins/        12 个 mixin：base_control, arm_control, torso,
                      end_effector, timed_command, state_feedback, mode_service,
                      sdk_control, lifecycle, force_control, ik_service,
                      navigation_chassis

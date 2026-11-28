@@ -58,3 +58,17 @@ def test_joint_control_no_traj_returns_running():
         result = node.update()
         assert result == Status.RUNNING
         mock_hw.control.arm_joint_traj.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("dry_run", ["0", "1"])
+@pytest.mark.parametrize("control_type", ["eef", "world", "invalid"])
+def test_removed_eef_branch_fails_before_accessing_hardware(monkeypatch, dry_run, control_type):
+    """废弃末端配置必须明确失败，dry-run 也不能掩盖失效配置。"""
+    monkeypatch.setenv("STUDIO_DRY_RUN", dry_run)
+    with patch("orchestration.nodes.node_wheel_arm.get_shared_hardware") as getter:
+        node = NodeWheelArm("a", "arm", "ns", {"control_type": control_type})
+        node.initialise()
+        assert node.update() == Status.FAILURE
+        assert "旧末端轨迹分支已移除" in node.feedback_message
+        getter.assert_not_called()

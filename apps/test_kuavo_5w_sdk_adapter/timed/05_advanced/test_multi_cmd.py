@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 def _get_torso_initial_pose(hardware):
     """获取躯干初始位姿（走 adapter 接口，符合分层架构）
 
-    委托 hardware.get_torso_initial_pose()（TorsoControlMixin，内部调用同一
+    委托 hardware.get_torso_initial_pose()（TorsoMixin，内部调用同一
     /mobile_manipulator_get_torso_initial_pose 服务），返回
     {'position': [x, y, z], 'euler': [yaw, pitch, roll]}。
     """

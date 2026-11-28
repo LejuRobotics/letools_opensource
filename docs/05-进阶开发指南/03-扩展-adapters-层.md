@@ -14,7 +14,7 @@
 |---|---|
 | `LifecycleMixin` | 初始化与关闭流程 |
 | `BaseControlMixin` | 底盘速度 / 位置控制（ROS 话题） |
-| `TorsoControlMixin` | 躯干位姿控制 + 笛卡尔焦点设置 |
+| `TorsoMixin` | 躯干位姿控制 + 笛卡尔焦点设置 |
 | `ArmControlMixin` | 手臂关节 / 末端位姿 / 腿部关节 |
 | `TimedCommandMixin` | TimedCmd 路径（`_timed` 后缀 + `send_timed_*` + Ruckig / 离线轨迹 / IK） |
 | `ForceControlMixin` | 末端期望力控制（ROS 话题，对齐 LBForceController） |

@@ -19,22 +19,20 @@ Sequence
 
 每个 `Parallel` 使用 `success_on_all`，子节点顺序固定为头部在前、手臂在后。
 `Parallel` 本身不是多线程，而是按顺序 tick 子节点。`HeadControlSdkMove`
-快速下发目标角后返回，随后手臂节点执行定时等待或 SDK 轨迹发送循环；此时
-头部和手臂的物理动作可以重叠，但节点不检测两者是否实测到位。如果把手臂节点放在
-前面，它的等待会阻塞本次 tick，导致头部命令延后。
+快速下发目标角后返回。阶段 1 发送后由独立 `WaitSeconds` 非阻塞返回 `RUNNING`，阶段 2–5 执行阻塞的 SDK 轨迹发送循环。
+头部和手臂的物理动作可以重叠，但不检测实测到位。只有阶段 2–5 把手臂节点放在前面时，SDK 发送循环才会阻塞本次 tick 并延后头部；阶段 1 等待不会阻塞。
 
 `success_on_all` 表示头部和手臂节点都成功后，本阶段才成功；任一节点失败，
 本阶段及外层 `Sequence` 都会失败。这里不需要 `Async` 包裹。
 
 ## 手臂目标
 
-全树共 16 个节点：1 个 `Sequence`、5 个 `Parallel`、10 个叶子节点。
-关节顺序为 `[左臂 J0-J6, 右臂 J0-J6]`，数值按默认 Adapter `angle_unit=deg`
-使用度；`arm_motion_duration_sec=3` 是规划期望/轨迹发送时长，不是实测到位保证。
+全树共 18 个节点：2 个 `Sequence`、5 个 `Parallel`、11 个叶子节点。
+关节顺序为 `[左臂 J0-J6, 右臂 J0-J6]`，TimedArmJoint 固定使用度，SDK 轨迹沿用默认 Adapter `angle_unit=deg`；`arm_motion_duration_sec=3` 是规划期望/轨迹发送时长，不是实测到位保证。
 
 | 阶段 | 手臂节点 | 手臂目标 | 头部目标 |
 |---|---|---|---|
-| 1 | `ArmJointTimedMove` | `[0, 0, 0, 0, 0, 0, 0] × 2` | 低头：`yaw=0°`, `pitch=20°` |
+| 1 | `TimedArmJoint → WaitSeconds` | `[0, 0, 0, 0, 0, 0, 0] × 2` | 低头：`yaw=0°`, `pitch=20°` |
 | 2 | `ArmJointTrajSdkMove` | `[-30, 0, 0, 0, 0, 0, 0] × 2` | 左转：`yaw=20°`, `pitch=0°` |
 | 3 | `ArmJointTrajSdkMove` | `[0, 0, 0, -90, 0, 0, 0] × 2` | 抬头：`yaw=0°`, `pitch=-20°` |
 | 4 | `ArmJointTrajSdkMove` | 左臂 J1=`90°`，右臂 J1=`-90°`，其余为 `0°` | 右转：`yaw=-20°`, `pitch=0°` |
@@ -44,7 +42,7 @@ Sequence
 
 | 节点 | 底层调用 | 插值位置 | 输入 |
 |---|---|---|---|
-| `ArmJointTimedMove` | `hardware.send_arm_joint_timed()` | TimedCmd 服务端，从**当前位置**规划到目标 | 单个 14 维目标 |
+| `TimedArmJoint` | `hardware.timed_arm_joint()` | TimedCmd 服务端，从**当前位置**规划到目标 | 单个 14 维目标 |
 | `ArmJointTrajSdkMove` | `hardware.send_arm_joint_traj_sdk()` | 客户端，50 Hz 线性插值后逐帧下发 | 至少两个 14 维关键点 |
 
 `ArmJointTrajSdkMove` 不读取手臂当前位置，只在给定的关键点之间插值，所以：
@@ -53,9 +51,9 @@ Sequence
 - 轨迹至少要有两个点。只给一个点时接口只打印告警、手臂不动，节点仍返回成功。
 
 因此阶段 2 至 5 的轨迹都写成 `[上一阶段姿态, 本阶段姿态]`。阶段 1 开始时手臂
-姿态未知，所以使用 `ArmJointTimedMove` 请求 TimedCmd 从当前位置规划回零。
-技能只等待服务返回的 `actual_time`（无该值时使用 3 秒），未配置额外 `settle_time`
-（默认 0）；不检查回零误差。首尾关键点一致只保证配置连续，不能保证实机已到达起点，
+姿态未知，所以使用 `TimedArmJoint` 请求 TimedCmd 从当前位置规划回零。
+发送 Skill 不等待；独立 `WaitSeconds` 读取服务返回的 `actual_time`（字段缺失（含无返回数据） 时使用本次请求的 3 秒），其额外 `settle_time`
+默认为 0；不检查回零误差。首尾关键点一致只保证配置连续，不能保证实机已到达起点，
 也不能保证从任意姿态回零都安全。
 
 `ArmJointTrajSdkMove` 每次执行前设置手臂外部控制模式 2、MPC `ArmOnly` 与
@@ -66,7 +64,7 @@ Sequence
 
 本案例使用 `config/app_config.yaml` 的全局配置。默认配置会初始化本案例需要的
 TimedCmd、Arm SDK 和 LowLevel SDK manager，但初始化请求不代表环境就绪。
-**阶段 1 的 `ArmJointTimedMove` 不自行切换手臂模式**：真机前需确认处于允许 TimedCmd
+**本案例阶段 1 显式设置 `prepare_arm_control=false`，`TimedArmJoint` 不切换手臂模式**：真机前需确认处于允许 TimedCmd
 接管的外部控制模式，且控制器、ROS/TF、SDK 与模式服务可用；后续 SDK 阶段的模式切换
 不能替代阶段 1 的前置条件。环境准备见 [执行命令](../../../docs/04-简单案例运行/02-执行命令.md)。
 
@@ -87,7 +85,7 @@ TimedCmd、Arm SDK 和 LowLevel SDK manager，但初始化请求不代表环境�
 | `head_up_pitch_deg` / `head_down_pitch_deg` | 抬头和低头 pitch |
 | `head_center_yaw_deg` / `head_center_pitch_deg` | 正中角度，也用于补齐单轴动作 |
 
-阶段 1 通过 `READ_BOARD` 把单个目标传给 `ArmJointTimedMove`：
+阶段 1 通过 `READ_BOARD` 把单个目标传给 `TimedArmJoint`：
 
 ```json
 "joint_angles": {
@@ -95,6 +93,8 @@ TimedCmd、Arm SDK 和 LowLevel SDK manager，但初始化请求不代表环境�
   "board_key": "arm_zero_joint_angles"
 }
 ```
+
+`TimedArmJoint.joint_angles` 与左右分臂参数互斥；运行时读取 14D 数组后拆为左右各 7D。发送节点使用 `desire_time`，并配置 `actual_time_output_key=<label>__actual_time`；随后 `WaitSeconds.duration_sec` 通过 `READ_BOARD` 读此输出。两节点包在 `memory=true` 的 Sequence 中，避免等待期间重复发令。
 
 阶段 2 至 5 把轨迹传给 `ArmJointTrajSdkMove`。`use_board_trajectory` 必须设为
 `false`，节点才会使用 `joint_traj` 参数，而不是去读黑板上固定的

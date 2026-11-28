@@ -18,7 +18,7 @@ Sequence(memory=True)
 - 前一个案例根节点返回 `SUCCESS` 后，等待 2 秒再进入下一个；案例或等待节点返回 `FAILURE` 后不进入后续案例。
 - 三处间隔复用公共 [WaitSeconds](../../nodes/wait_seconds.py)，`duration_sec=2.0` 直接配置在主树中；等待期间不推进下一案例。共增加 6 秒间隔，首例前和末例后不额外等待；实际切换还受 tick 调度影响。
 - 不循环、不自动重试、不跳过失败案例、不在案例之间额外复位。固定等待不等于实测到位检查。
-- 共 4 个子树、3 个案例间等待节点；展开后 66 个节点。保留各案例原有的动作参数、内部执行顺序和收尾逻辑。
+- 共 4 个子树、3 个案例间等待节点；展开后 76 个节点。保留各案例原有的动作参数、内部执行顺序和收尾逻辑。
 - 全程复用同一个硬件适配器。案例之间不会重启控制器，也不会恢复到独立启动时的全部硬件模式。
 - `SUCCESS` 是现有节点的执行结果，**不是所有部位实测到位、使能正常或无碰撞的验收证明**；硬件异常只有被节点识别并返回失败时，才能阻断后续案例。
 
@@ -30,7 +30,7 @@ Sequence(memory=True)
 |---|---|
 | [py_tree.json](py_tree.json) | 根顺序树，依次引用 01～04，并在相邻案例间配置 2 秒等待 |
 | [py_tree_child.json](py_tree_child.json) | 四个原始案例主树的静态副本，不新增运动逻辑 |
-| [board.json](board.json) | 46 个黑板参数，按案例加前缀隔离 |
+| [board.json](board.json) | 46 个输入参数与 5 个时长输出占位键，按案例加前缀隔离 |
 | [README.md](README.md) | 配置、运行和验收说明 |
 
 黑板键与节点标签使用 `case_01__`、`case_02__`、`case_03__`、`case_04__` 前缀。例如：
@@ -38,6 +38,8 @@ Sequence(memory=True)
 - `case_02__arm_motion_duration_sec`：case02 手臂各段时长。
 - `case_03__torso_left_commands`：case03 的躯干位姿目标。
 - `case_04__motion_duration_sec`：case04 的多规划器期望时长。
+
+case02/03 的手臂段为带记忆的 `Sequence(TimedArmJoint, WaitSeconds)`：前者只发送并通过 `actual_time_output_key` 写入 `<label>__actual_time`，后者读取该键等待；实际时长字段缺失（含无返回数据）时回退到本次请求时长。case05 的输出键同样带 `case_02__` / `case_03__` 前缀，不能共用或遗漏前缀。额外等待只在 `WaitSeconds.settle_time` 中配置，不在发送 Skill 内。显式返回 null、bool、负数、NaN、inf 或溢出时发送节点失败、输出保持 null，不进入等待；`duration_sec` 与 `settle_time` 均须有限非负。
 
 case03 与 case04 的 `motion_duration_sec`、头部同名参数彼此独立，不能通过修改一个案例的参数改变另一个案例。
 
@@ -68,7 +70,7 @@ case03 与 case04 的 `motion_duration_sec`、头部同名参数彼此独立，�
    | right | `[0.16, 1.10, -30.0, 0.0]` |
 
 5. case04 仍使用 **planner 3 的四关节角**与 planner 8、9 同步下发；其 home 是全零关节目标，不能把它与 case03 的 home 位姿视为同一个经过实测确认的姿态。
-6. 确认当前使能、故障和控制模式。case02 第一阶段 `ArmJointTimedMove` 不负责切换手臂外部控制模式，需要启动前已满足控制器的外部控制条件；后续 SDK 段会自行管理其控制流。case03/04 的 `MultiTimedCommandSkill` 会请求外部模式 2 与 `focus_ee=False`、`focus_z=False`。
+6. 确认当前使能、故障和控制模式。case02 第一阶段 `TimedArmJoint` 显式配置 `prepare_arm_control=false`，不切换手臂外部控制模式，需要启动前已满足控制器的外部控制条件；后续 SDK 段会自行管理其控制流。case03/04 的 `MultiTimedCommandSkill` 会请求外部模式 2 与 `focus_ee=False`、`focus_z=False`。
 7. case05 没有开关快速模式、清故障或重新使能的步骤。此前残留的快速模式不能因换了场景而假定已清除；按现场流程确认后再执行，不要带着未知状态重跑。
 
 ## 执行命令

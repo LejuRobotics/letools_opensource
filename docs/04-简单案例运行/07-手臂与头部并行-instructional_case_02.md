@@ -15,8 +15,8 @@
 **学习目标**：
 
 1. 看懂「`Sequence` 套 5 个 `Parallel`」的阶段式结构；
-2. 理解为什么头部节点必须排在手臂节点前面；
-3. 分清 `ArmJointTimedMove` 和 `ArmJointTrajSdkMove` 的差别，知道 SDK 轨迹的起点为什么必须等于当前姿态；
+2. 理解阶段 1 非阻塞等待与阶段 2–5 SDK 阻塞发送的区别，以及头部前置顺序的作用；
+3. 分清 `TimedArmJoint` 和 `ArmJointTrajSdkMove` 的差别，知道 SDK 轨迹的起点为什么必须等于当前姿态；
 4. 会在 `board.json` 中修改双臂姿态，并保持相邻阶段的轨迹首尾相接。
 
 **由简到难进阶路线**：[06](06-头部顺序动作-instructional_case_01.md)（头部顺序动作）→ **本篇**（头部 + 双臂）→ [08](08-头手躯干串行-instructional_case_03.md)（头部 → 躯干 → 双臂串行）→ [09](09-头手躯干与底盘并行-instructional_case_04.md)（加入底盘）。
@@ -28,7 +28,7 @@
 | 维度 | 值 |
 |------|----|
 | 场景目录 | `orchestration/scenarios/instructional_case_02/` |
-| 主树 | `py_tree.json`，根 `Sequence(five_arm_head_phases)`，共 **16 个节点** |
+| 主树 | `py_tree.json`，根 `Sequence(five_arm_head_phases)`，共 **18 个节点** |
 | 子树 | `py_tree_child.json` 为空集合，本案例不使用子树 |
 | 黑板 | `board.json`：手臂回零目标、四条手臂关节轨迹、头部角度、动作时间 |
 | 硬件配置 | 无 `hardware_config.json`，使用 `config/app_config.yaml` 的全局配置（默认会初始化本案例需要的 TimedCmd、Arm SDK 与 LowLevel SDK 管理器） |
@@ -53,7 +53,7 @@ Sequence(five_arm_head_phases)  memory=true
 Parallel(policy=success_on_all)
 ├── HeadControlSdkMove     下发头部目标后立即返回
 └── 手臂节点               下发后定时等待 / 执行 SDK 轨迹发送循环
-    ├── 阶段 1：ArmJointTimedMove
+    ├── 阶段 1：Sequence(memory=true)：TimedArmJoint → WaitSeconds
     └── 阶段 2–5：ArmJointTrajSdkMove
 ```
 
@@ -62,9 +62,9 @@ Parallel(policy=success_on_all)
 `Parallel` 不是多线程，而是在每一拍里按顺序 tick 子节点：
 
 1. `HeadControlSdkMove` 先下发头部目标并返回，头部开始运动；
-2. 手臂节点随后执行 TimedCmd 定时等待或 SDK 轨迹发送循环，两条路径都不查询实测到位。
+2. 阶段 1 的手臂分支提交 TimedCmd 后，由独立 `WaitSeconds` 非阻塞地返回 `RUNNING`；阶段 2–5 执行阻塞的 SDK 轨迹发送循环。两条路径都不查询实测到位。
 
-这样头部和手臂的物理动作可以重叠。如果把手臂节点放在前面，它的等待会阻塞本拍，头部命令要等手臂动作结束后才下发。
+这样头部和手臂的物理动作可以重叠。阶段 1 等待不阻塞 tick，交换顺序不会因等待而延后头部；阶段 2–5 若把手臂节点放在前面，SDK 发送循环会阻塞本拍，头部命令要等其返回后才下发。
 
 `success_on_all` 表示两个子节点都成功后本阶段才成功；任一子节点失败，本阶段和外层 `Sequence` 都会失败。本案例不需要用 `Async` 包裹。
 
@@ -73,12 +73,12 @@ Parallel(policy=success_on_all)
 ## 三、手臂目标
 
 - 关节顺序：`[左臂 J0–J6, 右臂 J0–J6]`；
-- 单位：度（随适配器的 `angle_unit` 配置，默认度）；
+- 单位：TimedArmJoint 固定度；SDK 轨迹沿用适配器 `angle_unit=deg` 配置；
 - 每阶段规划期望/轨迹发送时长：3 秒（`arm_motion_duration_sec`），不是整个阶段的精确耗时或实测到位时限。
 
 | 阶段 | 手臂节点 | 手臂目标 | 头部目标 |
 |---|---|---|---|
-| 1 | `ArmJointTimedMove` | 双臂全零 | 低头：`yaw=0°`，`pitch=20°` |
+| 1 | `TimedArmJoint → WaitSeconds` | 双臂全零 | 低头：`yaw=0°`，`pitch=20°` |
 | 2 | `ArmJointTrajSdkMove` | 双臂 J0=`-30°`，其余 `0°`（前伸） | 左转：`yaw=20°`，`pitch=0°` |
 | 3 | `ArmJointTrajSdkMove` | 双臂 J3=`-90°`，其余 `0°`（上举） | 抬头：`yaw=0°`，`pitch=-20°` |
 | 4 | `ArmJointTrajSdkMove` | 左臂 J1=`90°`、右臂 J1=`-90°`，其余 `0°`（展开） | 右转：`yaw=-20°`，`pitch=0°` |
@@ -88,7 +88,7 @@ Parallel(policy=success_on_all)
 
 | 节点 | 底层调用 | 插值位置 | 输入 |
 |---|---|---|---|
-| `ArmJointTimedMove` | `hardware.send_arm_joint_timed()` | TimedCmd 服务端，从**当前位置**规划到目标 | 单个 14 维目标 |
+| `TimedArmJoint` | `hardware.timed_arm_joint()` | TimedCmd 服务端，从**当前位置**规划到目标 | 单个 14 维目标 |
 | `ArmJointTrajSdkMove` | `hardware.send_arm_joint_traj_sdk()` | 客户端，50 Hz 线性插值后逐帧下发 | 至少两个 14 维关键点 |
 
 `ArmJointTrajSdkMove` 不读取手臂当前位置，只在给定的关键点之间插值，由此有两条约束：
@@ -96,7 +96,7 @@ Parallel(policy=success_on_all)
 - 轨迹的**第一个点必须等于手臂当前姿态**，否则手臂会从当前位置跳到第一个点；
 - 轨迹**至少要有两个点**。只给一个点时接口只打印告警、手臂不动，节点仍返回成功。
 
-所以阶段 2 至 5 的轨迹都写成 `[上一阶段姿态, 本阶段姿态]`。阶段 1 使用 `ArmJointTimedMove` 请求从当前位置规划回零，再按返回的 `actual_time`（缺失时用 3 秒）等待；该阶段 `settle_time` 默认 0。它不测量回零误差，不能保证任意起始姿态都能安全回零，也不能据此断言 SDK 轨迹实机起点已吻合。配置首尾一致只是必要条件。
+所以阶段 2 至 5 的轨迹都写成 `[上一阶段姿态, 本阶段姿态]`。阶段 1 使用 `TimedArmJoint` 请求从当前位置规划回零，发送成功即返回，由独立 `WaitSeconds` 按返回的 `actual_time`（字段缺失（含无返回数据） 时用本次请求的 3 秒）等待；该等待节点的 `settle_time` 默认 0。它不测量回零误差，不能保证任意起始姿态都能安全回零，也不能据此断言 SDK 轨迹实机起点已吻合。配置首尾一致只是必要条件。
 
 `ArmJointTrajSdkMove` 每次执行前设置手臂外部模式 2、MPC `ArmOnly` / `DirectToWbc`；结束时尝试恢复 MPC `NoControl` / `ThroughFullBodyMpc`，前后各等待 0.5 秒。它不恢复启动前的手臂模式、不切回模式 0，也不物理复位。阶段 2–5 除 3 秒轨迹发送外还有约 1 秒模式等待及调用开销；发送结束或恢复请求返回不是实测到位/恢复确认。
 
@@ -118,7 +118,7 @@ Parallel(policy=success_on_all)
 | `head_up_pitch_deg` / `head_down_pitch_deg` | 抬头和低头 pitch |
 | `head_center_yaw_deg` / `head_center_pitch_deg` | 正中角度，也用于补齐单轴动作 |
 
-手臂目标在 `board.json` 中是原生 JSON 数组。阶段 1 通过 `READ_BOARD` 把单个目标传给 `ArmJointTimedMove`：
+手臂目标在 `board.json` 中是原生 JSON 数组。阶段 1 通过 `READ_BOARD` 把单个目标传给 `TimedArmJoint`：
 
 ```json
 "joint_angles": {
@@ -126,6 +126,8 @@ Parallel(policy=success_on_all)
   "board_key": "arm_zero_joint_angles"
 }
 ```
+
+`TimedArmJoint.joint_angles` 与左右分臂参数互斥；运行时读取 14D 数组后拆为左右各 7D。发送节点使用 `desire_time`，并配置 `actual_time_output_key=<label>__actual_time`；随后 `WaitSeconds.duration_sec` 通过 `READ_BOARD` 读此输出。两节点包在 `memory=true` 的 Sequence 中，避免等待期间重复发令。
 
 阶段 2 至 5 把轨迹传给 `ArmJointTrajSdkMove`。`use_board_trajectory` 必须设为 `false`，节点才会使用 `joint_traj` 参数，而不是去读黑板上固定的 `ArmJointTrajectories` 键：
 
@@ -171,7 +173,7 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 
 ### 5.2 仿真或真机
 
-按 [06 第五节](06-头部顺序动作-instructional_case_01.md#52-仿真或真机) 启动控制器和 TF 转发，并确认 TimedCmd、Arm SDK、LowLevel SDK 及模式服务就绪。**阶段 1 的 `ArmJointTimedMove` 不自行切换手臂模式**，必须先确认外部控制模式允许 TimedCmd 接管；后续 SDK 阶段的模式切换不能补足此前的条件。确认当前姿态、限位和空间允许本次动作后，在终端 3 运行：
+按 [06 第五节](06-头部顺序动作-instructional_case_01.md#52-仿真或真机) 启动控制器和 TF 转发，并确认 TimedCmd、Arm SDK、LowLevel SDK 及模式服务就绪。**本案例阶段 1 显式设置 `prepare_arm_control=false`，`TimedArmJoint` 不切换手臂模式**，必须先确认外部控制模式允许 TimedCmd 接管；后续 SDK 阶段的模式切换不能补足此前的条件。确认当前姿态、限位和空间允许本次动作后，在终端 3 运行：
 
 ```bash
 python3 apps/test_upper_init/run_behavior_tree_json.py \
@@ -207,7 +209,7 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 | 手臂动得更慢 | `arm_motion_duration_sec` 改为 `5.0` | TimedCmd 期望/SDK 发送时长改为 5 秒；到位需另验，阶段还含等待与调用开销 |
 | 换一个姿态 | 同时修改 `arm_zero_to_forward_traj` 的第二个点和 `arm_forward_to_up_traj` 的第一个点（两处一致，各保持 14 个元素） | 阶段 2 的手臂姿态变化，阶段 3 从新姿态平滑起动 |
 | 给轨迹加一个中间点 | 在 `arm_up_to_spread_traj` 的两个点之间插入一个 14 维关键点 | 阶段 4 的手臂先经过中间点再展开，总时间不变 |
-| 观察子节点顺序的影响 | 在某个 `Parallel` 中把手臂节点移到 `HeadControlSdkMove` 前面 | 该阶段头部要等手臂动作结束才开始转动 |
+| 观察子节点顺序的影响 | 在阶段 2–5 的 `Parallel` 中把手臂节点移到 `HeadControlSdkMove` 前面 | 头部要等 SDK 发送循环返回才下发；阶段 1 非阻塞等待不产生这种延迟 |
 
 ---
 

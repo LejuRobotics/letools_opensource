@@ -103,6 +103,118 @@ class IHardware(ABC):
         """
         pass
 
+    def set_torso_joint(self, joint: List[float]) -> Result:
+        """单帧发送4维[knee, leg, waist_pitch, waist_yaw]，固定deg。
+
+        不受angle_unit影响，不切模式、不插值、不等待到位。
+        成功仅表示SDK发送成功；控制前置条件由调用方负责。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 set_torso_joint")
+
+    def set_torso_pose(self, pose: List[float]) -> Result:
+        """单帧发送[x,z,yaw,pitch]，固定m/deg。
+
+        SDK参数顺序由Adapter转换；不切模式、坐标系或做TF变换。
+        位姿参考语义沿用控制器当前配置，Adapter固定y=0、roll=0。
+        不插值、不等待到位，也不保证单帧足以完成整个运动。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 set_torso_pose")
+
+    def set_mpc_control_mode(self, mode: int) -> Result:
+        """ROS服务单次设置，成功表示接受，不证明控制行为生效；不改其他项。"""
+        return Result.fail("当前 Hardware Adapter 不支持 set_mpc_control_mode")
+
+    def get_mpc_control_mode(self) -> Result:
+        """ROS实时查询；data={"mode": int, "name": str}，无本地缓存回退。"""
+        return Result.fail("当前 Hardware Adapter 不支持 get_mpc_control_mode")
+
+    def set_mpc_control_flow(self, flow: int) -> Result:
+        """ROS服务单次设置，成功表示接受，不证明控制行为生效；不改其他项。"""
+        return Result.fail("当前 Hardware Adapter 不支持 set_mpc_control_flow")
+
+    def get_mpc_control_flow(self) -> Result:
+        """ROS实时查询；data={"flow": int, "name": str}，无本地缓存回退。"""
+        return Result.fail("当前 Hardware Adapter 不支持 get_mpc_control_flow")
+
+    def set_mpc_frame(self, frame: int) -> Result:
+        """ROS服务单次设置，成功表示接受，不证明控制行为生效；不改其他项。"""
+        return Result.fail("当前 Hardware Adapter 不支持 set_mpc_frame")
+
+    def get_mpc_frame(self) -> Result:
+        """ROS实时查询；data={"frame": int, "name": str}，无本地缓存回退。"""
+        return Result.fail("当前 Hardware Adapter 不支持 get_mpc_frame")
+
+    def timed_torso_ruckig_params(
+        self, mode: str, velocity_max: List[float], acceleration_max: List[float],
+        jerk_max: List[float], velocity_min: Optional[List[float]] = None,
+        acceleration_min: Optional[List[float]] = None, is_sync: bool = True,
+    ) -> Result:
+        """设置持久规划限制，不发送目标、不切模式；成功仅表示服务接受。
+
+        pose: [x,z,yaw,pitch]，m/deg的一阶/二阶/三阶时间导数；joint:4关节deg导数。
+        最大值正、下界负，None下界取对应-max；并非硬件安全限值，不自动恢复。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 timed_torso_ruckig_params")
+
+    def get_torso_pose(self) -> Result:
+        """当前waist_yaw_link相对base_link的TF反馈。
+
+        data={pose:[x,z,yaw,pitch], frame:'base_link', link:'waist_yaw_link', source:'tf'}，
+        固定m/deg；不保证反馈首帧或新鲜度，不查询目标/初始姿态替代反馈。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 get_torso_pose")
+
+    def get_torso_pose_initial(self) -> Result:
+        """ROS初始姿态服务，data={pose:[x,z,yaw,pitch], frame:None, source:'initial_service'}。
+
+        公开固定m/deg，服务无frame字段，不伪称已做坐标转换或读取当前反馈。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 get_torso_pose_initial")
+
+    def reset_torso(self) -> Result:
+        """ROS复位请求；成功表示接受，data={accepted:True, estimated_time:float或None}。
+
+        预计时长来自服务文本，不是到位确认；不额外切模式或等待完成。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 reset_torso")
+
+    def get_torso_joint(self) -> Result:
+        """读取4关节[knee,leg,waist_pitch,waist_yaw]反馈，固定deg。
+
+        Result.data为4维列表；SDK缓存不保证首帧或新鲜度，不用于证明到位。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 get_torso_joint")
+
+    def set_torso_joint_traj(self, joint_traj: List[List[float]], total_time: float) -> Result:
+        """同步调用SDK TorsoAPI执行4维deg轨迹，至少一个关键帧。
+
+        SDK自动插入当前反馈起点、请求MPC ArmOnly并按总时长100Hz重采样。
+        total_time至少0.01秒；调用阻塞，不恢复模式，不保证逐帧接收或到位。
+        成功data=None，取消Skill不能停止已经运行的SDK同步循环。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 set_torso_joint_traj")
+
+    def timed_torso_joint(
+        self, joint: List[float], desire_time: Optional[float] = None,
+        is_sync: bool = True,
+    ) -> Result:
+        """固定deg的4关节目标，MultiCmd planner3；返回规划actual_time。
+
+        is_sync仅控制规划时长同步；Adapter不切模式、不插值或等待到位。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 timed_torso_joint")
+
+    def timed_torso_pose(
+        self, pose: List[float], desire_time: Optional[float] = None,
+        is_sync: bool = True,
+    ) -> Result:
+        """固定m/deg的[x,z,yaw,pitch]目标，MultiCmd planner2。
+
+        只提交四分量，不暴露y/roll或做TF变换；参考语义沿用控制器。
+        返回规划actual_time，不切模式、不等待到位。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 timed_torso_pose")
+
     # --- 3. 手臂运动控制 ---
     @abstractmethod
     def send_ee_pose(self, side: ArmSide, pose: Pose6D, frame: FrameType = FrameType.WORLD) -> Result:
@@ -145,6 +257,20 @@ class IHardware(ABC):
         is_sync表示统一规划时长，不是等待物理完成；返回actual_time。
         """
         return Result.fail("当前 Hardware Adapter 不支持 timed_arm_joint")
+
+    def timed_arm_pose(
+        self, left_pose: Optional[List[float]] = None,
+        right_pose: Optional[List[float]] = None,
+        desire_time: Optional[float] = None, frame: str = "local", is_sync: bool = True,
+    ) -> Result:
+        """控制器端单/双臂末端目标：[x,y,z,yaw,pitch,roll]，固定m/deg。
+
+        至少提供一侧，时长必填且大于0；local/base_link使用planner6/7，
+        world/odom使用planner4/5。None表示不提交该侧，不补默认位姿或停止该侧。
+        is_sync是规划时长同步，不是等待到位；返回服务actual_time。
+        不主动切模式、设置控制流或等待运动完成，前置控制状态由调用方确认。
+        """
+        return Result.fail("当前 Hardware Adapter 不支持 timed_arm_pose")
 
     def set_arm_joint_traj(self, joint_traj: List[List[float]], total_time: float) -> Result:
         """至少两帧14维deg轨迹，SDK按总秒数重采样同步下发。
@@ -786,7 +912,7 @@ class IHardware(ABC):
         pass
     
     @abstractmethod
-    def get_mpc_control_mode(self) -> Optional[int]:
+    def get_mpc_control_mode_cached(self) -> Optional[int]:
         """获取当前MPC控制模式"""
         pass
     
@@ -805,7 +931,6 @@ class IHardware(ABC):
         """获取末端执行器位姿"""
         pass
 
-    @abstractmethod
     def get_ee_pose_reach_error(self, is_left: bool) -> Result:
         """
         查询末端位姿到达静差 (服务 /mobile_manipulator_ee_pose_reach_error)。
@@ -817,6 +942,6 @@ class IHardware(ABC):
               位置误差（米），姿态误差（弧度，ZYX 欧拉角顺序）
             - message: 详细信息
 
-        .. note:: 用于单次指令 / 在线连发后判断末端是否真正到位。
+        .. note:: 可选兼容契约，ROS1轮式实现已移除；ROS2实现保留。
         """
-        pass
+        return Result.fail("当前 Hardware Adapter 不支持 get_ee_pose_reach_error")

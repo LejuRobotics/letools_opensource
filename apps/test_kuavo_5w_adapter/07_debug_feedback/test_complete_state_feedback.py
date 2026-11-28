@@ -200,7 +200,7 @@ class TestCompleteStateFeedback(unittest.TestCase):
         print("  测试7: MPC控制模式")
         print("=" * 80)
 
-        mode = self.hardware.get_mpc_control_mode()
+        mode = self.hardware.get_mpc_control_mode_cached()
 
         self.assertIsNotNone(mode, "未收到MPC控制模式反馈")
 

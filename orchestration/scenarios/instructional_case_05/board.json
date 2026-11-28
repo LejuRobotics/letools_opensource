@@ -1,4 +1,9 @@
 {
+  "case_02__arm_zero__actual_time": null,
+  "case_03__arms_home__actual_time": null,
+  "case_03__arms_left__actual_time": null,
+  "case_03__arms_right__actual_time": null,
+  "case_03__arms_return_home__actual_time": null,
   "case_01__head_left_yaw_deg": 20.0,
   "case_01__head_right_yaw_deg": -20.0,
   "case_01__head_up_pitch_deg": -20.0,

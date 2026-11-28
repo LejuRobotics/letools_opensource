@@ -248,12 +248,11 @@ right_traj = [
     [0.7, -0.3, 0.5, 0.0, 0.707, 0.0, 0.707],
 ]
 
-# 自动管理 MPC 模式（设置 → 执行 → 恢复）
-result = manager.move_eef_traj_auto(
-    left_traj=left_traj,
-    right_traj=right_traj,
+# 自动管理 MPC 模式仅保留关节轨迹；上面的末端轨迹供下节手动接口使用
+joint_traj = [[0.0] * 14, [0, 0, 0, -30, 0, 0, 0] * 2]
+result = manager.move_joint_traj_auto(
+    joint_traj=joint_traj,
     total_time=5.0,
-    frame='world',          # 'world' 或 'base_link'
     back_default=False      # 是否恢复到默认模式
 )
 
@@ -307,7 +306,6 @@ manager.shutdown()
 
 | 方法 | 模式 | 说明 |
 |------|------|------|
-| `move_eef_traj_auto()` | 自动 | 末端轨迹控制（自动管理 MPC） |
 | `move_eef_traj_manual()` | 手动 | 末端轨迹控制（手动管理 MPC） |
 | `move_joint_traj_auto()` | 自动 | 关节轨迹控制（自动管理 MPC） |
 | `move_joint_traj_manual()` | 手动 | 关节轨迹控制（手动管理 MPC） |
@@ -685,3 +683,11 @@ print(f"机器人状态: {robot_sdk.get_robot_state()}")
 **维护者**: Kuavo Studio Team  
 **联系方式**: 
 **最后更新**: 2026-06-17
+
+## MultiCmd ROS管理器迁移
+
+四个新 `timed_arm_joint/pose`、`timed_torso_joint/pose` 及共用 `send_timed_multi_commands` 均由 `TimedRosManager` 直接调用 `/mobile_manipulator_timed_multi_cmd`。新管理器位于 `services/ros_manager/timed_ros_manager.py`，不继承BaseSDKManager、不构造SDK。ROS节点仍由Hardware初始化；Manager初始化只检查ROS就绪，服务发现发生在发送时（5秒，不是整个调用硬截止）。每次调用只发一次，不自动重试、不sleep或切模式。
+
+配置分离：`ros_managers_whitelist=["timed"]` 开启Timed ROS后端（默认同时启用timed、torso、mpc），`skip_ros_managers=True` 或空ROS白名单关闭。`skip_sdk_managers` 仅跳过SDK，不再代表禁用ROS Manager。纯Timed Adapter使用 `sdk_managers_whitelist=[]`；带模式准备的Skill/Node使用 `["low"]`。ROS与SDK白名单中的timed不是同一个管理器。
+
+旧TimedCmdManager的SDK SingleCmd、Ruckig/离线轨迹/IK可达性路径本次保留，其send_multi_commands仅兼容转发到TimedRosManager，协议构造不再重复。旧sdk白名单仍可使用，不强迫旧场景迁移；已有默认硬件配置会同时保留旧SDK能力并初始化新ROS后端。旧共用入口仍按angle_unit转换，新四接口固定m/deg；Result/actual_time、planner与is_sync语义不变。关闭Manager不停止或撤销控制器目标。

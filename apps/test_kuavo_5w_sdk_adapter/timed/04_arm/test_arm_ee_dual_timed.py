@@ -16,8 +16,8 @@
     # 世界系（默认），分别指定左右臂位姿，躯干不回零
     python3 test_arm_ee_dual_timed.py --left-pose 0.5 0.25 0.7 0 -90 0 --right-pose 0.5 -0.25 0.7 0 -90 0
 
-    # 局部系，跳过手臂复位，结束后查询静差
-    python3 test_arm_ee_dual_timed.py --frame local --left-pose 0.5 0.2 0.7 0 -90 0 --right-pose 0.5 -0.2 0.7 0 -90 0 --no-reset-arm --get-error
+    # 局部系，跳过手臂复位，发送目标
+    python3 test_arm_ee_dual_timed.py --frame local --left-pose 0.5 0.2 0.7 0 -90 0 --right-pose 0.5 -0.2 0.7 0 -90 0 --no-reset-arm
 
     # 查看全部参数
     python3 test_arm_ee_dual_timed.py -h
@@ -37,7 +37,6 @@
                                 False 时末端指令不会扭曲躯干；True 时允许末端带动躯干。
     --no-reset-arm              跳过手臂物理复位（不拉回初始位置），但仍切外部控制模式。
                                 注意：若上次运动后手臂处于奇异位形，可能导致规划失败。
-    --get-error                 运动结束后查询双臂末端跟踪静差（位置米/姿态弧度）。
 """
 import argparse
 import sys
@@ -71,7 +70,6 @@ def _parse_args():
     parser.add_argument('--focus-ee', action='store_true', default=False,
                         help='保持末端优先(默认False=躯干优先,禁止末端扭曲躯干)')
     parser.add_argument('--no-reset-arm', action='store_true', help='兼容参数：当前脚本固定不复位手臂')
-    parser.add_argument('--get-error', action='store_true', help='运动结束后查询双臂末端跟踪静差')
     return parser.parse_args()
 
 
@@ -92,7 +90,6 @@ class TestArmEEDualTimed(unittest.TestCase):
     right_pose: list = None
     focus_ee: bool = False
     no_reset_arm: bool = False
-    get_error: bool = False
 
     @classmethod
     def setUpClass(cls):
@@ -138,16 +135,6 @@ class TestArmEEDualTimed(unittest.TestCase):
         logger.info(f"指令下发成功: {result.message}")
         time.sleep(self.desire_time + 0.5)
 
-        if self.get_error:
-            for arm_name, is_left in [('左臂', True), ('右臂', False)]:
-                res = self.hardware.get_ee_pose_reach_error(is_left=is_left)
-                if res.success:
-                    err = res.data.get('err_vector', [])
-                    logger.info(f"{arm_name}末端跟踪静差 [x,y,z,yaw,pitch,roll]={[round(v, 4) for v in err]} "
-                                f"(位置m/姿态rad)")
-                else:
-                    logger.warning(f"{arm_name}静差查询: {res.message}")
-
 
 if __name__ == '__main__':
     args = _parse_args()
@@ -157,5 +144,4 @@ if __name__ == '__main__':
     TestArmEEDualTimed.right_pose = args.right_pose
     TestArmEEDualTimed.focus_ee = args.focus_ee
     TestArmEEDualTimed.no_reset_arm = args.no_reset_arm
-    TestArmEEDualTimed.get_error = args.get_error
     unittest.main(argv=[sys.argv[0]])

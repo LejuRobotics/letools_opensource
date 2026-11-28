@@ -79,7 +79,7 @@ leju_wheeled/
 │   ├── __init__.py                    # 统一导出
 │   ├── lifecycle_mixin.py             # 初始化 / 关闭
 │   ├── base_control_mixin.py          # 底盘速度/位置控制（ROS 话题）
-│   ├── torso_control_mixin.py         # 躯干位姿 + 焦点切换
+│   ├── torso_mixin.py         # 躯干位姿 + 焦点切换
 │   ├── arm_control_mixin.py           # 单/双臂末端、关节、腿部
 │   ├── timed_command_mixin.py         # 时序指令 send_timed_*
 │   ├── force_control_mixin.py         # 末端期望力控制（ROS 话题，对齐 LBForceController）
@@ -127,7 +127,7 @@ classDiagram
 
     class LifecycleMixin
     class BaseControlMixin
-    class TorsoControlMixin
+    class TorsoMixin
     class ArmControlMixin
     class TimedCommandMixin
     class ForceControlMixin
@@ -148,7 +148,7 @@ classDiagram
 
     LejuWheeledArmHardware --|> LifecycleMixin
     LejuWheeledArmHardware --|> BaseControlMixin
-    LejuWheeledArmHardware --|> TorsoControlMixin
+    LejuWheeledArmHardware --|> TorsoMixin
     LejuWheeledArmHardware --|> ArmControlMixin
     LejuWheeledArmHardware --|> TimedCommandMixin
     LejuWheeledArmHardware --|> ForceControlMixin
@@ -168,7 +168,7 @@ classDiagram
 class LejuWheeledArmHardware(
     LifecycleMixin,
     BaseControlMixin,
-    TorsoControlMixin,
+    TorsoMixin,
     ArmControlMixin,
     TimedCommandMixin,
     ForceControlMixin,
@@ -215,7 +215,7 @@ flowchart LR
 |-------|------|---------|---------|---------|
 | **LifecycleMixin** | 185 | `initialize()`, `shutdown()`, `_initialize_sdk_managers()` | — | rospy, StateManager, SDK 管理器 |
 | **BaseControlMixin** | 229 | `send_base_velocity()`, `send_base_pose()`, `publish_cmd_vel()`, `send_base_position()`, `send_world_position()` | ROS 话题 | `/cmd_vel`, `/cmd_pose`, `/cmd_pose_world` |
-| **TorsoControlMixin** | 182 | `send_torso_pose()`, `reset_torso_to_initial()`, `set_focus_ee()`, `set_focus_z()`, `send_torso_pose_impl()` | ROS 话题 + 服务 | `/cmd_lb_torso_pose`, `/mobile_manipulator_reset_torso` |
+| **TorsoMixin** | 182 | `send_torso_pose()`, `reset_torso_to_initial()`, `set_focus_ee()`, `set_focus_z()`, `send_torso_pose_impl()` | ROS 话题 + 服务 | `/cmd_lb_torso_pose`, `/mobile_manipulator_reset_torso` |
 | **ArmControlMixin** | 351 | `send_ee_pose()`, `send_both_ee_poses()`, `send_arm_joint_trajectory()`, `send_leg_joint_command()`, `send_two_arm_hand_pose()` | ROS 话题 | `/kuavo_arm_traj`, `/lb_leg_traj`, `/mm/two_arm_hand_pose_cmd` |
 | **TimedCommandMixin** | 314 | `send_timed_base_pose()`, `send_timed_torso_pose()`, `send_timed_leg_joint()`, `send_timed_left_arm_joint()`, `send_timed_right_arm_joint()`, `send_timed_multi_commands()` | ROS 服务 | `/mobile_manipulator_timed_single_cmd`, `/mobile_manipulator_timed_multi_cmd` |
 | **ForceControlMixin** | 325 | `set_ee_force()`, `set_ee_force_both()`, `clear_ee_force()`, `set_external_wrench()`, `clear_external_wrench()`, `enable_force_empty_detect()`, `set_contact_force_params()` | ROS 话题 + 服务 | `/desired_ee_force/{left,right}`, `/external_wrench/{left_hand,right_hand}`, `/enable_force_empty_detact`, `/set_contact_force_params` |
@@ -501,9 +501,9 @@ hw.shutdown()
 | `/cmd_vel` | `geometry_msgs/Twist` | 底盘速度（需持续发布） | BaseControlMixin |
 | `/cmd_pose` | `geometry_msgs/Twist` | 底盘位置（本体系） | BaseControlMixin |
 | `/cmd_pose_world` | `geometry_msgs/Twist` | 底盘位置（世界系） | BaseControlMixin |
-| `/cmd_lb_torso_pose` | `geometry_msgs/Twist` | 躯干位姿 | TorsoControlMixin |
-| `/mobile_manipulator_focus_ee` | `std_msgs/Bool` | 焦点切换（末端） | TorsoControlMixin |
-| `/mobile_manipulator_focus_z` | `std_msgs/Bool` | 焦点切换（Z 轴） | TorsoControlMixin |
+| `/cmd_lb_torso_pose` | `geometry_msgs/Twist` | 躯干位姿 | TorsoMixin |
+| `/mobile_manipulator_focus_ee` | `std_msgs/Bool` | 焦点切换（末端） | TorsoMixin |
+| `/mobile_manipulator_focus_z` | `std_msgs/Bool` | 焦点切换（Z 轴） | TorsoMixin |
 | `/kuavo_arm_traj` | `sensor_msgs/JointState` | 手臂关节轨迹 | ArmControlMixin |
 | `/lb_leg_traj` | `sensor_msgs/JointState` | 腿部关节轨迹 | ArmControlMixin |
 | `/mm/two_arm_hand_pose_cmd` | `kuavo_msgs/twoArmHandPoseCmd` | 双臂手部位姿 | ArmControlMixin |
@@ -518,7 +518,7 @@ hw.shutdown()
 | Topic | 消息类型 | 用途 | 所属 Mixin |
 |-------|---------|------|-----------|
 | `/lb_cmd_pose_reach_time` | `std_msgs/Float32` | 底盘到达时间反馈 | BaseControlMixin |
-| `/lb_torso_pose_reach_time` | `std_msgs/Float32` | 躯干到达时间反馈 | TorsoControlMixin |
+| `/lb_torso_pose_reach_time` | `std_msgs/Float32` | 躯干到达时间反馈 | TorsoMixin |
 | `/lb_arm_joint_reach_time/left` | `std_msgs/Float32` | 手臂到达时间反馈 | ArmControlMixin |
 | `/lb_leg_joint_reach_time` | `std_msgs/Float32` | 腿部到达时间反馈 | ArmControlMixin |
 
@@ -526,7 +526,7 @@ hw.shutdown()
 
 | Service | 类型 | 用途 | 所属 Mixin |
 |---------|------|------|-----------|
-| `/mobile_manipulator_reset_torso` | `std_srvs/SetBool` | 躯干归位 | TorsoControlMixin |
+| `/mobile_manipulator_reset_torso` | `std_srvs/SetBool` | 躯干归位 | TorsoMixin |
 | `/mobile_manipulator_timed_single_cmd` | `kuavo_msgs/lbTimedPosCmd` | 单条时序指令 | TimedCommandMixin |
 | `/mobile_manipulator_timed_multi_cmd` | `kuavo_msgs/lbMultiTimedPosCmd` | 多条时序指令 | TimedCommandMixin |
 | `/mobile_manipulator_set_ruckig_planner_params` | `kuavo_msgs/setRuckigPlannerParams` | Ruckig 参数设置 | AdvancedPlanningMixin |

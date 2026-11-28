@@ -16,8 +16,7 @@
     写  <key>_version              int，每算一次自增
 
 节点持续返回 RUNNING（与 NodePercep 一样，由 Parallel 父节点决定何时收），
-并且在 tag 版本号没变时不重复计算 —— 与 `NodeSourceTagToArmGoalSingleTag`
-用的是同一套版本门禁。
+并且通过 tag 版本号避免重复计算：只有收到新版本的检测结果才更新输出。
 
 标定结果从 `config/pallet_tag.yaml` 读（由 `pallet_calibrate.py` 生成），
 **不把矩阵写进场景 JSON** —— 矩阵太长、太容易改错，而且标定结果属于现场

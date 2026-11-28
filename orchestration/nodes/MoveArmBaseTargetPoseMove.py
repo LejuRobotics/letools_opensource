@@ -4,8 +4,7 @@
 - 从黑板读 ArmPoseAndWrench（CalcArmPoseMove 输出，tag 系关键点）
 - tag 来自黑板 latest_tag_<tag_id>（NodePercep 输出，odom 系）；
   关键点由 tag 系经 odom、tf 变换到 base_link（BASE 系）后下发
-- 下发走 TimedCmd planner 6/7（`send_timed_multi_commands`），
-  **不走** SDK 末端轨迹路径（`send_arm_ee_traj_sdk`）
+- 下发走 TimedCmd planner 6/7（`send_timed_multi_commands`），不走客户端 SDK 轨迹循环
 - 中间的四元数表示只是变换的副产物（`transform_pose` 以四元数承载姿态），
   下发前统一转回欧拉角 [x,y,z,yaw,pitch,roll]；对外接口一直只用欧拉角
 - 搬运箱流程（夹板末端）：在并拢关键点闭合夹爪，在放置关键点张开夹爪

@@ -16,8 +16,8 @@
     # 左臂/世界系（默认），指定位姿
     python3 test_arm_ee_single_timed.py --pose 0.5 0.25 1.0 0 -90 0
 
-    # 右臂/局部系，跳过复位，结束后查静差
-    python3 test_arm_ee_single_timed.py --arm right --frame local --pose 0.5 -0.25 1.0 0 -90 0 --no-reset-torso --no-reset-arm --get-error
+    # 右臂/局部系，跳过复位，轨迹示例
+    python3 test_arm_ee_single_timed.py --arm right --frame local --pose 0.5 -0.25 1.0 0 -90 0 --no-reset-torso --no-reset-arm
         
 
     # 查看全部参数
@@ -39,7 +39,6 @@
     --no-reset-torso        跳过躯干复位。默认先将躯干回正到初始位姿。
     --no-reset-arm          跳过手臂物理复位（不拉回初始位置），但仍切外部控制模式。
                             注意：若上次运动后手臂处于奇异位形，可能导致规划失败。
-    --get-error             运动结束后查询末端跟踪静差（位置米/姿态弧度）。
 """
 import argparse
 import sys
@@ -72,7 +71,6 @@ def _parse_args():
                         help='保持末端优先(默认False=躯干优先,禁止末端扭曲躯干)')
     parser.add_argument('--no-reset-torso', action='store_true', help='跳过躯干复位')
     parser.add_argument('--no-reset-arm', action='store_true', help='跳过手臂复位')
-    parser.add_argument('--get-error', action='store_true', help='运动结束后查询末端跟踪静差')
     return parser.parse_args()
 
 
@@ -93,7 +91,6 @@ class TestArmEESingleTimed(unittest.TestCase):
     focus_ee: bool = False
     no_reset_torso: bool = False
     no_reset_arm: bool = False
-    get_error: bool = False
 
     @classmethod
     def setUpClass(cls):
@@ -134,15 +131,6 @@ class TestArmEESingleTimed(unittest.TestCase):
         logger.info(f"指令下发成功: {result.message}")
         time.sleep(self.desire_time + 0.5)
 
-        if self.get_error:
-            res = self.hardware.get_ee_pose_reach_error(is_left=(self.arm == 'left'))
-            if res.success:
-                err = res.data.get('err_vector', [])
-                logger.info(f"末端跟踪静差 [x,y,z,yaw,pitch,roll]={[round(v, 4) for v in err]} "
-                            f"(位置m/姿态rad)")
-            else:
-                logger.warning(f"静差查询: {res.message}")
-
 
 if __name__ == '__main__':
     args = _parse_args()
@@ -153,5 +141,4 @@ if __name__ == '__main__':
     TestArmEESingleTimed.focus_ee = args.focus_ee
     TestArmEESingleTimed.no_reset_torso = args.no_reset_torso
     TestArmEESingleTimed.no_reset_arm = args.no_reset_arm
-    TestArmEESingleTimed.get_error = args.get_error
     unittest.main(argv=[sys.argv[0]])

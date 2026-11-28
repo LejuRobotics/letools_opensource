@@ -10,7 +10,7 @@
 
 **学习目标**：
 
-1. 看懂四个阶段、每阶段三个叶子节点的串行结构；
+1. 看懂四个阶段、每阶段四个叶子节点的串行结构；
 2. 会修改 planner `2` 的 `[x, z, yaw, pitch]` 与独立的 14D 双臂目标；
 3. 理解模式准备、等待与返回值的边界。
 
@@ -23,9 +23,9 @@
 | 维度 | 值 |
 |---|---|
 | 场景目录 | `orchestration/scenarios/instructional_case_03/` |
-| 主树 | 根 `Sequence(four_head_arm_torso_phases)`，共 **17 个节点**：5 个 `Sequence` + 12 个叶子 |
+| 主树 | 根 `Sequence(four_head_arm_torso_phases)`，共 **25 个节点**：9 个 `Sequence` + 16 个叶子 |
 | 子树 | `py_tree_child.json` 为空集合 |
-| 黑板 | `board.json`：三组躯干位姿命令、三组双臂关节目标、头部角度及两项时长，共 12 个键 |
+| 黑板 | `board.json`：三组躯干位姿命令、三组双臂关节目标、头部角度及两项时长，12 个输入键及 4 个时长输出占位键 |
 | 硬件配置 | 无 `hardware_config.json`，使用 `config/app_config.yaml` 的全局配置 |
 | 运动部位 | 头部、躯干、双臂；无底盘任务 |
 
@@ -44,14 +44,16 @@ Sequence(four_head_arm_torso_phases)  memory=true
 ```text
 HeadControlSdkMove     下发头部 yaw/pitch，不查询到位
   → MultiTimedCommandMove  仅 planner 2 躯干位姿，请求成功后定时等待
-  → ArmJointTimedMove     14D 双臂关节目标，请求成功后定时等待
+  → Sequence(memory=true)
+      → TimedArmJoint     14D 双臂目标拆分发送，请求成功立即返回
+      → WaitSeconds       读取返回时长，独立等待
 ```
 
 躯干节点成功后才执行双臂节点，不用 `Parallel` 或 `Async` 把两个 TimedCmd 请求并发。
-`ArmJointTimedMove` 经 `send_arm_joint_timed()` 将 14D 目标提交给双臂关节规划器；
+`TimedArmJoint` 经 `timed_arm_joint()` 将 14D 目标提交给双臂关节规划器；
 它不是 SDK 多关键点轨迹节点。
 
-两个 TimedCmd 技能都等待服务返回的 `actual_time + settle_time`（无 `actual_time` 时回退到请求时长），
+躯干技能仍按规划时长等待；手臂发送技能不等待，由后续独立 `WaitSeconds` 等待 `actual_time + settle_time`（字段缺失（含无返回数据） 的 `actual_time` 回退到本次请求时长），
 没有读取实际关节或位姿误差。头部只是下发目标，因此它的物理运动仍可能与躯干重叠。
 **串行是节点/请求顺序，不是三部位都经传感器确认到位后才切换。**
 
@@ -72,8 +74,8 @@ Adapter `angle_unit=deg` 使用度，不是四个关节角。节点校验 planne
 ### 3.2 手臂目标独立配置
 
 `arm_home_joint_angles`、`arm_left_joint_angles`、`arm_right_joint_angles`
-各为 14 个角度，顺序是 `[左臂 J0–J6, 右臂 J0–J6]`，传给 `ArmJointTimedMove.joint_angles`。
-本案例不把手臂目标放进躯干命令组，也不添加新的动作节点或技能。
+各为 14 个角度，顺序是 `[左臂 J0–J6, 右臂 J0–J6]`，传给 `TimedArmJoint.joint_angles`。
+节点运行时将 14D 拆为左右各 7D，固定使用度；`joint_angles` 与分臂参数互斥。本案例不把手臂目标放进躯干命令组。发送成功后通过 `actual_time_output_key` 写入 `<label>__actual_time`，独立 `WaitSeconds.duration_sec` 读取该键，额外停留配置在 `WaitSeconds.settle_time`。
 
 | 阶段 | 躯干 board 键 | 手臂 board 键 | 头部 `[yaw, pitch]`（度） | 躯干 `[x, z, yaw, pitch]`（米、米、度、度） | 左/右臂各自 `[J0..J6]`（度） |
 |---|---|---|---|---|---|
@@ -83,20 +85,20 @@ Adapter `angle_unit=deg` 使用度，不是四个关节角。节点校验 planne
 | 4：home | `torso_home_commands` | `arm_home_joint_angles` | `[0, 0]` | `[0.12, 0.97, 0, 0]` | `[0, 0, 0, 0, 0, 0, 0]` |
 
 `home` 是配置的基准位姿，不是躯干全零或专用复位。阶段 2 后直接进入阶段 3。
-上述值与当前 `board.json` 一致；头部/手臂及躯干角度均按度填写，不能只改 Adapter 单位而保留这些数值。
+上述值与当前 `board.json` 一致；TimedArmJoint 固定度制，头部/躯干沿用默认 Adapter 度制，不能只改 Adapter 单位而不核对其影响。
 
 ### 3.3 时间、模式与焦点
 
 | 配置 | 当前值 | 作用 |
 |---|---|---|
-| `motion_duration_sec` | `3.0` | 分别传给躯干 `desire_time` 和手臂 `total_time`，每阶段是两段运动请求 |
+| `motion_duration_sec` | `3.0` | 分别传给躯干 `desire_time` 和手臂 `desire_time`，每阶段是两段运动请求 |
 | `motion_settle_time_sec` | `0.5` | 躯干与手臂各自额外等待 |
 | 躯干节点 `is_sync` | `true` | 只作用于当前请求；不能同步后面的独立手臂节点 |
 | 躯干节点 `prepare_arm_control` | `true` | 下发前调用 `set_arm_control_mode(2)`，不做物理复位 |
 | 躯干节点 `focus_ee` | `false` | 下发前设置 `focus_ee=false`，`focus_z` 同值；不禁止显式躯干运动 |
 
 任一模式或焦点设置失败都不下发该节点的 TimedCmd，但已生效的副作用不自动回滚。
-`ArmJointTimedMove` 不自行切模式，本树依赖前面的躯干节点准备模式。
+本案例 `TimedArmJoint` 显式配置 `prepare_arm_control=false`，不切模式，本树依赖前面的躯干节点准备模式。
 树结束不自动恢复原手臂模式或焦点，也不复位。两段 3 秒请求加各自 0.5 秒等待
 只是名义安排，服务返回的规划时间及调用/tick 开销可能更长，不能写成“整个阶段 3 秒到位”。
 
@@ -148,7 +150,7 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 
 | 层次 | 判据与边界 |
 |---|---|
-| 配置 | 17 个节点、四个阶段均为 `Sequence`；躯干仅 planner `2`、手臂目标各 14D |
+| 配置 | 25 个节点、四个阶段及手臂发送/等待包均为 `Sequence`；躯干仅 planner `2`、手臂目标各 14D |
 | 干跑 | 根节点名称正确且 `tick 后根状态: Status.SUCCESS` |
 | 调用顺序 | 每阶段头部请求后为躯干请求及等待，再为双臂请求及等待 |
 | 实机效果 | 测试人员结合状态反馈/现场观察确认目标姿态与限位，并记录偏差；根 `SUCCESS`、日志或 `sleep` 结束不替代该项 |

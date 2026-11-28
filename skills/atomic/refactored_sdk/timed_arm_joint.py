@@ -17,6 +17,7 @@ class TimedArmJointParams(SkillParams):
     right_arm_joint: Optional[List[float]] = None
     desire_time: Optional[float] = None
     is_sync: bool = True
+    prepare_arm_control: bool = True
 
 
 class TimedArmJointSkill(SkillBase):
@@ -25,15 +26,20 @@ class TimedArmJointSkill(SkillBase):
         self.hardware = hardware
         self._query: Optional[dict] = None
         self._result: Optional[Result] = None
+        self._prepare_arm_control = True
 
     def on_initialize(self, params: TimedArmJointParams) -> Result:
         self._query = None
         self._result = None
+        self._prepare_arm_control = True
         if not isinstance(params, TimedArmJointParams):
             return Result.fail("Invalid TimedArmJointParams")
         try:
             left, right, duration = validate_timed_arm_joint_targets(
                 params.left_arm_joint, params.right_arm_joint, params.desire_time, params.is_sync)
+            if type(params.prepare_arm_control) is not bool:
+                raise ValueError("prepare_arm_control 必须为bool")
+            self._prepare_arm_control = params.prepare_arm_control
             self._query = dict(left_arm_joint=left, right_arm_joint=right,
                                desire_time=duration, is_sync=params.is_sync)
         except ValueError as exc:
@@ -45,7 +51,17 @@ class TimedArmJointSkill(SkillBase):
             return self._result
         if self._query is None:
             return Result.fail("TimedArmJointSkill 未成功初始化")
-        self._result = self.hardware.timed_arm_joint(**self._query)
+        try:
+            # 切2可能激活控制器残留目标；接口成功不代表已清空目标或实时确认模式。
+            if self._prepare_arm_control:
+                result = self.hardware.set_arm_control_mode(2)
+                if not result.success:
+                    self._result = result
+                    return self._result
+            self._result = self.hardware.timed_arm_joint(**self._query)
+        except Exception as exc:
+            # 失败缓存，下一tick不重复切模式或发令；不经模式1、不自动恢复。
+            self._result = Result.fail(f"timed_arm_joint 执行失败: {exc}")
         return self._result
 
     def on_is_finished(self) -> bool:

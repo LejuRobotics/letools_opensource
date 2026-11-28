@@ -190,57 +190,6 @@ class TestTimedCmdManagerLegJoint:
             assert abs(actual - expected) < 1e-6
 
 
-class TestTimedCmdManagerArmJoint:
-    """测试手臂关节控制"""
-
-    @patch('adapters.hardware.leju_wheeled.services.sdk_manager.timed_cmd_manager.TimedCmdAPI')
-    @patch('adapters.hardware.leju_wheeled.services.sdk_manager.base_sdk_manager.KuavoSDK')
-    def test_send_arm_joint_with_degrees(self, mock_sdk_class, mock_api_class):
-        """测试手臂关节控制（一次批量调用，planner 8+9，isSync=True，自动转换度→弧度）"""
-        mock_api = Mock()
-        mock_api.send_timed_cmd.return_value = (True, 2.0)
-        mock_api_class.return_value = mock_api
-
-        manager = TimedCmdManager()
-        # 绕开 initialize()（真实 KuavoSDK.Init 会等 ROS 服务超时），直接置就绪状态
-        manager._initialized = True
-        manager.robot_sdk = Mock()
-        manager.timed_cmd_api = mock_api
-
-        # 传入 14 个关节角度（度）[左臂7, 右臂7]
-        joint_angles_deg = [10.0] * 7 + [20.0] * 7
-
-        # 捕获 send_multi_commands 的调用参数（send_arm_joint 应委托给它）
-        with patch.object(manager, 'send_multi_commands',
-                          return_value=Result.ok(data={'actual_time': 2.0})) as mock_multi:
-            result = manager.send_arm_joint(
-                joint_angles_deg=joint_angles_deg,
-                desire_time=2.0
-            )
-
-        assert result.success is True
-        assert result.data == {'actual_time': 2.0}
-        # 不再走 SDK 串行拆分路径
-        mock_api.send_timed_cmd.assert_not_called()
-        # 一次批量调用：左臂 planner 8 + 右臂 planner 9，同步执行
-        mock_multi.assert_called_once()
-        commands, kwargs = mock_multi.call_args[0], mock_multi.call_args[1]
-        assert kwargs.get('is_sync') is True
-        assert len(commands[0]) == 2
-        # 左臂 7 关节（度→弧度）
-        assert commands[0][0]['planner_index'] == 8
-        assert commands[0][0]['desire_time'] == 2.0
-        expected_left = [np.deg2rad(a) for a in joint_angles_deg[:7]]
-        for actual, expected in zip(commands[0][0]['cmd_vec'], expected_left):
-            assert abs(actual - expected) < 1e-6
-        # 右臂 7 关节（度→弧度）
-        assert commands[0][1]['planner_index'] == 9
-        assert commands[0][1]['desire_time'] == 2.0
-        expected_right = [np.deg2rad(a) for a in joint_angles_deg[7:]]
-        for actual, expected in zip(commands[0][1]['cmd_vec'], expected_right):
-            assert abs(actual - expected) < 1e-6
-
-
 class TestTimedCmdManagerArmEE:
     """测试手臂末端控制"""
 

@@ -38,14 +38,59 @@
             "childBoard": []
           },
           {
-            "name": "ArmJointTimedMove",
+            "name": "Sequence",
             "label": "arms_home",
             "params": {
-              "joint_angles": {"source": "READ_BOARD", "board_key": "arm_home_joint_angles"},
-              "total_time": {"source": "READ_BOARD", "board_key": "motion_duration_sec"},
-              "settle_time": {"source": "READ_BOARD", "board_key": "motion_settle_time_sec"}
+              "memory": {
+                "source": "CUSTOM",
+                "value": true,
+                "data_type": "bool"
+              }
             },
-            "childs": [],
+            "childs": [
+              {
+                "name": "TimedArmJoint",
+                "label": "arms_home_send",
+                "params": {
+                  "joint_angles": {
+                    "source": "READ_BOARD",
+                    "board_key": "arm_home_joint_angles"
+                  },
+                  "desire_time": {
+                    "source": "READ_BOARD",
+                    "board_key": "motion_duration_sec"
+                  },
+                  "prepare_arm_control": {
+                    "source": "CUSTOM",
+                    "value": false,
+                    "data_type": "bool"
+                  },
+                  "actual_time_output_key": {
+                    "source": "CUSTOM",
+                    "value": "arms_home__actual_time",
+                    "data_type": "string"
+                  }
+                },
+                "childs": [],
+                "childBoard": []
+              },
+              {
+                "name": "WaitSeconds",
+                "label": "arms_home_wait",
+                "params": {
+                  "duration_sec": {
+                    "source": "READ_BOARD",
+                    "board_key": "arms_home__actual_time"
+                  },
+                  "settle_time": {
+                    "source": "READ_BOARD",
+                    "board_key": "motion_settle_time_sec"
+                  }
+                },
+                "childs": [],
+                "childBoard": []
+              }
+            ],
             "childBoard": []
           }
         ],
@@ -83,14 +128,59 @@
             "childBoard": []
           },
           {
-            "name": "ArmJointTimedMove",
+            "name": "Sequence",
             "label": "arms_left",
             "params": {
-              "joint_angles": {"source": "READ_BOARD", "board_key": "arm_left_joint_angles"},
-              "total_time": {"source": "READ_BOARD", "board_key": "motion_duration_sec"},
-              "settle_time": {"source": "READ_BOARD", "board_key": "motion_settle_time_sec"}
+              "memory": {
+                "source": "CUSTOM",
+                "value": true,
+                "data_type": "bool"
+              }
             },
-            "childs": [],
+            "childs": [
+              {
+                "name": "TimedArmJoint",
+                "label": "arms_left_send",
+                "params": {
+                  "joint_angles": {
+                    "source": "READ_BOARD",
+                    "board_key": "arm_left_joint_angles"
+                  },
+                  "desire_time": {
+                    "source": "READ_BOARD",
+                    "board_key": "motion_duration_sec"
+                  },
+                  "prepare_arm_control": {
+                    "source": "CUSTOM",
+                    "value": false,
+                    "data_type": "bool"
+                  },
+                  "actual_time_output_key": {
+                    "source": "CUSTOM",
+                    "value": "arms_left__actual_time",
+                    "data_type": "string"
+                  }
+                },
+                "childs": [],
+                "childBoard": []
+              },
+              {
+                "name": "WaitSeconds",
+                "label": "arms_left_wait",
+                "params": {
+                  "duration_sec": {
+                    "source": "READ_BOARD",
+                    "board_key": "arms_left__actual_time"
+                  },
+                  "settle_time": {
+                    "source": "READ_BOARD",
+                    "board_key": "motion_settle_time_sec"
+                  }
+                },
+                "childs": [],
+                "childBoard": []
+              }
+            ],
             "childBoard": []
           }
         ],
@@ -128,14 +218,59 @@
             "childBoard": []
           },
           {
-            "name": "ArmJointTimedMove",
+            "name": "Sequence",
             "label": "arms_right",
             "params": {
-              "joint_angles": {"source": "READ_BOARD", "board_key": "arm_right_joint_angles"},
-              "total_time": {"source": "READ_BOARD", "board_key": "motion_duration_sec"},
-              "settle_time": {"source": "READ_BOARD", "board_key": "motion_settle_time_sec"}
+              "memory": {
+                "source": "CUSTOM",
+                "value": true,
+                "data_type": "bool"
+              }
             },
-            "childs": [],
+            "childs": [
+              {
+                "name": "TimedArmJoint",
+                "label": "arms_right_send",
+                "params": {
+                  "joint_angles": {
+                    "source": "READ_BOARD",
+                    "board_key": "arm_right_joint_angles"
+                  },
+                  "desire_time": {
+                    "source": "READ_BOARD",
+                    "board_key": "motion_duration_sec"
+                  },
+                  "prepare_arm_control": {
+                    "source": "CUSTOM",
+                    "value": false,
+                    "data_type": "bool"
+                  },
+                  "actual_time_output_key": {
+                    "source": "CUSTOM",
+                    "value": "arms_right__actual_time",
+                    "data_type": "string"
+                  }
+                },
+                "childs": [],
+                "childBoard": []
+              },
+              {
+                "name": "WaitSeconds",
+                "label": "arms_right_wait",
+                "params": {
+                  "duration_sec": {
+                    "source": "READ_BOARD",
+                    "board_key": "arms_right__actual_time"
+                  },
+                  "settle_time": {
+                    "source": "READ_BOARD",
+                    "board_key": "motion_settle_time_sec"
+                  }
+                },
+                "childs": [],
+                "childBoard": []
+              }
+            ],
             "childBoard": []
           }
         ],
@@ -173,14 +308,59 @@
             "childBoard": []
           },
           {
-            "name": "ArmJointTimedMove",
+            "name": "Sequence",
             "label": "arms_return_home",
             "params": {
-              "joint_angles": {"source": "READ_BOARD", "board_key": "arm_home_joint_angles"},
-              "total_time": {"source": "READ_BOARD", "board_key": "motion_duration_sec"},
-              "settle_time": {"source": "READ_BOARD", "board_key": "motion_settle_time_sec"}
+              "memory": {
+                "source": "CUSTOM",
+                "value": true,
+                "data_type": "bool"
+              }
             },
-            "childs": [],
+            "childs": [
+              {
+                "name": "TimedArmJoint",
+                "label": "arms_return_home_send",
+                "params": {
+                  "joint_angles": {
+                    "source": "READ_BOARD",
+                    "board_key": "arm_home_joint_angles"
+                  },
+                  "desire_time": {
+                    "source": "READ_BOARD",
+                    "board_key": "motion_duration_sec"
+                  },
+                  "prepare_arm_control": {
+                    "source": "CUSTOM",
+                    "value": false,
+                    "data_type": "bool"
+                  },
+                  "actual_time_output_key": {
+                    "source": "CUSTOM",
+                    "value": "arms_return_home__actual_time",
+                    "data_type": "string"
+                  }
+                },
+                "childs": [],
+                "childBoard": []
+              },
+              {
+                "name": "WaitSeconds",
+                "label": "arms_return_home_wait",
+                "params": {
+                  "duration_sec": {
+                    "source": "READ_BOARD",
+                    "board_key": "arms_return_home__actual_time"
+                  },
+                  "settle_time": {
+                    "source": "READ_BOARD",
+                    "board_key": "motion_settle_time_sec"
+                  }
+                },
+                "childs": [],
+                "childBoard": []
+              }
+            ],
             "childBoard": []
           }
         ],

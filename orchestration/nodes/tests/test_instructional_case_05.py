@@ -13,7 +13,7 @@ from py_trees.common import Status
 from apps.test_upper_init.run_behavior_tree_json import _load_board_into_blackboard
 from core.domain.result import Result
 from orchestration.engine.behavior_tree_factory import BehaviorTreeFactory
-import orchestration.nodes.arm_joint_timed_move as arm
+import orchestration.nodes.timed_arm_joint as arm
 import orchestration.nodes.arm_joint_traj_sdk_move as trajectory
 import orchestration.nodes.base_move_relative_jibot_move as chassis
 import orchestration.nodes.head_control_sdk_move as head
@@ -63,14 +63,16 @@ def hardware(monkeypatch):
     monkeypatch.setattr("socket.socket.connect", lambda *args, **kwargs: pytest.fail("network forbidden"))
     monkeypatch.setattr("orchestration.shared_hardware.get_shared_hardware",
                         lambda: pytest.fail("real hardware forbidden"))
+    monkeypatch.delenv("STUDIO_DRY_RUN", raising=False)
     hw = MagicMock()
-    for name in ("control_head_sdk", "send_arm_joint_timed", "send_arm_joint_traj_sdk",
+    for name in ("control_head_sdk", "timed_arm_joint", "send_arm_joint_traj_sdk",
                  "send_timed_multi_commands", "set_arm_control_mode", "set_focus_ee",
                  "set_focus_z", "enable_vel_control_jibot", "base_move_relative_jibot"):
         getattr(hw, name).return_value = Result.ok(data={"actual_time": 3.0})
     hw.get_vel_control_state_jibot.return_value = Result.ok(data={"state": True})
     for module in MOTION_MODULES:
-        monkeypatch.setattr(module, "_DRY_RUN", False)
+        if module is not arm:
+            monkeypatch.setattr(module, "_DRY_RUN", False)
         monkeypatch.setattr(module, "get_shared_hardware", lambda: hw)
     monkeypatch.setattr(wait, "_DRY_RUN", True)  # Timing is exercised separately with a fake clock.
     monkeypatch.setattr("time.sleep", lambda _: None)
@@ -113,25 +115,29 @@ def test_snapshot_only_prefixes_labels_and_blackboard_keys():
                 if isinstance(param, dict) and param.get("source") == "READ_BOARD":
                     assert param["board_key"].startswith(prefix)
                     param["board_key"] = param["board_key"][len(prefix):]
+            output = node.get("params", {}).get("actual_time_output_key")
+            if output:
+                assert output["value"].startswith(prefix)
+                output["value"] = output["value"][len(prefix):]
         assert unwrapped == _load(SCENARIOS / case_name / "py_tree.json")["tree"]
     assert len(board) == total_keys
 
 
 def test_executes_each_case_once_in_order_and_restores_chassis_guard(hardware):
     tree, _ = _tree()
-    assert len(list(tree.root.iterate())) == 66
+    assert len(list(tree.root.iterate())) == 76
     for index, case_root in enumerate(tree.root.children[::2], start=1):
         assert case_root.subtree_file == "instructional_case_%02d.json" % index
         assert case_root.name.startswith("case_%02d__" % index)
     assert _finish(tree) == Status.SUCCESS
     motion_calls = [c[0] for c in hardware.mock_calls if c[0] in {
-        "control_head_sdk", "send_arm_joint_timed", "send_arm_joint_traj_sdk",
+        "control_head_sdk", "timed_arm_joint", "send_arm_joint_traj_sdk",
         "send_timed_multi_commands", "base_move_relative_jibot",
     }]
     expected = ["control_head_sdk"] * 6
-    expected += ["control_head_sdk", "send_arm_joint_timed"]
+    expected += ["control_head_sdk", "timed_arm_joint"]
     expected += ["control_head_sdk", "send_arm_joint_traj_sdk"] * 4
-    expected += ["control_head_sdk", "send_timed_multi_commands", "send_arm_joint_timed"] * 4
+    expected += ["control_head_sdk", "send_timed_multi_commands", "timed_arm_joint"] * 4
     expected += ["control_head_sdk", "send_timed_multi_commands"]
     expected += ["control_head_sdk", "base_move_relative_jibot", "send_timed_multi_commands"] * 3
     assert motion_calls == expected
@@ -155,12 +161,13 @@ def test_each_case_boundary_waits_two_seconds_before_next_case(hardware, monkeyp
     monkeypatch.setattr(wait, "_DRY_RUN", False)
     monkeypatch.setattr("time.time", lambda: clock[0])
     tree, _ = _tree()
-    # Keep the real public WaitSeconds node/skill at all three case boundaries;
-    # skip only case01's four internal waits to isolate the inter-case timing.
-    for node in tree.root.children[0].iterate():
-        if isinstance(node, wait.WaitSeconds):
-            monkeypatch.setattr(node, "initialise", lambda: None)
-            monkeypatch.setattr(node, "update", lambda: Status.SUCCESS)
+    # Keep real WaitSeconds at case boundaries, bypass internal waits here;
+    # arm actual_time + settle_time is covered independently below.
+    for case_root in tree.root.children[::2]:
+        for node in case_root.iterate():
+            if isinstance(node, wait.WaitSeconds):
+                monkeypatch.setattr(node, "initialise", lambda: None)
+                monkeypatch.setattr(node, "update", lambda: Status.SUCCESS)
 
     for child_index in (1, 3, 5):
         gap = tree.root.children[child_index]
@@ -243,14 +250,152 @@ def test_empty_case03_torso_stops_before_its_arm_and_case04(hardware):
     assert tree.root.children[6].status == Status.INVALID
     hardware.send_timed_multi_commands.assert_not_called()
     # The only TimedCmd arm call is case02's first phase.
-    assert hardware.send_arm_joint_timed.call_count == 1
+    assert hardware.timed_arm_joint.call_count == 1
     hardware.enable_vel_control_jibot.assert_not_called()
 
 
 def test_dry_run_never_gets_hardware(hardware, monkeypatch):
+    monkeypatch.setenv("STUDIO_DRY_RUN", "1")
     for module in MOTION_MODULES:
-        monkeypatch.setattr(module, "_DRY_RUN", True)
+        if module is not arm:
+            monkeypatch.setattr(module, "_DRY_RUN", True)
         monkeypatch.setattr(module, "get_shared_hardware", lambda: pytest.fail("dry-run accessed hardware"))
     tree, _ = _tree()
     assert _finish(tree) == Status.SUCCESS
     assert hardware.mock_calls == []
+
+
+ARM_LABELS = (
+    "case_02__arm_zero", "case_03__arms_home", "case_03__arms_left",
+    "case_03__arms_right", "case_03__arms_return_home",
+)
+
+
+def _arm_sequence(tree, label):
+    return next(node for node in tree.root.iterate() if node.name == label)
+
+
+@pytest.mark.parametrize("label", ARM_LABELS)
+@pytest.mark.parametrize("result_data", [{"actual_time": 3.0}, {}, None])
+def test_arm_wait_uses_actual_time_or_runtime_desire_time_without_resending(
+        hardware, monkeypatch, label, result_data):
+    clock = [100.0]
+    monkeypatch.setattr("time.time", lambda: clock[0])
+    monkeypatch.setattr(wait, "_DRY_RUN", False)
+    hardware.timed_arm_joint.return_value = Result.ok(data=result_data)
+    tree, board = _tree()
+    sequence = _arm_sequence(tree, label)
+    send, pause = sequence.children
+    # Updates after construction must be read at initialise, not from snapshots.
+    duration_key = send.params["desire_time__board_key"]
+    board.set(duration_key, 7.0)
+    angles = _load(SCENARIOS / "instructional_case_03/board.json")
+    target = angles["arm_home_joint_angles"][:7] + angles["arm_left_joint_angles"][7:]
+    board.set(send.params["joint_angles__board_key"], target)
+    settle = 0.0
+    if "settle_time__board_key" in pause.params:
+        settle = 0.5
+        board.set(pause.params["settle_time__board_key"], settle)
+    sequence.tick_once()
+    assert send.status == Status.SUCCESS  # Send node itself never waits.
+    assert pause.status == sequence.status == Status.RUNNING
+    hardware.timed_arm_joint.assert_called_once_with(
+        left_arm_joint=target[:7], right_arm_joint=target[7:], desire_time=7.0, is_sync=True)
+    hardware.set_arm_control_mode.assert_not_called()  # Preserve original scenario mode semantics.
+    planned = 3.0 if result_data and result_data.get("actual_time") is not None else 7.0
+    assert pause._skill.params.duration_sec == planned + settle
+    # Once the send has succeeded, changing the desired duration cannot change
+    # the independent wait's fallback: it must use the sent command's snapshot.
+    board.set(duration_key, 3.0)
+    output_key = send.params["actual_time_output_key"]
+    assert board.get(output_key) == planned
+    calls_before = list(hardware.mock_calls)
+    for offset in (0.0, 0.1, planned + settle - 0.001):
+        clock[0] = 100.0 + offset
+        sequence.tick_once()
+        assert pause.status == sequence.status == Status.RUNNING
+        assert hardware.mock_calls == calls_before
+    clock[0] = 100.0 + planned + settle
+    sequence.tick_once()
+    assert sequence.status == Status.SUCCESS
+    assert hardware.mock_calls == calls_before
+
+
+@pytest.mark.parametrize("label", ARM_LABELS)
+def test_failed_arm_send_clears_old_duration_and_never_starts_wait(hardware, monkeypatch, label):
+    monkeypatch.setattr(wait, "_DRY_RUN", False)
+    hardware.timed_arm_joint.return_value = Result.fail("send rejected")
+    tree, board = _tree()
+    sequence = _arm_sequence(tree, label)
+    send, pause = sequence.children
+    board.set(send.params["actual_time_output_key"], 3.0)
+    sequence.tick_once()
+    assert sequence.status == send.status == Status.FAILURE
+    assert pause.status == Status.INVALID
+    assert pause._skill is None
+    assert board.get(send.params["actual_time_output_key"]) is None
+    assert send.update() == Status.FAILURE
+    assert send.update() == Status.FAILURE
+    hardware.timed_arm_joint.assert_called_once()
+
+
+@pytest.mark.parametrize("joint_angles", [[], [0.0] * 7, [0.0] * 15])
+def test_invalid_legacy_arm_target_fails_before_send_or_wait(hardware, joint_angles):
+    tree, board = _tree()
+    sequence = _arm_sequence(tree, ARM_LABELS[0])
+    send, pause = sequence.children
+    board.set(send.params["joint_angles__board_key"], joint_angles)
+    sequence.tick_once()
+    assert sequence.status == Status.FAILURE
+    assert pause.status == Status.INVALID
+    hardware.timed_arm_joint.assert_not_called()
+
+
+def test_native_timed_arm_joint_defaults_remain_send_only_with_mode_preparation(hardware):
+    node = arm.TimedArmJoint("native", "native", "/", {
+        "left_arm_joint": [0.0] * 7, "desire_time": 3.0,
+    })
+    node.initialise()
+    assert node.update() == Status.SUCCESS
+    assert node.update() == Status.SUCCESS
+    hardware.set_arm_control_mode.assert_called_once_with(2)
+    hardware.timed_arm_joint.assert_called_once_with(
+        left_arm_joint=[0.0] * 7, right_arm_joint=None, desire_time=3.0, is_sync=True)
+
+
+@pytest.mark.parametrize("actual_time", [None, True, False, -1.0, float("nan"), float("inf"), "bad", 10 ** 400],
+                         ids=["null", "true", "false", "negative", "nan", "infinity", "text", "overflow"])
+def test_invalid_planned_duration_clears_output_and_never_waits_or_resends(hardware, actual_time):
+    hardware.timed_arm_joint.return_value = Result.ok(data={"actual_time": actual_time})
+    tree, board = _tree()
+    sequence = _arm_sequence(tree, ARM_LABELS[0])
+    send, pause = sequence.children
+    board.set(send.params["actual_time_output_key"], 3.0)
+    sequence.tick_once()
+    assert sequence.status == send.status == Status.FAILURE
+    assert pause.status == Status.INVALID
+    assert board.get(send.params["actual_time_output_key"]) is None
+    assert send.update() == Status.FAILURE
+    hardware.timed_arm_joint.assert_called_once()
+
+
+@pytest.mark.parametrize("key", ["duration_sec", "settle_time"])
+@pytest.mark.parametrize("value", [None, True, False, -1.0, float("nan"), float("inf"), "bad", 10 ** 400],
+                         ids=["null", "true", "false", "negative", "nan", "infinity", "text", "overflow"])
+def test_invalid_wait_duration_fails_without_waiting(hardware, monkeypatch, key, value):
+    monkeypatch.setattr(wait, "_DRY_RUN", False)
+    node = wait.WaitSeconds("invalid_wait", "invalid_wait", "/", {key: value})
+    node.initialise()
+    assert node.update() == Status.FAILURE
+    assert node._skill is None
+    assert "init failed" in node.feedback_message
+    assert hardware.mock_calls == []
+
+
+def test_legacy_and_native_arm_targets_are_mutually_exclusive(hardware):
+    node = arm.TimedArmJoint("mixed", "mixed", "/", {
+        "joint_angles": [0.0] * 14, "left_arm_joint": [0.0] * 7, "desire_time": 3.0,
+    })
+    node.initialise()
+    assert node.update() == Status.FAILURE
+    hardware.timed_arm_joint.assert_not_called()

@@ -9,7 +9,7 @@ skills 层主要负责业务逻辑：参数校验、调用硬件接口、判断�
 | 点分路径 | 实体 | 说明 |
 |---|---|---|
 | `skills.base.skill_base` | `SkillBase` | 所有技能的基类（实现 `ISkill`，附带超时与异常兜底） |
-| `skills.atomic.refactored_sdk` | 56 个顶层 Python 文件 | **当前主力**：扁平结构，包含技能及场景辅助模块；具体控制路径见下方总表 |
+| `skills.atomic.refactored_sdk` | 68 个顶层 Python 文件 | **当前主力**：扁平结构，包含技能及场景辅助模块；具体控制路径见下方总表 |
 | `skills.atomic.manipulation.*` | 14 个目录 | **旧版**技能（`studio_smoke_v1` 场景使用） |
 | `skills.atomic.motion.chassis_velocity` / `move_to_pose` | 2 个技能 | **旧版**运动技能 |
 | `skills.atomic.perception.*` | `camera_capture` / `read_qrcode` / `pallet_*` / `box_frame` | 感知技能（非 SDK 路径） |
@@ -20,10 +20,12 @@ skills 层主要负责业务逻辑：参数校验、调用硬件接口、判断�
 
 | 口径 | 数量 |
 |---|---|
-| `refactored_sdk/` 顶层 `.py`（不含 `__init__.py`） | **56** |
+| `refactored_sdk/` 顶层 `.py`（不含 `__init__.py`） | **68** |
 | `manipulation/*/skill.py` | 14 |
 | `motion/*/skill.py` | 2 |
 | `perception/*/skill.py` | 4（另有若干 `algorithm.py` 纯计算模块） |
+
+`SetArmJoint`、`SetArmJointTraj`、`SetArmPose`、`SetArmPoseTraj`、`TimedArmJoint`、`TimedArmPose` 六种控制技能及对应节点只处理单次发送调用，不做反馈到位检查。调用返回后缓存结果，`is_finished()` 表示调用已结束，成功不保证机械臂到位。Timed 技能不按服务返回的 `actual_time` 等待；同步 SDK 轨迹仍阻塞到发送调用返回，但不追加反馈轮询。既有模式准备、`get_arm_joint()` / `get_arm_pose()` 查询接口保持不变；`timeout` 仍是技能生命周期超时，不是到位等待时长。
 
 ### `SkillBase` —— 技能基类
 
@@ -75,6 +77,8 @@ class HeadControlSdkSkill(SkillBase):
 
 多数硬件技能用 `getattr(self.hardware, "method_name", None)` 取方法，取不到时返回 `Result.fail("Hardware does not implement xxx()")`。纯计算、话题直发和嵌套子树技能有自己的调用方式，以源文件和对应节点为准。
 
+本次退役旧双臂关节 TimedCmd、旧末端多航点 TimedCmd 和单 Tag 双臂轨迹链路，共移除 4 个顶层模块（含场景专属规划技能）。`timed_arm_joint` / `timed_arm_pose` 为当前单次发送技能；等待由独立编排层承担。`arm_ee_dual_timed`、`arm_ee_local_relative_timed`、码垛技能、`arm_reset_sdk` 以及共用 `source_sdk_compat` 继续保留。
+
 ## 04.02 类与方法详表
 
 ### refactored_sdk 技能总表
@@ -83,10 +87,8 @@ class HeadControlSdkSkill(SkillBase):
 
 | 技能文件 | Skill 类 | Params | Adapter 调用 | 功能 |
 |---|---|---|---|---|
-| `arm_ee_traj_local_sdk.py` | `ArmEETrajLocalSdkSkill` | `ArmEETrajLocalSdkParams` | `send_arm_ee_traj_sdk(frame='base_link')` | 手臂末端轨迹（本体坐标系） |
-| `arm_ee_traj_world_sdk.py` | `ArmEETrajWorldSdkSkill` | `ArmEETrajWorldSdkParams` | `send_arm_ee_traj_sdk(frame='world')` | 手臂末端轨迹（世界坐标系） |
-| `arm_joint_timed.py` | `ArmJointTimedSkill` | `ArmJointTimedParams` | `send_arm_joint_timed()` | 双臂 14 关节单目标（TimedCmd） |
 | `timed_arm_joint.py` | `TimedArmJointSkill` | `TimedArmJointParams` | `timed_arm_joint()` | 单/双臂 7 维关节目标（固定度，TimedCmd multi planner 8/9），不等待到位 |
+| `timed_arm_pose.py` | `TimedArmPoseSkill` | `TimedArmPoseParams` | `timed_arm_pose()` | 单/双臂6维末端目标（固定m/deg），local planner6/7、world planner4/5；不等待到位 |
 | `multi_timed_command.py` | `MultiTimedCommandSkill` | `MultiTimedCommandParams` | `set_arm_control_mode(2)`（可选） + `set_focus_ee()` + `set_focus_z()` + `send_timed_multi_commands()` | 可配置的多 planner 单次组合控制（如 2/8/9、3/6/7）；`prepare_arm_control=true` 默认在含 planner 2–9 时准备外部控制模式，失败不发令，不复位、不自动切回 0；`focus_ee=true` 专注末端解算，躯干可能随动，`false` 尽可能不动躯干并在手臂工作区间内解算，精度可能降低；`focus_z` 跟随 `focus_ee` |
 | `arm_joint_traj_sdk.py` | `ArmJointTrajSdkSkill` | `ArmJointTrajSdkParams` | `send_arm_joint_traj_sdk()` | 手臂 14 关节多关键点轨迹 |
 | `arm_reset_sdk.py` | `ArmResetSdkSkill` | `ArmResetSdkParams` | `arm_reset()` | 手臂归位 |
@@ -102,9 +104,7 @@ class HeadControlSdkSkill(SkillBase):
 | `get_arm_fk_result.py` | `GetArmFkResultSkill` | `GetArmFkResultParams` | `get_arm_fk_result()` | 给定 14 维关节计算双臂位姿（不读实时反馈） |
 | `arm_ee_dual_timed.py` | `ArmEEDualTimedSkill` | `ArmEEDualTimedParams` | `send_arm_ee_world_timed` / `_local_timed` | 双臂单次末端位姿（双 planner 并发） |
 | `arm_ee_single_timed.py` | `ArmEESingleTimedSkill` | `ArmEESingleTimedParams` | `send_left/right_arm_ee_*_timed` | 单臂单次末端位姿 |
-| `arm_ee_burst_timed.py` | `ArmEEBurstTimedSkill` | `ArmEEBurstTimedParams` | `send_timed_<side>_arm_ee_<frame>` 循环 | 在线连发航点（可双臂互不干扰） |
 | `arm_ee_local_relative_timed.py` | `ArmEELocalRelativeTimedSkill` | `ArmEELocalRelativeTimedParams` | 相对补偿 TimedCmd | 双臂末端 local 相对补偿 |
-| `arm_ee_timed_cmd.py` | `ArmEETimedCmdSkill` | `ArmEETimedCmdParams` | `send_timed_multi_commands` | TimedCmd 末端位姿（多航点 index 切换） |
 | `arm_ee_offline_traj.py` | `ArmEEOfflineTrajSkill` | `ArmEEOfflineTrajParams` | `set_offline_trajectory` + `enable_offline_trajectory` | 离线时间最优轨迹 |
 | `arm_ee_pose_jibot.py` | `ArmEePoseJibotSkill` | `ArmEePoseJibotParams` | `send_ee_pose` / `send_both_ee_poses` | 末端位姿（**话题直发**，非 SDK） |
 | `arm_ee_setup_jibot.py` | `ArmEESetupJibotSkill` | `ArmEESetupJibotParams` | MPC 前置 + `set_focus_ee` + 预建 Publisher | 末端控制前置设置 |
@@ -122,9 +122,23 @@ class HeadControlSdkSkill(SkillBase):
 | `set_head_pose.py` | `SetHeadPoseSkill` | `SetHeadPoseParams` | `set_head_pose()` | 设置头部姿态（yaw/pitch，度） |
 | `leg_joint_sdk.py` | `LegJointSdkSkill` | `LegJointSdkParams` | `send_leg_joint_sdk()` | 下肢关节（SDK） |
 | `leg_joint_timed.py` | `LegJointTimedSkill` | `LegJointTimedParams` | `send_leg_joint_timed()` | 下肢关节（TimedCmd，服务端 Ruckig） |
+| `set_torso_joint.py` | `SetTorsoJointSkill` | `SetTorsoJointParams` | `set_torso_joint()` | 单帧4关节deg；不切模式、不插值、不等待 |
+| `set_torso_pose.py` | `SetTorsoPoseSkill` | `SetTorsoPoseParams` | `set_torso_pose()` | 单帧[x,z,yaw,pitch]，m/deg；y/roll固定为0，无TF变换、不等待 |
+| `timed_torso_joint.py` | `TimedTorsoJointSkill` | `TimedTorsoJointParams` | `timed_torso_joint()` | 4关节固定deg，MultiCmd planner3，返回规划时长，不等待 |
+| `timed_torso_pose.py` | `TimedTorsoPoseSkill` | `TimedTorsoPoseParams` | `timed_torso_pose()` | [x,z,yaw,pitch]固定m/deg，MultiCmd planner2，不等待 |
+| `get_torso_joint.py` | `GetTorsoJointSkill` | `GetTorsoJointParams` | `get_torso_joint()` | 4关节反馈，固定deg，缓存新鲜度不保证 |
+| `set_torso_joint_traj.py` | `SetTorsoJointTrajSkill` | `SetTorsoJointTrajParams` | `set_torso_joint_traj()` | SDK TorsoAPI同步轨迹，4维deg，自动插入当前起点、切MPC ArmOnly不恢复 |
+| `get_torso_pose.py` | `GetTorsoPoseSkill` | `GetTorsoPoseParams` | `get_torso_pose()` | waist_yaw_link相对base_link的当前TF，m/deg |
+| `get_torso_pose_initial.py` | `GetTorsoPoseInitialSkill` | `GetTorsoPoseInitialParams` | `get_torso_pose_initial()` | ROS初始目标，m/deg，服务不带frame |
+| `reset_torso.py` | `ResetTorsoSkill` | `ResetTorsoParams` | `reset_torso()` | ROS复位请求接受结果，不等待到位 |
+| `timed_torso_ruckig_params.py` | `TimedTorsoRuckigParamsSkill` | `TimedTorsoRuckigParams` | `timed_torso_ruckig_params()` | 四维pose/joint持久规划限制，ROS planner2/3，不发目标 |
+| `set_mpc_control_mode.py` | `SetMpcControlModeSkill` | `SetMpcControlModeParams` | `set_mpc_control_mode()` | 独立MPC ROS服务，无额外模式切换或缓存回退 |
+| `get_mpc_control_mode.py` | `GetMpcControlModeSkill` | `GetMpcControlModeParams` | `get_mpc_control_mode()` | 独立MPC ROS服务，无额外模式切换或缓存回退 |
+| `set_mpc_control_flow.py` | `SetMpcControlFlowSkill` | `SetMpcControlFlowParams` | `set_mpc_control_flow()` | 独立MPC ROS服务，无额外模式切换或缓存回退 |
+| `get_mpc_control_flow.py` | `GetMpcControlFlowSkill` | `GetMpcControlFlowParams` | `get_mpc_control_flow()` | 独立MPC ROS服务，无额外模式切换或缓存回退 |
+| `set_mpc_frame.py` | `SetMpcFrameSkill` | `SetMpcFrameParams` | `set_mpc_frame()` | 独立MPC ROS服务，无额外模式切换或缓存回退 |
+| `get_mpc_frame.py` | `GetMpcFrameSkill` | `GetMpcFrameParams` | `get_mpc_frame()` | 独立MPC ROS服务，无额外模式切换或缓存回退 |
 | `torso_reset_sdk.py` | `TorsoResetSdkSkill` | `TorsoResetSdkParams` | `reset_torso_to_initial()` | 躯干复位（ROS Service） |
-| `bimanual_joint_trajectory.py` | `BimanualJointTrajectorySkill` | `BimanualJointTrajectoryParams` | `send_arm_joint_traj_sdk()` | 合并左右臂为 14 关节同步轨迹 |
-| `single_tag_joint_pick_plan.py` | `SingleTagJointPickPlanSkill` | 同名 Params | IK + 关节轨迹 | 按 Tag 位姿规划双臂抓取关节轨迹 |
 | `grasp_ring.py` | `GraspRingSkill` | `GraspRingParams` | `send_ee_pose` + `control_end_effector` | 抓圆环：读位姿 → FK → 预抓 → 下抓 → 抬起 |
 | `place_ring.py` | `PlaceRingSkill` | `PlaceRingParams` | 同上 | 放圆环 |
 | `ring_real_action.py` | `RingRealActionSkill` | `RingRealActionParams` | 由传入的动作调用 | 在线程中执行实机圆环动作，支持协作取消 |
@@ -225,17 +239,16 @@ class HeadControlSdkSkill(SkillBase):
 
 | Params | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|---|
-| `ArmEETrajLocalSdkParams` / `ArmEETrajWorldSdkParams` | `left_traj` / `right_traj` | `List[List[float]]` | 内置默认 | 关键点列表 |
 | | `total_time` | `float` | `3.0` | 自动插值总时长 |
 | | `timeout` | `float` | `60.0` | 轨迹类超时更宽松 |
 | `ArmJointTrajSdkParams` | `joint_traj` | 多关键点 14 关节角 | — | |
 | | `total_time` | `float` | `3.0` | |
-| `ArmJointTimedParams` | `joint_angles` | `List[float]` | 14 个 `0.0` | 单个双臂目标，顺序为 `[左臂 7, 右臂 7]` |
 | | `desire_time` | `float` | `3.0` | TimedCmd 期望执行时间 |
 | | `settle_time` | `float` | `0.0` | 运动完成后的额外等待 |
 | `TimedArmJointParams` | `left_arm_joint` / `right_arm_joint` | `Optional[List[float]]` | `None` | 至少提供一侧，每侧 7 维有限关节角（度）；省略表示不提交，空数组非法 |
 | | `desire_time` | `Optional[float]` | `None` | 必填，大于 0 的有限秒数 |
 | | `is_sync` | `bool` | `True` | 请求内 planner 的执行时长同步，不是到位等待 |
+| | `prepare_arm_control` | `bool` | `True` | 发令前先请求模式2；失败不发目标。切2可能激活残留目标，现场须先确认 |
 | `BimanualJointTrajectoryParams` | `left_arm_joint_traj` / `right_arm_joint_traj` | `Optional[List[List[float]]]` | `None` | 单臂轨迹 |
 | | `bimanual_traj_14d` | `Optional[List[List[float]]]` | `None` | 直接给 14 维 |
 | | `total_time` | `float` | `3.0` | |
@@ -253,6 +266,7 @@ class HeadControlSdkSkill(SkillBase):
 | `SetArmJointParams` | `joint` | `[]` | 必填，14 维有限关节角（度） |
 | `SetArmJointTrajParams` | `joint_traj` / `total_time` | `[]` / `None` | 至少两帧14维deg，total_time为至少0.01秒的总时间；SDK均匀重采样，同步执行但不保证到位 |
 | `SetArmPoseTrajParams` | `left_traj` / `right_traj` / `total_time` | `[]` / `[]` / `None` | 等长双臂轨迹，每帧[x,y,z,yaw,pitch,roll]（m/deg），至少两帧；frame默认local、direct_to_wbc=True、back_default=False |
+| `TimedArmJointParams` | `prepare_arm_control` | `True` | Skill发令前请求模式2；切2可能激活残留目标，现场须确认 |
 | `GetArmJointParams` | — | 无额外字段 | 返回 `Result.data` 为 14 维反馈角（度） |
 | `SetArmControlModeParams` | `control_mode` | `None` | 必填，只接受整数 0/1/2，不接受布尔值或字符串 |
 | `GetArmControlModeParams` | — | 无额外字段 | 返回 `{"mode": int, "name": str}`：0=`ArmFixed`、1=`AutoSwing`、2=`ExternalControl` |
@@ -263,6 +277,7 @@ class HeadControlSdkSkill(SkillBase):
 | `GetArmIkResultParams` | `left_pose` / `right_pose` | `[]` / `[]` | 必填，双臂 6 维目标（米 / 度） |
 | | `frame` / `ik_frame` | `'local'` / `None` | `ik_frame` 必填，人工确认的 IK 模型基准对应整机 TF frame |
 | | `joint` | `None` | 可选 14 维关节初值 q0（度）；结果为 14 维关节解（度） |
+| `TimedArmPoseParams` | `prepare_arm_control` | `True` | Skill发令前请求模式2；切2可能激活残留目标，现场须确认 |
 | `GetArmFkResultParams` | `joint` | `[]` | 必填，14 维关节角（度），不读取实时关节 |
 | | `frame` / `fk_frame` | `'local'` / `None` | `fk_frame` 必填，模型基准含义同上 |
 

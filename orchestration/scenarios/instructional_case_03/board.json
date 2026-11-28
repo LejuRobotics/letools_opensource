@@ -1,4 +1,8 @@
 {
+  "arms_home__actual_time": null,
+  "arms_left__actual_time": null,
+  "arms_right__actual_time": null,
+  "arms_return_home__actual_time": null,
   "arm_home_joint_angles": [
     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0

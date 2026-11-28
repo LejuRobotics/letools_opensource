@@ -240,7 +240,7 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 
 # 真机 / 仿真
 python3 apps/test_upper_init/run_behavior_tree_json.py \
-  --scenario orchestration/scenarios/scenarios_internal/refactored_sdk_single_tag_pick_v0
+  --scenario orchestration/scenarios/instructional_case_02
 ```
 
 > 相关：被验证的适配器方法见 [`03-adapters-硬件适配层.md`](./03-adapters-硬件适配层.md)；技能生命周期见 [`04-skills-原子技能.md`](./04-skills-原子技能.md)；行为树与场景见 [`05-orchestration-行为树编排.md`](./05-orchestration-行为树编排.md)。

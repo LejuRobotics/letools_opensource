@@ -7,7 +7,7 @@
 对齐源脚本 cmd_arm_ee_offline_traj_test.py：
   enable(True) → set_offline_trajectory → sleep(total_time) → enable(False)
 
-与在线连发（arm_ee_burst_timed）的区别：
+与在线逐点发令的区别：
   - 连发：逐点发在线服务，每点独立规划，MPC 在线平滑（有失真）；
   - 离线：一次提交整条带时间戳轨迹，底层 Ruckig 预规划整体时间最优，
           二阶连续三阶可导，适合密集航点 / 示教回放 / 涂胶。

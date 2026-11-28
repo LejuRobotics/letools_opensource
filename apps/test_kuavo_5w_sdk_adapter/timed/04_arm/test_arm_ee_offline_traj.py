@@ -32,8 +32,8 @@
     python3 test_arm_ee_offline_traj.py --arm right --frame local \
         --traj-file examples/offline_traj_right.csv
 
-    # 结束后查静差
-    python3 test_arm_ee_offline_traj.py --traj "0,0.3,0.25,0.5,0,0,0" "1,0.5,0.25,0.5,0,0,0" --get-error
+    # 轨迹示例
+    python3 test_arm_ee_offline_traj.py --traj "0,0.3,0.25,0.5,0,0,0" "1,0.5,0.25,0.5,0,0,0"
 
     # 不带 --traj/--traj-file 时用内置默认轨迹
     python3 test_arm_ee_offline_traj.py
@@ -56,12 +56,11 @@
     --focus-ee              末端优先模式（默认 False=躯干优先）。
     --no-reset-torso        跳过躯干复位。
     --no-reset-arm          跳过手臂物理复位（仍切外部控制模式）。
-    --get-error             轨迹执行完后查询静差。
 
 【离线 vs 在线区别】
     离线（本脚本）: 一次性提交整条带时间戳轨迹，Ruckig 预规划整体时间最优，
                     二阶连续三阶可导，适合密集航点/示教回放/涂胶。
-    在线（burst）:  逐点发在线服务，每点独立规划，MPC 在线平滑（有失真）。
+    在线单目标:  逐点发在线服务，每点独立规划，MPC 在线平滑（有失真）。
     姿态单位: CLI 输入度，离线服务内部要求弧度（脚本自动转换）。
 """
 import argparse
@@ -149,7 +148,6 @@ def _parse_args():
                         help='末端优先(默认False=躯干优先,躯干不动)')
     parser.add_argument('--no-reset-torso', action='store_true', help='跳过躯干复位')
     parser.add_argument('--no-reset-arm', action='store_true', help='跳过手臂复位')
-    parser.add_argument('--get-error', action='store_true', help='结束后查静差')
     return parser.parse_args()
 
 
@@ -169,7 +167,6 @@ class TestArmEEOfflineTraj(unittest.TestCase):
     focus_ee: bool = False
     no_reset_torso: bool = False
     no_reset_arm: bool = False
-    get_error: bool = False
 
     @classmethod
     def setUpClass(cls):
@@ -240,15 +237,6 @@ class TestArmEEOfflineTraj(unittest.TestCase):
         self.assertTrue(r4.success, f"离线轨迹关闭使能失败: {r4.message}")
         logger.info(f"离线轨迹执行完成, 总时长 {total_time:.2f}s")
 
-        if self.get_error:
-            res = self.hardware.get_ee_pose_reach_error(is_left=(self.arm == 'left'))
-            if res.success:
-                err = res.data.get('err_vector', [])
-                logger.info(f"末端跟踪静差 [x,y,z,yaw,pitch,roll]={[round(v, 4) for v in err]} "
-                            f"(位置m/姿态rad)")
-            else:
-                logger.warning(f"静差查询: {res.message}")
-
 
 if __name__ == '__main__':
     args = _parse_args()
@@ -274,6 +262,5 @@ if __name__ == '__main__':
     TestArmEEOfflineTraj.focus_ee = args.focus_ee
     TestArmEEOfflineTraj.no_reset_torso = args.no_reset_torso
     TestArmEEOfflineTraj.no_reset_arm = args.no_reset_arm
-    TestArmEEOfflineTraj.get_error = args.get_error
 
     unittest.main(argv=[sys.argv[0]])

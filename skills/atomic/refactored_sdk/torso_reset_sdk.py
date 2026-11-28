@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Atomic skill: torso_reset_sdk.
 
-Aligns with `torso_control_mixin.reset_torso_to_initial()` by calling `hardware.reset_torso_to_initial()`.
+Aligns with `torso_mixin.reset_torso_to_initial()` by calling `hardware.reset_torso_to_initial()`.
 底层路径: Adapter 直调 → ROS Service /mobile_manipulator_reset_torso (SetBool)
 """
 
@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class TorsoResetSdkParams(SkillParams):
-    """对齐 torso_control_mixin.reset_torso_to_initial()。"""
+    """对齐 torso_mixin.reset_torso_to_initial()。"""
 
     skill_name: str = "torso_reset_sdk"
     timeout: float = 30.0

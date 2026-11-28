@@ -62,7 +62,7 @@ def verify_reach_time(hardware, topic_type, name):
 
 def verify_mpc_control_mode(hardware):
     """验证MPC控制模式"""
-    mode = hardware.get_mpc_control_mode()
+    mode = hardware.get_mpc_control_mode_cached()
     
     print(f"\n📊 MPC控制模式:")
     if mode is not None:

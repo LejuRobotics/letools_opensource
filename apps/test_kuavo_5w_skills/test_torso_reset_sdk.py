@@ -3,7 +3,7 @@
 被测对象: skills.atomic.refactored_sdk.torso_reset_sdk.TorsoResetSdkSkill
 技能生命周期: initialize(TorsoResetSdkParams) → execute() → is_finished()
 底层路径: SkillBase → on_execute → hardware.reset_torso_to_initial()
-         → torso_control_mixin（ROS 服务 /mobile_manipulator_reset_torso，无 SDK 管理器）→ whitelist=[]
+         → torso_mixin（ROS 服务 /mobile_manipulator_reset_torso，无 SDK 管理器）→ whitelist=[]
 
 测试用例说明:
 - test_reset: 躯干复位到初始位姿
@@ -32,7 +32,7 @@ def test_reset(hardware):
 
 
 def main():
-    # torso_control_mixin 走 ROS 服务，无 SDK 管理器
+    # torso_mixin 走 ROS 服务，无 SDK 管理器
     hardware = build_hardware(whitelist=[])
     try:
         hardware.initialize()

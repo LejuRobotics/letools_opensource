@@ -2,7 +2,7 @@
 
 本案例按 `home → left → right → home` 执行四个阶段。每阶段都是带记忆的
 `Sequence`，依次执行现有的 `HeadControlSdkMove`、`MultiTimedCommandMove` 和
-`ArmJointTimedMove`。躯干命令与手臂命令分开提交，不同时调用 TimedCmd。
+`Sequence(TimedArmJoint, WaitSeconds)`。躯干命令与手臂命令分开提交，不同时调用 TimedCmd。
 
 所有命令均需在仓库根目录执行。先 dry-run 检查配置，再由测试人员确认真机条件。
 
@@ -16,25 +16,25 @@ Sequence(four_head_arm_torso_phases, memory=true)
 └── Sequence(phase_4_return_home)：头回正 → 躯干 home → 双臂 home
 ```
 
-共 **17 个节点**：1 个根 `Sequence`、4 个阶段 `Sequence`、12 个叶子节点。
+共 **25 个节点**：1 个根 `Sequence`、4 个阶段 `Sequence`、4 个手臂发送/等待 `Sequence`、16 个叶子节点。
 每阶段的叶子顺序如下：
 
 | 节点 | 当前配置与行为 |
 |---|---|
 | `HeadControlSdkMove` | 下发头部 yaw/pitch 目标；不查询头部是否到位 |
 | `MultiTimedCommandMove` | 一次 `send_timed_multi_commands()` 请求仅含 **planner 2**：躯干 4D 位姿；请求成功后等待 `actual_time + settle_time` |
-| `ArmJointTimedMove` | 调用 `send_arm_joint_timed()` 下发 **14D 双臂关节目标**；请求成功后等待 `actual_time + settle_time` |
+| `TimedArmJoint` | 运行时将 `joint_angles` 的 14D 目标拆为左右各 7D，调用 `timed_arm_joint()`；成功后立即返回并写入实际时长 |
+| `WaitSeconds` | 独立读取上述时长，等待 `duration_sec + settle_time`；不查询到位 |
 
 这里的“串行”是节点执行与 TimedCmd 请求的串行：躯干节点成功后才运行手臂节点。
-头部没有到位等待，实际头部运动仍可能与后续躯干动作重叠。两个 TimedCmd 技能都只是
-按返回的规划时长 `sleep`；无 `actual_time` 时使用请求时长作为回退值，不读取实际关节或
+头部没有到位等待，实际头部运动仍可能与后续躯干动作重叠。躯干技能按规划时长等待；手臂技能只发送，由后续独立 `WaitSeconds` 等待规划时长加额外停留；字段缺失（含无返回数据） 的 `actual_time` 使用本次请求时长作为回退值，不读取实际关节或
 位姿误差。节点或根树 `SUCCESS` 不是实测到位或安全证明。
 
 ## 当前动作参数
 
 躯干 planner `2` 的 `cmd_vec` 是 **`[x, z, yaw, pitch]`**：`x/z` 单位为米，
-`yaw/pitch` 在本案例默认 Adapter `angle_unit=deg` 下为度。头部和手臂角度也按度填写；
-若改 Adapter 角度单位，必须同步核对全部角度值，参数名本身不会强制转换单位。
+`yaw/pitch` 在本案例默认 Adapter `angle_unit=deg` 下为度。头部角度也按度填写，TimedArmJoint 固定使用度。
+若改 Adapter 角度单位，须重新核对仍受其影响的头部/躯干参数，不能改变 TimedArmJoint 的度制约定。
 
 | 阶段 | 头部 `[yaw, pitch]`（度） | 躯干 `[x, z, yaw, pitch]`（米、米、度、度） | 左/右臂各自 `[J0..J6]`（度） |
 |---|---|---|---|
@@ -50,7 +50,7 @@ Sequence(four_head_arm_torso_phases, memory=true)
 |---|---|
 | `torso_home_commands` / `torso_left_commands` / `torso_right_commands` | 各仅一条 planner `2` 命令 |
 | `arm_home_joint_angles` / `arm_left_joint_angles` / `arm_right_joint_angles` | 各一个 14D 双臂关节目标 |
-| `motion_duration_sec` | `3.0`，分别作为躯干 `desire_time` 和手臂 `total_time` |
+| `motion_duration_sec` | `3.0`，分别作为躯干 `desire_time` 和手臂 `desire_time` |
 | `motion_settle_time_sec` | `0.5`，躯干与手臂各自额外等待 |
 | `head_left_yaw_deg` / `head_right_yaw_deg` | `20.0` / `-20.0` |
 | `head_center_yaw_deg` / `head_center_pitch_deg` | 均为 `0.0` |
@@ -71,7 +71,7 @@ Sequence(four_head_arm_torso_phases, memory=true)
 - `MultiTimedCommandMove` 下发前调用 `set_arm_control_mode(2)`，再设置
   `focus_ee=false`、`focus_z=false`。任一步失败都不下发该节点的 TimedCmd；已经产生的
   模式/焦点副作用不会自动回滚。`focus_ee=false` 也不表示禁止显式躯干目标运动。
-- `ArmJointTimedMove` 本身不切控制模式；本树的先行躯干节点负责准备外部控制模式。
+- 本案例 `TimedArmJoint` 显式配置 `prepare_arm_control=false`，不切控制模式；本树的先行躯干节点负责准备外部控制模式。
   树结束不会自动切回模式 0、恢复原焦点或执行物理复位。
 - 使用 `config/app_config.yaml` 全局配置，无场景级 `hardware_config.json`。非 dry-run
   需要控制器、ROS/TF、LowLevel SDK、TimedCmd 及模式/焦点服务可用；运行准备见

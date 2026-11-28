@@ -220,7 +220,7 @@ class CartonVisionInjectPose(BaseAction):
         # --- 5b. 写入不满垛字段（estimated_total / top_ids / pick_sequence 等） ---
         self._inject_top_carton_fields(result, data)
 
-        # --- 6. 写入完成（ArmEeTimedCmdMove.initialise() 会通过 board_key 运行时读取）---
+        # --- 6. 写入完成，下游运动节点通过 board_key 运行时读取 ---
 
         if HAS_ROSPY:
             rospy.loginfo(

@@ -192,15 +192,5 @@ skills
 
 ---
 
-## v0 已知约束(refactored_sdk_single_tag_pick_v0 专属)
-
-v0 阶段以下两处为**骨架占位**,真机集成测试时需替换为真实实现:
-
-| 位置 | 当前行为 | 替换为 |
-|---|---|---|
-| `NodeTagToArmGoal.update()` | 写 `placeholder=[None]`,让下游 `NodeWheelArm` 的 `if l and r:` 通过 | 真实逆运动学输出(参考源版 `nodes.py:188-360`) |
-| `NodeComputePickGoal.update()` | 访问 `tag.pose_in_world.x / .y / .z`(`Pose6D` 是 dataclass,无 `.pos` 属性) | 保持(已与 `core/domain/pose.py` 对齐) |
-
----
 
 ## 简单说明

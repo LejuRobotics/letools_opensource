@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""arm_ee_single_timed / arm_ee_burst_timed / arm_ee_offline_traj 技能单元测试（mock IHardware）。"""
+"""arm_ee_single_timed / arm_ee_offline_traj 技能单元测试（mock IHardware）。"""
 
 import time
 from unittest.mock import MagicMock
@@ -9,10 +9,6 @@ import pytest
 from skills.atomic.refactored_sdk.arm_ee_single_timed import (
     ArmEESingleTimedParams,
     ArmEESingleTimedSkill,
-)
-from skills.atomic.refactored_sdk.arm_ee_burst_timed import (
-    ArmEEBurstTimedParams,
-    ArmEEBurstTimedSkill,
 )
 from skills.atomic.refactored_sdk.arm_ee_offline_traj import (
     ArmEEOfflineTrajParams,
@@ -79,63 +75,6 @@ class TestArmEESingleTimedSkill:
         assert not result.success
 
 
-# ---------------------------------------------------------------------------
-# ArmEEBurstTimedSkill
-# ---------------------------------------------------------------------------
-@pytest.mark.unit
-class TestArmEEBurstTimedSkill:
-    def test_burst_sends_each_waypoint(self, monkeypatch):
-        monkeypatch.setattr(time, "sleep", lambda *_: None)
-        hw = MagicMock()
-        hw.send_timed_left_arm_ee_world.return_value = _ok()
-        skill = ArmEEBurstTimedSkill(hardware=hw)
-        wps = [[0.3, 0.25, 0.5, 0, 0, 0], [0.5, 0.25, 0.5, 0, 0, 0], [0.3, 0.25, 0.7, 0, 0, 0]]
-        params = ArmEEBurstTimedParams(side="left", frame="world", waypoints=wps, desire_time=2.0)
-        assert skill.initialize(params).success
-        result = skill.execute()
-        assert result.success
-        assert hw.send_timed_left_arm_ee_world.call_count == 3
-
-    def test_burst_stops_on_failure(self, monkeypatch):
-        monkeypatch.setattr(time, "sleep", lambda *_: None)
-        hw = MagicMock()
-        hw.send_timed_left_arm_ee_world.side_effect = [_ok(), _fail("下发失败"), _ok()]
-        skill = ArmEEBurstTimedSkill(hardware=hw)
-        wps = [[0.3, 0.25, 0.5, 0, 0, 0]] * 3
-        params = ArmEEBurstTimedParams(waypoints=wps)
-        assert skill.initialize(params).success
-        result = skill.execute()
-        assert not result.success
-        assert hw.send_timed_left_arm_ee_world.call_count == 2  # 第2点失败即中止
-
-    def test_check_reach_within_tolerance(self, monkeypatch):
-        monkeypatch.setattr(time, "sleep", lambda *_: None)
-        hw = MagicMock()
-        hw.send_timed_left_arm_ee_world.return_value = _ok()
-        hw.get_ee_pose_reach_error.return_value = _ok(
-            "到位", data={"err_vector": [0.001, 0.001, 0.001, 0.01, 0.01, 0.01]})
-        skill = ArmEEBurstTimedSkill(hardware=hw)
-        params = ArmEEBurstTimedParams(waypoints=[[0.3, 0.25, 0.5, 0, 0, 0]], check_reach=True)
-        assert skill.initialize(params).success
-        assert skill.execute().success
-        hw.get_ee_pose_reach_error.assert_called_once_with(is_left=True)
-
-    def test_check_reach_out_of_tolerance_fails(self, monkeypatch):
-        monkeypatch.setattr(time, "sleep", lambda *_: None)
-        hw = MagicMock()
-        hw.send_timed_left_arm_ee_world.return_value = _ok()
-        hw.get_ee_pose_reach_error.return_value = _ok(
-            "未到位", data={"err_vector": [0.5, 0.0, 0.0, 0.0, 0.0, 0.0]})  # 线误差0.5m 超差
-        skill = ArmEEBurstTimedSkill(hardware=hw)
-        params = ArmEEBurstTimedParams(waypoints=[[0.3, 0.25, 0.5, 0, 0, 0]], check_reach=True)
-        assert skill.initialize(params).success
-        assert not skill.execute().success
-
-    def test_empty_waypoints_fails_init(self):
-        hw = MagicMock()
-        skill = ArmEEBurstTimedSkill(hardware=hw)
-        params = ArmEEBurstTimedParams(waypoints=[])
-        assert not skill.initialize(params).success
 
 
 # ---------------------------------------------------------------------------

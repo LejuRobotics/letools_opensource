@@ -106,11 +106,8 @@ class BaseAction(Behaviour):
 | 场景 | board.json 中的键（示例） |
 |---|---|
 | `studio_smoke_v1` / `refactored_sdk_atomic_v1` | `ArmJointTrajectories` |
-| `refactored_sdk_arm_v1` | `EETrajLocalForward`、`EETrajWorldForward`、`EETrajWorldUp`、`ArmJointTrajectories` |
-| `refactored_sdk_single_tag_pick_v0` | `pick_tag_id`、`tag_ids`、`stand_in_tag_pos`、`stand_in_tag_euler`、`box_width`、`box_behind_tag`、`box_beneath_tag`、`box_left_tag`、`head_search_yaws`、`head_search_pitchs`、`tag_scan_timeout`、`chassis_walk_mode` |
-| `wheel_arm_single_tag_pick_v1` | `pick_tag_id`、`tag_ids`、`box_width`、`box_behind_tag`、`box_beneath_tag`、`box_left_tag`、`hand_pitch_degree`、`arm_control_type`、`use_virtual_tag`、`virtual_tag_pose_in_odom` |
 | `grasp_mtbf` | 三段式，键在 `process[].key`：`repeat_count`、`mtbf_stop_requested`、`navigation_config`、`pick_tag_id`、`place_tag_id`、`tag_ids`、`use_virtual_tag`、`fallback_to_virtual`、`require_fresh_tag`、`real_tag_timeout_sec`、`box_size`、`pick_position_offset` |
-| `dismantle_box` / `dismantle_box_demo` / `dismantle_box_demo_action` / `jibot_nav_v1` | 顶层为空对象 `{}`（参数在节点内或运行时注入） |
+| `jibot_nav_v1` | 顶层为空对象 `{}`（参数在节点内或运行时注入） |
 
 ## 四、场景目录与四类配置文件
 
@@ -314,14 +311,14 @@ python3 apps/test_upper_init/run_behavior_tree_json.py \
 
 # 【仿真或真机实跑】（需预先启动 ROS 及运控站立链）
 python3 apps/test_upper_init/run_behavior_tree_json.py \
-  --scenario orchestration/scenarios/scenarios_internal/refactored_sdk_single_tag_pick_v0
+  --scenario orchestration/scenarios/instructional_case_02
 ```
 
 行为树依赖 Python 包 `py_trees`（注意是复数），Ubuntu 20.04 / ROS Noetic / Python 3.8 下请锁定 `py_trees==2.2.3`。
 
 ## 八、新建场景标准流程
 
-1. **复制基础模板**：复制 `studio_smoke_v1` 或 `refactored_sdk_single_tag_pick_v0` 目录，**勿直接从产线真机树改动**。
+1. **复制基础模板**：复制 `studio_smoke_v1` 或 `refactored_sdk_atomic_v1` 目录，**勿直接从产线真机树改动**。
 2. **配置黑板参数**：修改 `board.json` 中的 Tag ID、位姿目标及几何尺寸。
 3. **编排主树结构**：调整 `py_tree.json` 的 `childs` 数组顺序，确保使用的节点 `name` 均已实现。
 4. **抽离重复逻辑**：将多次复用的动作段落抽离至 `py_tree_child.json`。
@@ -356,8 +353,7 @@ orchestration/nodes/<feature>_move.py       →  <Feature>Move
 
 1. `scenarios/scenarios_internal/studio_smoke_v1/`（冒烟测试）：最小主树结构（Enter 确认 → 底盘移动 → 蹲下 → 抬臂）。
 2. `scenarios/scenarios_internal/refactored_sdk_atomic_v1/`（原子技能演示）：学习子树引用、`Parallel` 与 `Async` 并发使用。
-3. `scenarios/scenarios_internal/refactored_sdk_single_tag_pick_v0/`（单 Tag 取放）：包含子树拆分、`${宏}` 替换、虚拟 Tag 注入。
-4. `scenarios/grasp_mtbf/`（循环搬箱）：用公共节点编排地图导航、Tag 识别、关键点计算与八阶段抓放，可配置轮数。
+3. `scenarios/grasp_mtbf/`（循环搬箱）：用公共节点编排地图导航、Tag 识别、关键点计算与八阶段抓放，可配置轮数。
 
 ## 十一、研发设计原则与易错点
 
@@ -392,8 +388,8 @@ orchestration/nodes/<feature>_move.py       →  <Feature>Move
 | `leg_short_move.py` | `LegShortMove` | `leg_control` | `studio_smoke_v1` |
 | `move_arm_base_joint_trajectories.py` | `MoveArmBaseJointTrajectories` | 旧版 `arm_control` | `studio_smoke_v1` |
 | `head_control_sdk_move.py` | `HeadControlSdkMove` | `head_control_sdk` | `refactored_sdk_atomic_v1` |
-| `arm_joint_traj_sdk_move.py` | `ArmJointTrajSdkMove` | `arm_joint_traj_sdk` | `refactored_sdk_atomic_v1`、`refactored_sdk_arm_v1`、`instructional_case_02` |
-| `arm_reset_sdk_move.py` | `ArmResetSdkMove` | `arm_reset_sdk` | `refactored_sdk_arm_v1` |
+| `arm_joint_traj_sdk_move.py` | `ArmJointTrajSdkMove` | `arm_joint_traj_sdk` | `refactored_sdk_atomic_v1`、`instructional_case_02` |
+| `arm_reset_sdk_move.py` | `ArmResetSdkMove` | `arm_reset_sdk` | `refactored_sdk_atomic_v1` |
 | `leg_joint_sdk_move.py` | `LegJointSdkMove` | `leg_joint_sdk` | `refactored_sdk_atomic_v1` |
 | `base_pose_local_move.py` | `BasePoseLocalMove` | `base_pose_local` | `refactored_sdk_atomic_v1` |
 | `chassis_navigation_move.py` | `ChassisNavigationMove` | — | 导航类场景 |

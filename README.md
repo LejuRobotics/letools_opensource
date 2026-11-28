@@ -308,7 +308,7 @@ LeTools
 | `adapters/hardware/leju_wheeled/mixins/lifecycle_mixin.py`                     | 初始化/关闭流程，创建 SDK manager、相机、感知、状态管理器                                      |
 | `adapters/hardware/leju_wheeled/mixins/base_control_mixin.py`                  | 底盘速度/位姿标准控制                                                              |
 | `adapters/hardware/leju_wheeled/mixins/arm_control_mixin.py`                   | 手臂末端/关节、腿部关节等标准控制                                                        |
-| `adapters/hardware/leju_wheeled/mixins/torso_control_mixin.py`                 | 躯干控制                                                                     |
+| `adapters/hardware/leju_wheeled/mixins/torso_mixin.py`                 | 躯干控制                                                                     |
 | `adapters/hardware/leju_wheeled/mixins/timed_command_mixin.py`                 | TimedCmd、Ruckig 参数、离线轨迹、IK 可达性                                           |
 | `adapters/hardware/leju_wheeled/mixins/sdk_control_mixin.py`                   | SDK 直调能力，提供 `*_sdk` 方法                                                   |
 | `adapters/hardware/leju_wheeled/mixins/mode_service_mixin.py`                  | MPC、快速模式、手臂控制模式服务                                                        |
@@ -344,8 +344,6 @@ LeTools
 | `skills/atomic/refactored_sdk/base_pose_local.py`       | 底盘本体系相对位姿                                                             |
 | `skills/atomic/refactored_sdk/head_control_sdk.py`      | 头部控制                                                                  |
 | `skills/atomic/refactored_sdk/arm_joint_traj_sdk.py`    | 双臂 14 关节轨迹                                                            |
-| `skills/atomic/refactored_sdk/arm_ee_traj_local_sdk.py` | 手臂末端本体系轨迹                                                             |
-| `skills/atomic/refactored_sdk/arm_ee_traj_world_sdk.py` | 手臂末端世界系轨迹                                                             |
 | `skills/atomic/refactored_sdk/arm_reset_sdk.py`         | 手臂复位                                                                  |
 | `skills/atomic/refactored_sdk/leg_joint_sdk.py`         | 腿部关节控制                                                                |
 | `skills/atomic/refactored_sdk/torso_reset_sdk.py`       | 躯干复位                                                                  |
@@ -484,8 +482,6 @@ LeTools
 | 适配     | `adapters/hardware/leju_wheeled/mixins/arm_control_mixin.py`               | 标准手臂末端/关节控制                                          |
 | 适配     | `adapters/hardware/leju_wheeled/mixins/sdk_control_mixin.py`               | `send_arm_joint_traj_sdk`, `arm_reset`, 头部/下肢 SDK 路径 |
 | 技能     | `skills/atomic/refactored_sdk/arm_joint_traj_sdk.py`                       | 14 关节手臂轨迹技能                                          |
-| 技能     | `skills/atomic/refactored_sdk/arm_ee_traj_local_sdk.py`                    | 手臂末端本体系轨迹技能                                          |
-| 技能     | `skills/atomic/refactored_sdk/arm_ee_traj_world_sdk.py`                    | 手臂末端世界系轨迹技能                                          |
 | 技能     | `skills/atomic/refactored_sdk/arm_reset_sdk.py`                            | 手臂复位技能                                               |
 | 节点     | `orchestration/nodes/arm_*_sdk_move.py`                                    | 行为树手臂节点                                              |
 | 示例     | `apps/test_kuavo_5w_sdk_adapter/sdk/02_arm/`                                | 手臂关节/末端/复位示例                                         |
@@ -496,7 +492,7 @@ LeTools
 | ------ | ------------------------------------------------------------------------------ | --------------------------------------------- |
 | 接口     | `core/interfaces/i_hardware.py`                                                | 定义腿部关节、躯干位姿、Timed 下肢/躯干接口                     |
 | SDK 管理 | `adapters/hardware/leju_wheeled/services/sdk_manager/low_level_sdk_manager.py` | 低层 SDK 控制：头部、腿部、底盘、模式等                        |
-| 适配     | `adapters/hardware/leju_wheeled/mixins/torso_control_mixin.py`                 | 标准躯干位姿和复位相关能力                                 |
+| 适配     | `adapters/hardware/leju_wheeled/mixins/torso_mixin.py`                 | 标准躯干位姿和复位相关能力                                 |
 | 适配     | `adapters/hardware/leju_wheeled/mixins/sdk_control_mixin.py`                   | `send_leg_joint_sdk`, `send_torso_pose_sdk` 等 |
 | 技能     | `skills/atomic/refactored_sdk/leg_joint_sdk.py`                                | 腿部关节技能                                        |
 | 技能     | `skills/atomic/refactored_sdk/torso_reset_sdk.py`                              | 躯干复位技能                                        |

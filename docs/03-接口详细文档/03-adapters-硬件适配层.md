@@ -10,7 +10,7 @@ adapters 层把 core 层的标准接口翻译成具体的 ROS 话题 / 服务 / 
 |---|---|---|
 | `adapters.hardware.factory` | `HardwareFactory` | 按 `robot_type` 创建硬件对象（唯一推荐入口） |
 | `adapters.hardware.leju_wheeled.hardware` | `LejuWheeledArmHardware` | 乐聚轮臂适配器主类，实现 `IHardware` |
-| `adapters.hardware.leju_wheeled.mixins` | `lifecycle` / `base_control` / `arm_control` / `torso_control` / `end_effector` / `force_control` / `mode_service` / `sdk_control` / `state_feedback` / `timed_command` / `ik_service` / `navigation_chassis` | 按控制域拆开的能力模块（Mixin） |
+| `adapters.hardware.leju_wheeled.mixins` | `lifecycle` / `base_control` / `arm_control` / `torso` / `end_effector` / `force_control` / `mode_service` / `sdk_control` / `state_feedback` / `timed_command` / `ik_service` / `navigation_chassis` | 按控制域拆开的能力模块（Mixin） |
 | `adapters.hardware.leju_wheeled.mixins.jibot.chassis_mixin` | `JibotChassisMixin` | JiBot 协议底盘移动 |
 | `adapters.hardware.leju_wheeled.mixins.jiateng` | 嘉腾底盘 Mixin | 嘉腾协议底盘移动（与 JiBot 并列） |
 | `adapters.hardware.leju_wheeled.camera_adapter` | `CameraAdapter` | 相机适配器，实现 `ICamera` |
@@ -75,15 +75,12 @@ hw.shutdown()
 | 标准 | `publish_arm_joint_setpoint` | `publish_arm_joint_setpoint(positions_deg[14]) -> Result` | 双臂 14 关节设定点，**非阻塞**，只发布不等待到位 → `/kuavo_arm_traj` | `IHardware` / `ArmControlMixin` |
 | 标准 | `send_joint_trajectory` | `send_joint_trajectory(joint_names, time_points, joint_angles_list) -> Result` | 自定义关节名/时间点的多段轨迹 | `ArmControlMixin` |
 | 标准 | `arm_reset` | `arm_reset() -> Result` | 手臂归位，自动处理 MPC 模式设置与恢复 | `ArmSDKManager` |
-| SDK | `send_ee_pose_sdk` | `send_ee_pose_sdk(left_pose=None, right_pose=None, frame='world') -> Result` | 单次末端位姿，**需上层约 100Hz 循环** | `SDKControlMixin` |
 | SDK | `send_arm_joint_positions_sdk` | `send_arm_joint_positions_sdk(joint_angles[14]) -> Result` | 单次关节位置，需上层 100Hz 循环 | `SDKControlMixin` |
-| SDK | `send_arm_ee_traj_sdk` | `send_arm_ee_traj_sdk(left_traj, right_traj, total_time=3.0, frame='world') -> Result` | 多关键点末端轨迹，自动 MPC 管理 | `ArmSDKManager.move_eef_traj_auto` |
 | SDK | `send_arm_joint_traj_sdk` | `send_arm_joint_traj_sdk(joint_traj, total_time=3.0) -> Result` | 14 关节多关键点轨迹 | `SDKControlMixin` |
 | Timed | `send_arm_ee_world_timed` | `send_arm_ee_world_timed(left_pose[6], right_pose[6], desire_time=3.0) -> Result` | 双臂末端世界系 TimedCmd（planner 4+5） | `TimedCommandMixin` |
 | Timed | `send_arm_ee_local_timed` | `send_arm_ee_local_timed(left_pose[6], right_pose[6], desire_time=3.0) -> Result` | 双臂末端本体系 TimedCmd（planner 6+7） | `TimedCommandMixin` |
 | Timed | `send_left_arm_ee_world_timed` / `send_right_arm_ee_world_timed` | `send_timed_*_arm_ee_world(pose[6], desire_time=3.0) -> Result` | 单臂末端世界系 | `TimedCommandMixin` |
 | Timed | `send_left_arm_ee_local_timed` / `send_right_arm_ee_local_timed` | `send_timed_*_arm_ee_local(pose[6], desire_time=3.0) -> Result` | 单臂末端本体系 | `TimedCommandMixin` |
-| Timed | `send_arm_joint_timed` | `send_arm_joint_timed(joint_angles[14], desire_time=2.0) -> Result` | 双臂 14 关节 TimedCmd | `TimedCommandMixin` |
 | Timed | `send_timed_left_arm_joint` / `send_timed_right_arm_joint` | `send_timed_*_arm_joint(joint_angles[7], desire_time) -> Result` | 单臂 7 关节 TimedCmd | `IHardware` / `TimedCommandMixin` |
 | Timed | `send_timed_multi_commands` | `send_timed_multi_commands(commands: List[dict], is_sync=False) -> Result` | 多规划器并发 TimedCmd，每项含 `planner_index` / `desire_time` / `cmd_vec` | `IHardware` / `TimedCommandMixin` |
 
@@ -93,9 +90,9 @@ hw.shutdown()
 
 | 路径 | API | 签名 | 说明 | 所属层 |
 |---|---|---|---|---|
-| 标准 | `send_torso_pose` | `send_torso_pose(pose: Pose6D) -> Result` | 躯干相对基座位姿 (x, z, pitch, yaw)，**阻塞等待**（忽略 pose.y / pose.roll）→ `/cmd_lb_torso_pose` | `IHardware` / `TorsoControlMixin` |
+| 标准 | `send_torso_pose` | `send_torso_pose(pose: Pose6D) -> Result` | 躯干相对基座位姿 (x, z, pitch, yaw)，**阻塞等待**（忽略 pose.y / pose.roll）→ `/cmd_lb_torso_pose` | `IHardware` / `TorsoMixin` |
 | 标准 | `get_torso_initial_pose` | `get_torso_initial_pose() -> Result` | 读躯干初始位姿（`data={position, euler}`） | `IHardware` |
-| 标准 | `reset_torso_to_initial` | `reset_torso_to_initial() -> Result` | 躯干回到初始位姿 | `TorsoControlMixin` |
+| 标准 | `reset_torso_to_initial` | `reset_torso_to_initial() -> Result` | 躯干回到初始位姿 | `TorsoMixin` |
 | 标准 | `send_leg_joint_command` | `send_leg_joint_command(positions[4]) -> Result` | 膝/腿/腰 pitch/腰 yaw 四关节（**默认 deg，不做弧度转换**）→ `/lb_leg_traj` | `IHardware` / `ArmControlMixin` |
 | 适配器 | `get_leg_joint_positions` | `get_leg_joint_positions() -> Result[List[float]]` | 读取膝/腿/腰 pitch/腰 yaw 四关节，顺序与写入一致；校验 4 个有限值，底层弧度经 `_from_rad()` 转为 `angle_unit` 用户单位；需要 `low` 管理器 | `SDKControlMixin` → `LowLevelSDKManager.robot_sdk.state.joint_state` |
 | 标准 | `send_leg_joint_positions` | `send_leg_joint_positions(joint_names, positions) -> Result` | 内部方法，可自定义关节名 | `ArmControlMixin` |
@@ -184,7 +181,7 @@ hw.shutdown()
 | 标准 | `enable_quick_mode` | `enable_quick_mode(enable: bool) -> Result` | 手臂/下肢快速模式（绕过 MPC） | `IHardware` / `ModeServiceMixin` |
 | 标准 | `set_arm_quick_mode` | `set_arm_quick_mode(quick_mode: int) -> Result` | 手臂快速模式参数 | `ModeServiceMixin` |
 | 标准 | `set_arm_control_mode` | `set_arm_control_mode(control_mode: int) -> Result` | 手臂控制模式切换 | `ModeServiceMixin` |
-| 标准 | `set_focus_ee` / `set_focus_z` | `set_focus_ee(focus_ee=True) -> Result` | 笛卡尔 / Z 轴跟踪焦点（latch 话题） | `TorsoControlMixin` |
+| 标准 | `set_focus_ee` / `set_focus_z` | `set_focus_ee(focus_ee=True) -> Result` | 笛卡尔 / Z 轴跟踪焦点（latch 话题） | `TorsoMixin` |
 
 > **区分参数与调用**：当前固件会存储并回显 `MPCControlMode` 值，但控制主循环不按它选择分支。标准接口仍访问 `/mobile_manipulator_mpc_control`，现有流程依赖该兼容调用。`set_mpc_mode_sdk()` 还会调用外部控制准备及 SDK 的控制流设置；不能把整个方法理解成“无效”。实际控制方式应结合 `set_arm_control_mode`、快速模式及 planner 指令类型判断，见 [`09-控制路径与选型.md`](./09-控制路径与选型.md)。
 
@@ -260,7 +257,7 @@ result = hw.control_end_effector(
 | 查询 | `get_ee_target_6d` | `get_ee_target_6d() -> Optional[List[Dict]]` | 末端目标 6D（指令目标） | `StateFeedbackMixin` |
 | 查询 | `get_arm_joint_positions` | `get_arm_joint_positions() -> Result` | 当前 14 臂关节角 | `StateFeedbackMixin` |
 | 查询 | `get_mpc_observation` | `get_mpc_observation() -> Optional[Dict]` | MPC 观测状态 | `IHardware` |
-| 查询 | `get_mpc_control_mode` | `get_mpc_control_mode() -> Optional[int]` | 当前 MPC 模式枚举值 | `IHardware` |
+| 查询 | `get_mpc_control_mode_cached` | `get_mpc_control_mode_cached() -> Optional[int]` | 当前 MPC 模式枚举值 | `IHardware` |
 | 查询 | `get_joint_torque` | `get_joint_torque() -> Optional[Dict]` | 关节力矩 | `IHardware` |
 | 查询 | `get_body_acceleration` | `get_body_acceleration() -> Optional[Dict]` | 本体加速度 | `IHardware` |
 | 查询 | `get_joint_acc` | `get_joint_acc() -> Optional[Dict]` | 关节加速度 | `StateFeedbackMixin` |
@@ -268,7 +265,7 @@ result = hw.control_end_effector(
 | 查询 | `get_mpc_target_input` / `get_mpc_target_state` | `get_mpc_target_*() -> Optional[Dict]` | MPC 目标输入/状态 | `StateFeedbackMixin` |
 | 查询 | `get_optimized_state_mrt` / `get_optimized_state_kinemic` / `get_optimized_input_mrt` / `get_optimized_input_kinemic` | `get_optimized_*() -> ...` | 优化器输出 | `StateFeedbackMixin` |
 | 查询 | `get_torso_target_6d` | `get_torso_target_6d() -> Optional[...]` | 躯干目标 6D | `StateFeedbackMixin` |
-| 查询 | `get_ee_pose_reach_error` | `get_ee_pose_reach_error(is_left: bool) -> Result` | 末端位姿静差（6 维 `err_vector`） | `IHardware` |
+| 查询 | `get_ee_pose_reach_error` | `get_ee_pose_reach_error(is_left: bool) -> Result` | ROS1 实现已移除，继承默认 `Result.fail`（不支持）；ROS2 保持不变 | `IHardware` 默认实现（非抽象） |
 | 查询 | `robot_sdk` | `robot_sdk -> RobotSDK` | **已弃用**：底层 RobotSDK（property），仅为存量调用保留。新代码改用 `get_arm_joint_positions` / `solve_ik` / `get_transform`（`IHardware` 契约方法） | `SDKControlMixin` → `ArmSDKManager` |
 
 ### 03.02.12 相机
@@ -304,7 +301,7 @@ result = hw.control_end_effector(
 | 类 | 位置 | 职责 |
 |---|---|---|
 | `BaseSDKManager` | `services/sdk_manager/base_sdk_manager.py` | 管理器基类：连接、重连、通用调用 |
-| `ArmSDKManager` | `services/sdk_manager/arm_sdk_manager.py` | 手臂相关：`arm_reset`、`move_eef_traj_auto`、`robot_sdk` |
+| `ArmSDKManager` | `services/sdk_manager/arm_sdk_manager.py` | 手臂相关：`arm_reset`、`move_joint_traj_auto`、`move_eef_traj_manual`、`robot_sdk` |
 | `LowLevelSDKManager` | `services/sdk_manager/low_level_sdk_manager.py` | 底层单次：头部、下肢、底盘位置/速度 |
 | `TimedCmdManager` | `services/sdk_manager/timed_cmd_manager.py` | TimedCmd 与 Ruckig 规划 |
 | `StateManager` | `services/state_manager.py` | 订阅状态话题、线程安全缓存、更新回调 |
@@ -334,7 +331,7 @@ result = hw.control_end_effector(
 
 ## 03.04 返回值
 
-- **`Result`**：动作类与部分查询类（`get_torso_initial_pose`、`get_arm_joint_positions`、`get_ee_pose_reach_error`）。`get_ee_pose_reach_error` 的 `success` 仅在末端模式且期望位姿不再更新时为 `True`，`data['err_vector']` 是 6 维 `[x, y, z, yaw, pitch, roll]`（位置米、姿态弧度）。
+- **`Result`**：动作类与部分查询类（`get_torso_initial_pose`、`get_arm_joint_positions`）。ROS1 `StateFeedbackMixin.get_ee_pose_reach_error` 及旧静差服务查询链已移除；共享 `IHardware` 保留同名非抽象方法，默认返回不支持的 `Result.fail`，不再提供 ROS1 到位判定或误差向量。ROS2 的现有实现与消息文件保持不变。
 - **`Optional[...]`**：`get_ee_poses` / `get_mpc_observation` / `get_ee_target_6d` / `get_camera_frame` / `get_depth_data` / `get_point_cloud` / `get_camera_info` / `get_camera_status`。**调用前判空**。
 - **`bool`**：`is_connected`、`start_camera`、`stop_camera`。
 
@@ -403,3 +400,95 @@ hw.shutdown()
 - 发布时只编译闭源清单命中的 `adapters/`；具体 `.pyc` 路径与原 `.py` 模块路径对应。
 
 > 相关：面向读者的扩展规范见 `05-进阶开发指南/03-扩展-adapters-层.md`；三条控制路径（标准 / SDK / Timed）的选型见 [`09-控制路径与选型.md`](./09-控制路径与选型.md)；类型与枚举定义见 [`02-core-接口与数据模型.md`](./02-core-接口与数据模型.md)。
+
+## 躯干单帧控制补充
+
+新增 `set_torso_joint(joint)` / `SetTorsoJoint` 和 `set_torso_pose(pose)` / `SetTorsoPose`：
+
+| 参数 | 必填格式 | 单位 |
+|---|---|---|
+| `joint` | `[knee,leg,waist_pitch,waist_yaw]`，4维 | deg |
+| `pose` | `[x,z,yaw,pitch]`，4维 | m/deg |
+
+IHardware提供默认不支持的可选方法，其他Adapter无需新增抽象实现。轮式实现复用TorsoMixin和已有LowLevelSDKManager（需初始化low）；关节原样以deg交SDK，位姿填充y=0、roll=0并将yaw/pitch转rad，不受angle_unit影响。
+
+Skill仅单次下发并缓存完整Result；SDK返回失败或异常时不得报告成功。节点支持运行期黑板输入与dry-run校验，无默认物理目标；不切模式/focus、不插值、不等待或检查到位。位姿参考语义沿用控制器配置，无frame参数/TF变换，y和roll由Adapter固定为0；单帧发布不保证运动完成。旧控制链和现有场景不变，目前没有场景迁移至这两个节点。
+
+## 躯干 Timed 控制补充
+
+| IHardware方法 | Skill / Node | 必填目标 | planner |
+|---|---|---|---|
+| `timed_torso_joint(joint, desire_time, is_sync=True)` | `TimedTorsoJointSkill` / `TimedTorsoJoint` | `[knee,leg,waist_pitch,waist_yaw]`，4维deg | 3 |
+| `timed_torso_pose(pose, desire_time, is_sync=True)` | `TimedTorsoPoseSkill` / `TimedTorsoPose` | `[x,z,yaw,pitch]`，4维m/deg | 2 |
+
+- 均由 `TimedCmdMixin` → `TimedRosManager.send_multi_commands()` 发一次MultiCmd请求（即便只有一个planner），不经旧的全局angle_unit换算路径。关节4维全部转rad，位姿只转换yaw/pitch；pose不暴露y/roll、不做TF变换。
+- `desire_time` 必填大于0有限秒数，`is_sync` 必须为bool，仅表示规划时长同步；目标默认空。Adapter不切模式/focus，不等待，不使用LowLevelSDKManager发送运动目标。
+- Skill与Timed手臂保持一致：`prepare_arm_control=True` 默认先通过现有模式接口请求模式2（需要low Manager），失败不发目标；False跳过准备。切2可能激活控制器残留手臂目标，操作者须先确认安全。不自动清空目标、改focus/MPC或恢复模式。
+- Skill缓存完整Result及异常失败，不重复发令、不sleep、不检查到位；服务返回 `actual_time` 是规划时长，不是实际反馈或停止证明。
+- Node支持运行期READ_BOARD与dry-run参数校验，可选 `actual_time_output_key` 将规划时长写黑板供独立WaitSeconds使用。初始化清空旧输出，只有缺字段时回退desire_time，显式null/bool/负数/非有限值失败；节点自身不等待。dry-run不获取硬件，输出请求时长仅供编排干跑，不伪造实测反馈。
+- 人工脚本按Adapter/Skill/Node三层放在 `apps/test_internal/` 对应子目录，公共配置与结果校验统一为 `_timed_test.py`，说明见 `apps/test_internal/_timed_test.md`；两个手臂Timed入口也使用该公共模块。旧SDK/Timed接口和场景不删除、不迁移。
+
+## 躯干反馈与SDK关节轨迹
+
+- `get_torso_joint()`：经 `TorsoMixin → LowLevelSDKManager` 读取SDK `joint_state.position[:4]`（rad），Adapter转换为固定deg的 `[knee,leg,waist_pitch,waist_yaw]`。不受angle_unit影响。缺失、短数组或非法值失败，不补零；缓存不保证首帧/新鲜度，不用于证明到位。
+- `set_torso_joint_traj(joint_traj, total_time)`：每帧4维deg，必须是嵌套列表，至少一个关键帧；total_time必填有限数且至少0.01秒（SDK 100Hz采样间隔，非物理限值）。没有默认目标或时长。
+- 链路为 `TorsoMixin → LowLevelSDKManager → TorsoAPI.move_wheel_lower_joint(asynchronous=False)`。Manager先校验参数/反馈，再调用SDK。SDK会再次读取状态、自动插入当前起点、请求MPC ArmOnly、均匀分配关键帧并100Hz重采样发送。不额外切手臂模式或focus，也不自动恢复MPC。前置反馈检查不提供原子快照或新鲜度保证。
+- SDK同步返回None，Result.success仅表示调用未抛异常，data=None。SDK内部不汇总模式切换和逐帧发送的bool，因此不能保证逐帧接收或实测到位。不提供actual_time；阻塞当前tick，Skill超时/cancel无法中断同步SDK循环，不适合要求可取消的Parallel。
+- Skill缓存完整成功或失败结果，重新初始化后才再次读取/执行。`GetTorsoJoint` 的output_key默认torso_joint，初始化先清空旧输出，失败或dry-run保持None。`SetTorsoJointTraj` 支持运行期黑板轨迹/时长与dry-run校验；干跑不访问硬件。
+- TorsoAPI使用原有low Manager的RobotSDK，惰性创建；shutdown释放其线程池，不与同步执行并行调用。新接口为IHardware可选方法，旧控制链和场景均保留。
+- 人工入口在 `apps/test_internal/{adapters,skills,nodes}/get_torso_joint.py` 与 `set_torso_joint_traj.py`；只启用low Manager，具体见 `apps/test_internal/_torso_test.md`。自动化回归均使用Mock，不执行真机入口。
+
+## MultiCmd ROS管理器迁移
+
+四个新 `timed_arm_joint/pose`、`timed_torso_joint/pose` 及共用 `send_timed_multi_commands` 均由 `TimedRosManager` 直接调用 `/mobile_manipulator_timed_multi_cmd`。新管理器位于 `services/ros_manager/timed_ros_manager.py`，不继承BaseSDKManager、不构造SDK。ROS节点仍由Hardware初始化；Manager初始化只检查ROS就绪，服务发现发生在发送时（5秒，不是整个调用硬截止）。每次调用只发一次，不自动重试、不sleep或切模式。
+
+配置分离：`ros_managers_whitelist=["timed"]` 开启Timed ROS后端（默认同时启用timed、torso、mpc），`skip_ros_managers=True` 或空ROS白名单关闭。`skip_sdk_managers` 仅跳过SDK，不再代表禁用ROS Manager。纯Timed Adapter使用 `sdk_managers_whitelist=[]`；带模式准备的Skill/Node使用 `["low"]`。ROS与SDK白名单中的timed不是同一个管理器。
+
+旧TimedCmdManager的SDK SingleCmd、Ruckig/离线轨迹/IK可达性路径本次保留，其send_multi_commands仅兼容转发到TimedRosManager，协议构造不再重复。旧sdk白名单仍可使用，不强迫旧场景迁移；已有默认硬件配置会同时保留旧SDK能力并初始化新ROS后端。旧共用入口仍按angle_unit转换，新四接口固定m/deg；Result/actual_time、planner与is_sync语义不变。关闭Manager不停止或撤销控制器目标。
+
+## 躯干当前姿态、初始姿态与复位
+
+| 接口 | 后端 | 成功data |
+|---|---|---|
+| `get_torso_pose()` | TorsoMixin → LowLevelSDKManager → SDK TF查询 | `{pose:[x,z,yaw,pitch],frame:'base_link',link:'waist_yaw_link',source:'tf'}` |
+| `get_torso_pose_initial()` | TorsoMixin → TorsoRosManager → 初始姿态服务 | `{pose:[x,z,yaw,pitch],frame:None,source:'initial_service'}` |
+| `reset_torso()` | TorsoMixin → TorsoRosManager → 复位服务 | `{accepted:True,estimated_time:float或None}` |
+
+两种pose公开单位m/deg。当前位姿只查waist_yaw_link相对base_link，不用目标或初始姿态作fallback，不保证TF缓存新鲜度；忽略反馈y/roll只返回四分量，并非将原始TF强制置零。初始服务响应无frame字段，保留来源信息，不伪称做过base_link变换或读取当前实测；服务angular按ROS角度rad转换为公共deg。
+
+复位通过 `/mobile_manipulator_reset_torso` 的SetBool(True)提交，初始查询通过 `/mobile_manipulator_get_torso_initial_pose` 的getLbTorsoInitialPose(isNeed=True)。TorsoRosManager不依赖SDK、不自行init_node，服务发现5秒不代表整调用硬超时，无自动重试。复位成功只代表接受；服务message可解析为非负有限时间时填estimated_time，否则None，不将已接受误报为失败。
+
+两个查询Node的output_key默认torso_pose/torso_pose_initial，初始化清空、失败/dry-run保持None；Skill单次缓存Result，重复tick不重复查询/复位。ResetTorso不切额外模式，不等待或检查到位。旧命名get_torso_initial_pose/reset_torso_to_initial及旧技能均保留。
+
+配置：get_torso_pose需SDK low；初始查询/复位仅需 `ros_managers_whitelist=["torso"]` 且SDK白名单可为空。ROS管理器默认启用timed+torso+mpc，空白名单/skip_ros_managers可禁用。三层人工脚本在apps/test_internal对应目录，reset_torso.py默认CONFIRM_RESET=False，在初始化硬件前拦截，必须人工确认现场安全；关闭硬件不等于撤销已接受的复位。
+
+## 躯干Ruckig持久规划限制
+
+`timed_torso_ruckig_params(mode, velocity_max, acceleration_max, jerk_max, velocity_min=None, acceleration_min=None, is_sync=True)` 经 `TorsoMixin → TimedRosManager` 调用 `/mobile_manipulator_set_ruckig_planner_params`，不初始化SDK。
+
+- mode必填：pose对应planner2，四维[x,z,yaw,pitch]；joint对应planner3，四维[knee,leg,waist_pitch,waist_yaw]。不接受其他planner，不按Timed手臂编号套用。
+- 三个max均必填4维正有限数，两个min若显式填写必须为4维负有限数；省略时明确取对应-max，允许不对称幅值。拒绝bool、NaN/inf、零、错维度，不提供默认物理限制。
+- 公开速度/加速度/jerk单位依次为m/s、m/s²、m/s³或deg/s、deg/s²、deg/s³；pose前两维为线量、后两维角量，joint全为角量。Adapter将所有角量导数统一转rad制，包括下界，不受angle_unit影响。
+- is_sync为规划同步配置，不是Python等待运动完成。服务成功消息透传，data=None；失败/异常返回失败，不自动重试。服务发现5秒不代表整个调用硬超时。
+- 参数会持续影响后续规划，不仅当前动作；这是规划限制，不是硬件安全限值。不发送目标、不切模式/focus、不自动恢复。Skill每次初始化仅设置一次并缓存成功或失败；Node支持运行期黑板和dry-run校验，不增加输出键。
+- 三层人工入口：`apps/test_internal/{adapters,skills,nodes}/timed_torso_ruckig_params.py`。MODE默认空，三个max默认空，先校验再初始化硬件；仅启用ROS timed，SDK白名单为空。操作者确认物理限制后手动执行，不自动配置真机。旧Ruckig接口不改动。
+
+## 独立MPC ROS接口
+
+六接口通过MpcMixin → MpcRosManager，不依赖SDK：
+
+| 设置/查询 | 输入/返回字段 | 值与名称 |
+|---|---|---|
+| set/get_mpc_control_mode | mode | 0 NoControl、1 ArmOnly、2 BaseOnly、3 BaseArm |
+| set/get_mpc_control_flow | flow | 0 ThroughFullBodyMpc、1 DirectToWbc |
+| set/get_mpc_frame | frame | 0 KeepCurrentFrame、1 WorldFrame、2 LocalFrame、3 VRFrame、4 ManipulationWorldFrame |
+
+setter只接受严格整数（不接受bool/浮点/字符串，Node JSON解析后再校验），不接受旧ARM_EE_ONLY=4作为mode。旧Core枚举与旧set_mpc_mode保持不变。新setter成功data=None，仅表示服务接受，不额外查询、切手臂模式、改变其他项或恢复。frame=0表示保持当前，不要求回显为0。
+
+getter每次Skill初始化只调用一次查询服务，成功data为对应字段与name的字典，如 `{mode:1,name:'ArmOnly'}`。服务拒绝/异常/非法返回值直接失败，不回退本地缓存。Node输出键默认mpc_control_mode/mpc_control_flow/mpc_frame，初始化清空，失败/dry-run保持None。重复execute/tick缓存完整Result，不重发；服务发现5秒不代表整个调用硬截止。
+
+按用户确认，旧 `get_mpc_control_mode()->Optional[int]` 改名为 `get_mpc_control_mode_cached()`，保留旧缓存/ROS2查询行为并更新调试脚本。新的同名getter返回Result；ROS2目前明确返回不支持新ROS1服务契约，其他旧能力不变。外部未纳入仓库的旧调用者需自行改用cached名称。
+
+ROS管理器默认启用timed、torso、mpc；可用ros_managers_whitelist=["mpc"]只启用本组，sdk_managers_whitelist=[]。不会自行init_node或初始化SDK。当前固件对模式的实际消费能力须现场确认，服务接受/回显不是安全隔离、停止或控制行为生效证明。SDK已有模式调用路径不被此次替换，旧场景保留。
+
+人工入口在apps/test_internal的adapters/skills/nodes下，六个同名脚本。setter TARGET_MODE/TARGET_FLOW/TARGET_FRAME默认None，必须人工确认后填写；getter不发送设置请求；Node人工入口拒绝dry-run。公共配置与校验见apps/test_internal/_mpc_test.py。

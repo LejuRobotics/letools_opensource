@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """WaitSeconds：等待指定秒数薄节点 → wait_seconds 原子技能。"""
 
+import math
 import os
 
 from py_trees.common import Access, Status
@@ -22,6 +23,7 @@ _DRY_RUN = os.environ.get("STUDIO_DRY_RUN", "").lower() in ("1", "true", "yes")
     description="等待指定秒数后返回 SUCCESS（RUNNING 可重入/幂等）",
     params=[
         {"name": "duration_sec", "type": "float", "default": "1.0", "description": "等待秒数"},
+        {"name": "settle_time", "type": "float", "default": "0.0", "description": "额外等待秒数，与duration_sec相加"},
     ],
     inputs=[],
     outputs=[],
@@ -50,7 +52,22 @@ class WaitSeconds(BaseAction):
         # 实测（`skills/atomic/refactored_sdk/wait_seconds.py`）：
         #   duration=86400 timeout=120   -> execute 返回 fail("Timeout") + ERROR 日志
         #   duration=86400 timeout=86400 -> ok
-        _dur = float(self._param("duration_sec", 1.0))
+        try:
+            durations = []
+            for key, default in (("duration_sec", 1.0), ("settle_time", 0.0)):
+                value = self._param(key, default)
+                if isinstance(value, bool):
+                    raise ValueError(f"{key} 不能为bool")
+                value = float(value)
+                if not math.isfinite(value) or value < 0:
+                    raise ValueError(f"{key} 必须为非负有限秒数")
+                durations.append(value)
+            _dur = sum(durations)
+            if not math.isfinite(_dur):
+                raise ValueError("等待总时长必须为有限秒数")
+        except (TypeError, ValueError, OverflowError, KeyError) as exc:
+            self.feedback_message = f"wait_seconds init failed: {exc}"
+            return
         skill_params = WaitSecondsParams(
             duration_sec=_dur,
             timeout=max(_dur + 60.0, 120.0),

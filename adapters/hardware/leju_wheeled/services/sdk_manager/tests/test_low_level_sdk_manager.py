@@ -574,6 +574,26 @@ class TestLowLevelSDKManagerLegControl:
         )
 
 
+@pytest.mark.parametrize("method,kwargs,sdk_method", [
+    ("control_wheel_lower_joint", {"joint_traj": [0.0] * 4}, "control_wheel_lower_joint"),
+    ("control_torso_6dof", {"torso_pose": (0.0,) * 6}, "control_torso_pose"),
+])
+@pytest.mark.parametrize("raises", [False, True])
+def test_torso_single_frame_sdk_failure(sdk_mocks, method, kwargs, sdk_method, raises):
+    """单帧目标仅为Mock数据；SDK拒绝或异常必须返回失败，不切模式。"""
+    robot_sdk = _robot_sdk(sdk_mocks)
+    send = getattr(robot_sdk.control, sdk_method)
+    if raises:
+        send.side_effect = RuntimeError("SDK rejected")
+    else:
+        send.return_value = False
+    manager = LowLevelSDKManager()
+    manager.initialize()
+    assert not getattr(manager, method)(**kwargs).success
+    send.assert_called_once()
+    robot_sdk.control.set_manipulation_mpc_mode.assert_not_called()
+
+
 class TestLowLevelSDKManagerUnitConversion:
     """测试单位转换"""
 
