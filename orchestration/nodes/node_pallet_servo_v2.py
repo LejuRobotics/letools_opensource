@@ -26,7 +26,7 @@ import threading     # 底图回调线程与 tick 线程之间的锁
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import py_trees
@@ -2969,9 +2969,10 @@ class NodePalletServoV2(BaseAction):
         # 是"call 完服务之后还是老基准的数"，而这**不会报任何错**（三个数照样
         # 算得出来，只是基准是上一个箱位的）。
         self._slot_version += 1
-        # ★ 只有**最终伺服**算"已码放"：初伺服只是粗定位，最终伺服失败时
-        #   不能提前把槽位标成已占。写盘失败只告警，不影响伺服本身。
-        self._record_slot_placement(plan)
+        # 旧专项在最终伺服阶段记占位；订单由完整单箱子树成功后提交，
+        # 避免仅切入对准阶段就把本箱计为完成。
+        if not getattr(self, "_defer_slot_commit", False):
+            self._record_slot_placement(plan)
         self._begin_attempt(slot, plan.mode, plan.side,
                             box_type=plan.box_type, stage=plan.stage)
 
@@ -3297,6 +3298,23 @@ class NodePalletServoV2(BaseAction):
             with open(tmp, "w", encoding="utf-8") as stream:
                 json.dump(record, stream, ensure_ascii=False, indent=2)
             os.replace(tmp, path)
+
+    def reserve_carton_slot(self, box_type: int, orientation: str, owner: str,
+                            allowed: Optional[Iterable[int]],
+                            orders: Optional[Mapping[str, Iterable[int]]] = None) -> int:
+        from skills.atomic.perception.pallet_servo_v2.reservations import reserve
+        with self._record_lock:
+            record, slot = reserve(self._record, box_type, orientation, owner, allowed, orders=orders)
+            self._save_pallet_record(record)
+            self._record = record
+            return slot
+
+    def settle_carton_slot(self, box_type: int, slot: int, owner: str, outcome: str) -> None:
+        from skills.atomic.perception.pallet_servo_v2.reservations import settle
+        with self._record_lock:
+            record = settle(self._record, box_type, slot, owner, outcome)
+            self._save_pallet_record(record)
+            self._record = record
 
     def _record_slot_placement(self, plan) -> None:
         """把「最终伺服」的槽位写进托盘记录文件，供现场直接阅读。

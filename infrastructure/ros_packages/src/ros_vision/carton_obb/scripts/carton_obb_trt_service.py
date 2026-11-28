@@ -14,6 +14,8 @@ import rospy
 from box_detection_msgs.srv import (
     InferCartonObb,
     InferCartonObbResponse,
+    SelectCartonWeights,
+    SelectCartonWeightsResponse,
 )
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header
@@ -132,6 +134,14 @@ class CartonObbTrtService:
             "[carton_obb_trt_service] warmup completed: %d runs",
             warmup_count,
         )
+        self._engines = rospy.get_param("~weight_catalog", {})
+        self._engine_directory = self.backend.engine_path.parent
+        self._active_weights = str(self.backend.engine_path)
+        self._engines.setdefault(self._active_weights, self._active_weights)
+        self._warmup_count = warmup_count
+        self._weights_service = rospy.Service(
+            "/carton_obb/select_weights", SelectCartonWeights, self._select_weights
+        )
         self.service = rospy.Service(
             self.service_name,
             InferCartonObb,
@@ -143,6 +153,31 @@ class CartonObbTrtService:
             self.service_name,
             self.image_topic,
         )
+
+    def _select_weights(self, request):
+        key = request.weights
+        with self._inference_lock:
+            if key in self._engines:
+                target = Path(self._engines[key]).expanduser().resolve()
+            else:
+                # A site's board may name a locally installed sibling engine directly.
+                target = (self._engine_directory / key).resolve()
+                if (target.parent != self._engine_directory or target.suffix != ".engine"
+                        or not target.is_file()):
+                    return SelectCartonWeightsResponse(False, self._active_weights, "未安装该视觉权重")
+            if target != self.backend.engine_path:
+                candidate = None
+                try:
+                    candidate = CartonObbTensorRT(target)
+                    candidate.warmup(self._warmup_count)
+                except Exception as exc:
+                    if candidate is not None:
+                        candidate.close()
+                    return SelectCartonWeightsResponse(False, self._active_weights, str(exc))
+                previous, self.backend = self.backend, candidate
+                previous.close()
+            self._active_weights = key
+            return SelectCartonWeightsResponse(True, key, "已加载")
 
     def _image_callback(self, message):
         try:
@@ -226,6 +261,7 @@ class CartonObbTrtService:
         return response
 
     def close(self):
+        self._weights_service.shutdown("carton OBB TensorRT service is stopping")
         if self.service is not None:
             self.service.shutdown("carton OBB TensorRT service is stopping")
             self.service = None

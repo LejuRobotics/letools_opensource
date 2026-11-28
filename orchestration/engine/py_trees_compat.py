@@ -48,6 +48,10 @@ if not hasattr(py_trees.blackboard, "Client"):
         def get(self, key):
             return self.blackboard.get(key)
 
+        def unset(self, key: str) -> None:
+            # 0.7 stores client values in the Borg shared-state dictionary.
+            self.blackboard.__dict__.pop(key, None)
+
         def exists(self, key):
             if hasattr(self.blackboard, "_Blackboard__shared_state"):
                 return key in self.blackboard._Blackboard__shared_state

@@ -167,7 +167,7 @@ def _occupied_from_record(record: dict, box_type: int = 0) -> set[int]:
     return set()
 
 
-def load_placed_slots(record_path: Path, box_type: int = 0) -> set[int]:
+def load_placed_slots(record_path: Path, box_type: int = 0, *, include_reserved: bool = False) -> set[int]:
     """读托盘记录文件，返回**指定箱型**已码放的槽位号集合。"""
     path = Path(record_path).expanduser()
     if not path.is_file():
@@ -179,7 +179,14 @@ def load_placed_slots(record_path: Path, box_type: int = 0) -> set[int]:
         raise RecordError(f"读取托盘记录失败（{type(exc).__name__}: {exc}）：{path}") from exc
     if not isinstance(record, dict):
         raise RecordError(f"托盘记录不是 JSON 对象：{path}")
-    return _occupied_from_record(record, box_type=box_type)
+    occupied = _occupied_from_record(record, box_type=box_type)
+    if include_reserved:
+        try:
+            reservations = record.get("reserved_by_box_type", {}).get(str(box_type), {})
+            occupied.update(map(int, reservations.keys()))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise RecordError(f"托盘保留槽位记录无效: {path}") from exc
+    return occupied
 
 
 def coerce_place_orders(
@@ -344,7 +351,7 @@ def main(argv: Optional[list] = None) -> int:
             print(f"错误：{exc}", file=sys.stderr)
             return 2
     try:
-        placed = load_placed_slots(record_path, box_type=args.box_type)
+        placed = load_placed_slots(record_path, box_type=args.box_type, include_reserved=True)
     except RecordError as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2

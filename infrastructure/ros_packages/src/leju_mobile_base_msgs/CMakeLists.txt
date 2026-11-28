@@ -75,6 +75,7 @@ add_service_files(
   FILES
   BaseMove.srv
   CheckArrived.srv
+  CheckCharge.srv
   ControlLaserScan.srv
   DispatchMove.srv
   ExecTask.srv
